@@ -44,12 +44,16 @@ def free_port() -> int:
 
 
 class Api:
-    """Exposed to the page as window.pywebview.api"""
-    window = None
+    """Exposed to the page as window.pywebview.api.
+    Attributes must start with "_": pywebview exposes every public attribute to the page and walks into it,
+    which on a Window object recurses through the WinForms internals and freezes the app."""
+
+    def __init__(self):
+        self._window = None
 
     def choose_folder(self, current=None):
         import webview
-        r = self.window.create_file_dialog(webview.FOLDER_DIALOG, directory=current or "")
+        r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory=current or "")
         return r[0] if r else None
 
 
@@ -78,7 +82,7 @@ def main():
         data = DATA / "webview"
         data.mkdir(parents=True, exist_ok=True)
         api = Api()
-        api.window = webview.create_window("Orbit", url, js_api=api, width=1080, height=720,
+        api._window = webview.create_window("Orbit", url, js_api=api, width=1080, height=720,
                                            min_size=(760, 560), background_color="#000000")
         try:
             webview.start(gui="edgechromium", storage_path=str(data), private_mode=False)  # keeps history between launches
