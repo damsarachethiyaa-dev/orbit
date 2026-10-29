@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit</title>
+<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<link rel="stylesheet" href="/desktop/app.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- sidebar -->
+  <aside class="side">
+    <div class="brand">
+      <svg width="104" height="25" viewBox="0 0 230 54" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Orbit">
+        <path d="M47.47 25.93A20.5 20.5 0 1 1 28.07 6.53" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/>
+        <circle class="orbit-dot" cx="41.5" cy="12.5" r="6" fill="#0099FF"/>
+        <circle fill="currentColor" cx="27" cy="27" r="5"/>
+        <text font-family="Inter, -apple-system, BlinkMacSystemFont, sans-serif" fill="currentColor" x="72" y="46.6" font-size="52" font-weight="600" letter-spacing="-0.5px">Orbit</text>
+      </svg>
+    </div>
+    <nav class="nav" id="nav">
+      <button class="nav-btn on" data-view="download">
+        <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg><span>Download</span><b class="badge" id="qBadge" hidden>0</b>
+      </button>
+      <button class="nav-btn" data-view="library">
+        <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Library</span>
+      </button>
+      <button class="nav-btn" data-view="settings">
+        <svg viewBox="0 0 24 24"><path d="M4 6h9m4 0h3M4 12h3m4 0h9M4 18h11m4 0h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Settings</span>
+      </button>
+    </nav>
+    <div class="side-foot">
+      <button class="open-folder" id="openFolder">
+        <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span><em class="mono">Saving to</em><b id="folderName">Orbit Videos</b></span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- DOWNLOAD -->
+    <section class="view on" id="v-download">
+      <header class="head">
+        <h1>Download</h1>
+        <p class="mono">Paste a link from any site</p>
+      </header>
+
+      <form class="composer" id="form" autocomplete="off">
+        <div class="field">
+          <svg class="f-ico" viewBox="0 0 24 24"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+          <input id="url" type="text" placeholder="https://…" spellcheck="false" aria-label="Video link">
+          <button type="button" class="paste" id="paste" title="Paste from clipboard">
+            <svg viewBox="0 0 24 24"><path d="M9 4h6v3H9zM7 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1"/></svg>Paste
+          </button>
+        </div>
+        <button type="submit" class="solid" id="fetch"><span>Fetch</span><svg viewBox="0 0 24 24"><path d="M5 12h14m-5-5l5 5-5 5"/></svg></button>
+      </form>
+
+      <div class="clip" id="clip" hidden>
+        <span class="mono">Link in clipboard</span><code id="clipUrl"></code>
+        <button type="button" class="chip" id="clipUse">Use link</button>
+        <button type="button" class="x" id="clipX" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <p class="error" id="error" role="alert" hidden></p>
+
+      <div class="skeleton" id="skeleton" hidden><i class="s-thumb"></i><div><i></i><i></i><i></i></div></div>
+
+      <article class="preview" id="preview" hidden>
+        <div class="p-thumb"><img id="pThumb" alt=""><span class="dur mono" id="pDur"></span></div>
+        <div class="p-body">
+          <div class="p-site"><span class="ico" id="pIco"></span><span class="mono" id="pSite"></span></div>
+          <h2 id="pTitle"></h2>
+          <p class="mono dim" id="pSub"></p>
+          <div class="p-opts">
+            <div class="seg" id="seg" role="tablist">
+              <button type="button" class="on" data-kind="video">Video</button>
+              <button type="button" data-kind="audio">Audio</button>
+            </div>
+            <select id="quality" aria-label="Quality"></select>
+            <button type="button" class="solid" id="dl"><span>Download</span><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg></button>
+          </div>
+        </div>
+      </article>
+
+      <div class="q-head"><h3 class="mono">Queue</h3><button class="link mono" id="clearDone" hidden>Clear finished</button></div>
+      <ul class="queue" id="queue"></ul>
+      <div class="empty" id="qEmpty">
+        <div class="orb"><svg viewBox="0 0 64 64"><path d="M47.47 25.93A20.5 20.5 0 1 1 28.07 6.53" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" transform="translate(-1 -1) scale(1)"/><circle class="orbit-dot2" cx="41.5" cy="12.5" r="5" fill="#0099FF"/><circle fill="currentColor" cx="27" cy="27" r="4"/></svg></div>
+        <p>No downloads yet</p>
+        <span class="mono dim">Paste a link above, or drop one onto this window</span>
+      </div>
+    </section>
+
+    <!-- LIBRARY -->
+    <section class="view" id="v-library">
+      <header class="head row-head">
+        <div><h1>Library</h1><p class="mono" id="libCount">Everything you've downloaded</p></div>
+        <button class="ghost" id="libClear" hidden>Clear list</button>
+      </header>
+      <ul class="lib" id="lib"></ul>
+      <div class="empty" id="libEmpty" hidden>
+        <div class="orb"><svg viewBox="0 0 64 64"><path d="M47.47 25.93A20.5 20.5 0 1 1 28.07 6.53" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><circle class="orbit-dot2" cx="41.5" cy="12.5" r="5" fill="#0099FF"/><circle fill="currentColor" cx="27" cy="27" r="4"/></svg></div>
+        <p>Your library is empty</p>
+        <span class="mono dim">Finished downloads appear here</span>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="v-settings">
+      <header class="head"><h1>Settings</h1><p class="mono">Where files go and how they download</p></header>
+
+      <div class="set">
+        <div class="set-row">
+          <div><h4>Save folder</h4><p class="mono dim path" id="setPath">…</p></div>
+          <div class="set-act"><button class="ghost" id="setChange">Change</button><button class="ghost" id="setOpen">Open</button></div>
+        </div>
+        <div class="set-row">
+          <div><h4>Default quality</h4><p class="mono dim">Used when you press Download</p></div>
+          <select id="setQuality">
+            <option value="best">Best available</option><option value="2160">4K (2160p)</option><option value="1440">1440p</option>
+            <option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option><option value="audio">Audio only (MP3)</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <div><h4>Library</h4><p class="mono dim">Remove the list of past downloads (files stay on disk)</p></div>
+          <button class="ghost" id="setClear">Clear list</button>
+        </div>
+      </div>
+
+      <div class="about">
+        <p class="mono dim">About</p>
+        <div class="stat-row">
+          <div><b id="aVer">—</b><span class="mono">Download engine</span></div>
+          <div><b id="aFf">—</b><span class="mono">ffmpeg</span></div>
+          <div><b>MP4 / MP3</b><span class="mono">Formats</span></div>
+        </div>
+        <p class="note dim">Download only what you own or have permission to save. Services that use DRM (Netflix, Disney+, Prime Video) and private videos can't be downloaded.</p>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="/desktop/app.js"></script>
+</body>
+</html>

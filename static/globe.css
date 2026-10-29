@@ -1,0 +1,31 @@
+/* centred hero with a half globe rising underneath */
+:root{--gs:min(1250px,135vw)}
+.hero{grid-template-columns:minmax(0,1fr);justify-items:center;text-align:center;gap:0;min-height:auto;max-width:none;padding-bottom:0;overflow:hidden}
+.hero-left{display:flex;flex-direction:column;align-items:center;width:100%;max-width:980px;position:relative;z-index:4}
+.headline{font-size:clamp(2.6rem,7vw,7rem);transform-origin:center top!important}
+.lede{margin-left:auto;margin-right:auto}
+.panel{width:100%;text-align:left}
+.history{width:100%;max-width:720px;text-align:left}
+.scroll-cue{display:none}
+
+.hero .hero-right{display:block;position:relative;width:100vw;min-height:0;height:calc(var(--gs) * .56);margin-top:-30px;overflow:hidden;
+  -webkit-mask-image:linear-gradient(#000 60%,transparent 98%);mask-image:linear-gradient(#000 60%,transparent 98%)}
+.hero-right .system{position:absolute;left:50%;top:0;width:var(--gs);height:var(--gs);aspect-ratio:auto;translate:-50% 0;transform:none}
+#globe{position:absolute;inset:0;width:100%;height:100%;z-index:2;cursor:grab;touch-action:pan-y}
+.sats{position:absolute;inset:0;pointer-events:none}
+.sat{position:absolute;left:0;top:0;z-index:1;display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px;border-radius:999px;
+  background:rgba(0,0,0,.72);border:1px solid color-mix(in srgb,var(--c) 40%,transparent);backdrop-filter:blur(6px);
+  font:700 .6rem var(--sans);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;will-change:transform,opacity;
+  box-shadow:0 0 22px -8px var(--c)}
+.sat.front{z-index:3}
+.sat .ico{width:24px;height:24px;border-radius:50%}
+.sat .ico::before{width:13px;height:13px}
+.globe-hint{position:absolute;left:50%;top:9%;translate:-50% 0;z-index:3;color:var(--faint);pointer-events:none}
+.hero .demo{position:absolute;right:max(16px,calc(50vw - 610px));left:auto;top:14%;bottom:auto;margin:0;z-index:4}
+
+@media (max-width:1080px){.hero .demo{display:none}}
+@media (max-width:760px){
+  :root{--gs:165vw}
+  .sat{padding:3px}.sat span{display:none}
+  .hero .hero-right{margin-top:10px}
+}

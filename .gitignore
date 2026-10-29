@@ -1,0 +1,11 @@
+# build output (the exe is published as a GitHub Release, not committed)
+dist/
+build/
+*.spec
+.venv-build/
+
+# runtime files
+downloads/
+__pycache__/
+*.pyc
+*.log

@@ -1,0 +1,46 @@
+/* smooth scroll (Lenis) */
+html.lenis,html.lenis body{height:auto}
+.lenis.lenis-smooth{scroll-behavior:auto!important}
+.lenis.lenis-stopped{overflow:hidden}
+
+/* the thread that draws itself down the page */
+.thread{position:absolute;left:0;top:0;z-index:5;pointer-events:none;overflow:visible}
+.th-ghost{fill:none;stroke:rgba(140,140,140,.22);stroke-width:1.2;stroke-dasharray:2 7}
+.th-line{fill:none;stroke:#0099ff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.th-head .dot{fill:#0099ff}
+.th-ring{fill:none;stroke:#0099ff;stroke-width:1.2;transform-box:fill-box;transform-origin:center;animation:thPing 1.6s ease-out infinite}
+@keyframes thPing{from{transform:scale(.4);opacity:.9}to{transform:scale(1.7);opacity:0}}
+.th-node circle{fill:#000;stroke:#6a6a6a;stroke-width:1.5;transition:fill .5s,stroke .5s}
+.th-node text{font:500 10px "JetBrains Mono",monospace;letter-spacing:.16em;fill:#777;transition:fill .5s}
+.th-node.on circle{fill:#0099ff;stroke:#0099ff}
+.th-node.on text{fill:#0099ff}
+
+/* headline comes into focus on load, and blurs away as you scroll past */
+@keyframes lineUp{from{filter:blur(18px);opacity:.2}to{transform:none;filter:blur(0);opacity:1}}
+.headline .line>span{animation-duration:1.7s}
+.headline{transform-origin:left center;will-change:transform,filter,opacity}
+
+/* section titles: the thin and bold halves slide apart with scroll */
+.sec-title .thin,.sec-title .bold{display:inline-block;will-change:transform}
+.sec-title .thin{margin-right:.3em}
+
+/* light, inverted section */
+.light{--fg:#0a0a0a;--dim:rgba(0,0,0,.62);--faint:rgba(0,0,0,.35);--line:rgba(0,0,0,.14);--line2:rgba(0,0,0,.3);
+  color:#0a0a0a;background:#ecebe6;box-shadow:0 0 0 100vmax #ecebe6;clip-path:inset(0 -100vmax);margin-top:110px;padding-bottom:120px}
+.light ::selection{background:#0a0a0a;color:#fff}
+.light .label{color:rgba(0,0,0,.55)}
+.light .label i{background:linear-gradient(90deg,rgba(0,0,0,.3),transparent)}
+.light .steps-line{background:rgba(0,0,0,.14)}
+.light .steps-line i{background:#0a0a0a;box-shadow:none}
+.light .node{background:#ecebe6;color:#0a0a0a;border-color:rgba(0,0,0,.3)}
+.light .step.lit .node{background:#0a0a0a;color:#fff;border-color:#0a0a0a;box-shadow:none}
+.light .step p{color:rgba(0,0,0,.62)}
+
+/* header: logo left, links truly centred, button right */
+.nav{display:grid;grid-template-columns:1fr auto 1fr;align-items:center}
+.nav .brand{justify-self:start}
+.nav .links{justify-self:center}
+.nav .nav-right{justify-self:end}
+@media (max-width:760px){
+  .nav{display:flex;justify-content:space-between}
+}

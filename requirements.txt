@@ -1,0 +1,5 @@
+flask
+yt-dlp[default]
+pywebview
+pyinstaller
+pillow
