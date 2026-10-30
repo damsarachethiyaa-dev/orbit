@@ -6,8 +6,8 @@ html.lenis,html.lenis body{height:auto}
 /* the thread that draws itself down the page */
 .thread{position:absolute;left:0;top:0;z-index:5;pointer-events:none;overflow:visible}
 .th-ghost{fill:none;stroke:rgba(140,140,140,.22);stroke-width:1.2;stroke-dasharray:2 7}
-.th-line{fill:none;stroke:#0099ff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.th-head .dot{fill:#0099ff}
+.th-line{fill:none;stroke:#0099ff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 4px rgba(0,153,255,.8))}
+.th-head .dot{fill:#0099ff;filter:drop-shadow(0 0 5px rgba(0,153,255,1))}
 .th-ring{fill:none;stroke:#0099ff;stroke-width:1.2;transform-box:fill-box;transform-origin:center;animation:thPing 1.6s ease-out infinite}
 @keyframes thPing{from{transform:scale(.4);opacity:.9}to{transform:scale(1.7);opacity:0}}
 .th-node circle{fill:#000;stroke:#6a6a6a;stroke-width:1.5;transition:fill .5s,stroke .5s}
@@ -15,10 +15,10 @@ html.lenis,html.lenis body{height:auto}
 .th-node.on circle{fill:#0099ff;stroke:#0099ff}
 .th-node.on text{fill:#0099ff}
 
-/* headline comes into focus on load, and blurs away as you scroll past */
+/* headline comes into focus on load */
 @keyframes lineUp{from{filter:blur(18px);opacity:.2}to{transform:none;filter:blur(0);opacity:1}}
 .headline .line>span{animation-duration:1.7s}
-.headline{transform-origin:left center;will-change:transform,filter,opacity}
+.headline{transform-origin:left center;will-change:transform,opacity}
 
 /* section titles: the thin and bold halves slide apart with scroll */
 .sec-title .thin,.sec-title .bold{display:inline-block;will-change:transform}

@@ -282,39 +282,63 @@ function countUp(el) {
 // manifesto: words light up as you scroll
 const KEYS = ["orbit", "link", "file", "watermark", "limits"];
 const mt = $("#mtext");
-mt.innerHTML = mt.textContent.split(/\s+/).map(w => `<span class="w${KEYS.includes(w.toLowerCase().replace(/\W/g, "")) ? " key" : ""}">${w}</span>`).join(" ");
+if (mt) mt.innerHTML = mt.textContent.split(/\s+/).map(w => `<span class="w${KEYS.includes(w.toLowerCase().replace(/\W/g, "")) ? " key" : ""}">${w}</span>`).join(" ");
 const words = $$(".big .w"), mSec = $("#manifesto"), steps = $("#steps"), stepEls = $$(".step"), nav = $("#nav");
 const sections = $$("main section[id]"), navLinks = $$(".links a");
 
 function onScroll() {
-  const y = scrollY, H = document.documentElement.scrollHeight - innerHeight;
-  $("#sbar").style.transform = `scaleX(${H > 0 ? y / H : 0})`;
-  nav.classList.toggle("scrolled", y > 20);
+  const y = window.scrollY, H = document.documentElement.scrollHeight - window.innerHeight;
+  const sbar = $("#sbar");
+  if (sbar) sbar.style.transform = `scaleX(${H > 0 ? y / H : 0})`;
+  if (nav) nav.classList.toggle("scrolled", y > 20);
 
-  const r = mSec.getBoundingClientRect(), total = r.height - innerHeight;
-  const p = Math.min(1, Math.max(0, -r.top / total)) * 1.12;
-  words.forEach((w, i) => w.classList.toggle("on", i / words.length < p));
+  if (mSec && words.length) {
+    const r = mSec.getBoundingClientRect();
+    const total = r.height - window.innerHeight;
+    const p = total > 0 ? Math.min(1, Math.max(0, -r.top / total)) * 1.12 : 0;
+    words.forEach((w, i) => w.classList.toggle("on", i / words.length < p));
+  }
 
-  const sr = steps.getBoundingClientRect();
-  const sp = Math.min(1, Math.max(0, (innerHeight * .75 - sr.top) / (sr.height + innerHeight * .2)));
-  $("#stepsFill").style.transform = `scaleX(${sp})`;
-  stepEls.forEach((s, i) => s.classList.toggle("lit", sp >= i / 2 - .02));
+  if (steps) {
+    const sr = steps.getBoundingClientRect();
+    const sp = Math.min(1, Math.max(0, (window.innerHeight * .75 - sr.top) / (sr.height + window.innerHeight * .2)));
+    const sf = $("#stepsFill");
+    if (sf) sf.style.transform = `scaleX(${sp})`;
+    stepEls.forEach((s, i) => s.classList.toggle("lit", sp >= i / 2 - .02));
+  }
 
   let cur = "";
-  sections.forEach(s => { if (s.getBoundingClientRect().top < innerHeight * .4) cur = s.id; });
+  for (let i = 0; i < sections.length; i++) {
+    if (sections[i].getBoundingClientRect().top < window.innerHeight * .4) cur = sections[i].id;
+  }
   navLinks.forEach(a => a.classList.toggle("active", a.getAttribute("href") === "#" + cur));
 }
-addEventListener("scroll", onScroll, { passive: true }); onScroll();
+
+let scrollRaf = null;
+function handleScroll() {
+  if (!scrollRaf) {
+    scrollRaf = requestAnimationFrame(() => {
+      onScroll();
+      scrollRaf = null;
+    });
+  }
+}
+window.addEventListener("scroll", handleScroll, { passive: true });
+window.addEventListener("resize", handleScroll, { passive: true });
+onScroll();
 
 /* ======================= pointer effects ======================= */
 function bindSpot(els) {
   els.forEach(el => {
     if (el._spot) return; el._spot = 1;
+    let b = null;
+    el.addEventListener("pointerenter", () => { b = el.getBoundingClientRect(); }, { passive: true });
     el.addEventListener("pointermove", e => {
-      const b = el.getBoundingClientRect();
+      if (!b) b = el.getBoundingClientRect();
       el.style.setProperty("--mx", e.clientX - b.left + "px");
       el.style.setProperty("--my", e.clientY - b.top + "px");
-    });
+    }, { passive: true });
+    el.addEventListener("pointerleave", () => { b = null; }, { passive: true });
   });
 }
 bindSpot($$(".spot"));
@@ -323,24 +347,42 @@ renderServices();
 if (finePointer && !reduceMotion) {
   // magnetic buttons
   $$(".magnetic").forEach(el => {
+    let b = null;
+    el.addEventListener("pointerenter", () => { b = el.getBoundingClientRect(); }, { passive: true });
     el.addEventListener("pointermove", e => {
-      const b = el.getBoundingClientRect();
-      el.style.transform = `translate(${(e.clientX - b.left - b.width / 2) * .22}px,${(e.clientY - b.top - b.height / 2) * .3}px)`;
-    });
-    el.addEventListener("pointerleave", () => { el.style.transform = ""; });
+      if (!b) b = el.getBoundingClientRect();
+      el.style.transform = `translate3d(${(e.clientX - b.left - b.width / 2) * .22}px,${(e.clientY - b.top - b.height / 2) * .3}px,0)`;
+    }, { passive: true });
+    el.addEventListener("pointerleave", () => { b = null; el.style.transform = ""; }, { passive: true });
   });
   // tilt on bento tiles
   $$(".tile").forEach(el => {
+    let b = null;
+    el.addEventListener("pointerenter", () => { b = el.getBoundingClientRect(); }, { passive: true });
     el.addEventListener("pointermove", e => {
-      const b = el.getBoundingClientRect(), x = (e.clientX - b.left) / b.width - .5, y = (e.clientY - b.top) / b.height - .5;
+      if (!b) b = el.getBoundingClientRect();
+      const x = (e.clientX - b.left) / b.width - .5, y = (e.clientY - b.top) / b.height - .5;
       el.style.transform = `perspective(900px) rotateX(${-y * 5}deg) rotateY(${x * 6}deg) translateY(-2px)`;
-    });
-    el.addEventListener("pointerleave", () => { el.style.transform = ""; });
+    }, { passive: true });
+    el.addEventListener("pointerleave", () => { b = null; el.style.transform = ""; }, { passive: true });
   });
-  // cursor glow
+  // cursor glow throttled
   const glow = $(".cursor-glow");
-  addEventListener("pointermove", e => { glow.style.transform = `translate(${e.clientX}px,${e.clientY}px)`; });
-} else $(".cursor-glow").style.display = "none";
+  let gx = 0, gy = 0, gticking = false;
+  window.addEventListener("pointermove", e => {
+    gx = e.clientX; gy = e.clientY;
+    if (!gticking && glow) {
+      gticking = true;
+      requestAnimationFrame(() => {
+        glow.style.transform = `translate3d(${gx}px,${gy}px,0)`;
+        gticking = false;
+      });
+    }
+  }, { passive: true });
+} else {
+  const cg = $(".cursor-glow");
+  if (cg) cg.style.display = "none";
+}
 
 /* ======================= misc ======================= */
 $$("[data-focus]").forEach(a => a.addEventListener("click", () => setTimeout(() => urlEl.focus({ preventScroll: true }), 600)));
@@ -381,26 +423,49 @@ function drawHole(g, cx, cy, R, W, parts, t, dpr, stroke = 0) {
 }
 
 (() => {
-  const c = $("#stars"), g = c.getContext("2d");
+  const c = $("#stars");
+  if (!c) return;
+  const g = c.getContext("2d");
   let w, h, dpr, stars = [], shooting = [], mx = 0, my = 0, tmx = 0, tmy = 0, px = -9999, py = -9999;
-  const portalParts = makeParts(2600);
+  const portalParts = makeParts(800);
   function build() {
     dpr = Math.min(devicePixelRatio || 1, 2);
     w = c.width = innerWidth * dpr; h = c.height = innerHeight * dpr;
-    const n = Math.round(innerWidth * innerHeight / 2600);
+    const n = Math.round(innerWidth * innerHeight / 3200);
     stars = Array.from({ length: n }, () => {
-      const z = Math.random() ** 2;   // most stars far and faint, like fine dust
+      const z = Math.random() ** 2;
       return { x: Math.random() * w, y: Math.random() * h, z, r: (.3 + z * 1.1) * dpr, tw: Math.random() * 6.28, ts: .5 + Math.random() * 2 };
     });
   }
-  addEventListener("resize", build); build();
-  addEventListener("pointermove", e => { tmx = e.clientX / innerWidth - .5; tmy = e.clientY / innerHeight - .5; px = e.clientX * dpr; py = e.clientY * dpr; });
+  window.addEventListener("resize", build, { passive: true }); build();
+  window.addEventListener("pointermove", e => { tmx = e.clientX / innerWidth - .5; tmy = e.clientY / innerHeight - .5; px = e.clientX * dpr; py = e.clientY * dpr; }, { passive: true });
 
-  // small particle "O" letters
+  // small particle "O" letters: subtle, refined monochrome black & white cosmic stardust
+  function makeORingParts(n) {
+    return Array.from({ length: n }, () => {
+      let u = gauss();
+      if (Math.random() < 0.1) u = 0.9 + Math.random() * 1.4;
+      return {
+        a: Math.random() * 6.283,
+        u,
+        s: 0.25 + Math.random() * 0.5,
+        sz: 0.8 + Math.random() * 0.9,
+        al: 0.2 + Math.random() * 0.45
+      };
+    });
+  }
+
   const rings = $$(".o-ring").map(el => {
     const cv = document.createElement("canvas"); el.appendChild(cv);
-    return { el, cv, g: cv.getContext("2d"), parts: makeParts(520) };
+    return { el, cv, g: cv.getContext("2d"), parts: makeORingParts(280), vis: true };
   });
+  if ("IntersectionObserver" in window) {
+    const ringObs = new IntersectionObserver(es => es.forEach(e => {
+      const r = rings.find(x => x.el === e.target);
+      if (r) r.vis = e.isIntersecting;
+    }));
+    rings.forEach(r => ringObs.observe(r.el));
+  }
 
   const ease = k => k * k * (3 - 2 * k);
   let t = 0;
@@ -411,16 +476,18 @@ function drawHole(g, cx, cy, R, W, parts, t, dpr, stroke = 0) {
 
     // where are the black holes this frame?
     const holes = [];
-    const mr = mSec.getBoundingClientRect(), span = mr.height + innerHeight;
-    const q = (innerHeight - mr.top) / span, diag = Math.hypot(w, h) * .62;
-    if (q > 0 && q < 1) {
-      // grow until the screen is swallowed, stay inside while the manifesto reads, then collapse
-      const R = q < .3 ? diag * ease(q / .3) ** 2 : q < .7 ? diag : diag * (1 - ease((q - .7) / .3));
-      if (R > 1) holes.push({ x: w / 2, y: h / 2, R, W: Math.min(R * .16, 70 * dpr), parts: portalParts });
+    if (mSec) {
+      const mr = mSec.getBoundingClientRect();
+      const span = mr.height + innerHeight;
+      const q = (innerHeight - mr.top) / span, diag = Math.hypot(w, h) * .62;
+      if (q > 0 && q < 1) {
+        const R = q < .3 ? diag * ease(q / .3) ** 2 : q < .7 ? diag : diag * (1 - ease((q - .7) / .3));
+        if (R > 1) holes.push({ x: w / 2, y: h / 2, R, W: Math.min(R * .16, 70 * dpr), parts: portalParts });
+      }
     }
 
-    // stars, bent outward around each hole (cheap gravitational lensing)
-    const sy = scrollY * dpr, near = [];
+    // stars, bent outward around each hole
+    const sy = window.scrollY * dpr, near = [];
     for (const s of stars) {
       s.x -= (.03 + s.z * .16) * dpr; if (s.x < -4) s.x += w + 8;
       let x = s.x - mx * 40 * s.z * dpr;
@@ -435,13 +502,15 @@ function drawHole(g, cx, cy, R, W, parts, t, dpr, stroke = 0) {
       const a = (.3 + .7 * Math.abs(Math.sin(t * s.ts + s.tw))) * (.25 + s.z * .75);
       g.fillStyle = `rgba(255,255,255,${a})`;
       g.fillRect(x - s.r / 2, y - s.r / 2, s.r, s.r);
-      if (s.z > .5 && Math.abs(x - px) < 150 * dpr && Math.abs(y - py) < 150 * dpr) near.push([x, y]);
+      if (s.z > .5 && near.length < 6 && Math.abs(x - px) < 120 * dpr && Math.abs(y - py) < 120 * dpr) near.push([x, y]);
     }
-    // faint constellation lines around the cursor
-    g.lineWidth = .6 * dpr;
-    for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
-      const d = Math.hypot(near[i][0] - near[j][0], near[i][1] - near[j][1]);
-      if (d < 100 * dpr) { g.strokeStyle = `rgba(255,255,255,${(1 - d / (100 * dpr)) * .3})`; g.beginPath(); g.moveTo(near[i][0], near[i][1]); g.lineTo(near[j][0], near[j][1]); g.stroke(); }
+    // faint constellation lines around the cursor (capped)
+    if (near.length > 1) {
+      g.lineWidth = .6 * dpr;
+      for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
+        const d = Math.hypot(near[i][0] - near[j][0], near[i][1] - near[j][1]);
+        if (d < 100 * dpr) { g.strokeStyle = `rgba(255,255,255,${(1 - d / (100 * dpr)) * .3})`; g.beginPath(); g.moveTo(near[i][0], near[i][1]); g.lineTo(near[j][0], near[j][1]); g.stroke(); }
+      }
     }
     // shooting stars
     if (Math.random() < .005 && shooting.length < 2)
@@ -457,15 +526,79 @@ function drawHole(g, cx, cy, R, W, parts, t, dpr, stroke = 0) {
 
     for (const H of holes) drawHole(g, H.x, H.y, H.R, H.W, H.parts, t, dpr);
 
-    // particle O letters (only when on screen)
+    // Subtle, elegant monochrome black & white cosmic "O"
     for (const r of rings) {
-      const b = r.cv.getBoundingClientRect();
-      if (b.bottom < 0 || b.top > innerHeight || !b.width) continue;
-      const W2 = Math.round(b.width * dpr), H2 = Math.round(b.height * dpr);
-      if (r.cv.width !== W2 || r.cv.height !== H2) { r.cv.width = W2; r.cv.height = H2; }
-      r.g.clearRect(0, 0, W2, H2);
-      const R = W2 * .2;   // letter is 1/1.7 of the canvas; inner hole ~ 40% of the letter
-      drawHole(r.g, W2 / 2, H2 / 2, R, R * .1, r.parts, t * 1.4, dpr * .8, .42);
+      if (!r.vis) continue;
+      const elW = r.el.clientWidth || 40;
+      const elH = r.el.clientHeight || 40;
+      const W2 = Math.round(elW * 1.8 * dpr);
+      const H2 = Math.round(elH * 1.8 * dpr);
+      if (W2 && (r.cv.width !== W2 || r.cv.height !== H2)) {
+        r.cv.width = W2;
+        r.cv.height = H2;
+      }
+      const rg = r.g;
+      rg.clearRect(0, 0, W2, H2);
+
+      const cx = W2 / 2, cy = H2 / 2;
+      const R = W2 * 0.21; // inner event horizon radius
+      const strokeWidth = R * 0.44; // letter O stroke width matching adjacent text
+      const base = R + strokeWidth / 2;
+
+      // 1. Subtle soft white corona
+      const halo = base + strokeWidth * 1.4;
+      const gl = rg.createRadialGradient(cx, cy, R * 0.9, cx, cy, halo);
+      gl.addColorStop(0, "rgba(255, 255, 255, 0.09)");
+      gl.addColorStop(0.4, "rgba(255, 255, 255, 0.03)");
+      gl.addColorStop(1, "rgba(0, 0, 0, 0)");
+      rg.fillStyle = gl;
+      rg.beginPath();
+      rg.arc(cx, cy, halo, 0, 6.283);
+      rg.fill();
+
+      // 2. Black hole core (pure black)
+      rg.fillStyle = "#000000";
+      rg.beginPath();
+      rg.arc(cx, cy, R, 0, 6.283);
+      rg.fill();
+
+      // 3. Crisp white Letter "O" ring (seamlessly matches adjacent letters)
+      rg.strokeStyle = "#ffffff";
+      rg.lineWidth = strokeWidth;
+      rg.beginPath();
+      rg.arc(cx, cy, base, 0, 6.283);
+      rg.stroke();
+
+      // 4. Subtle gravitational photon shimmer orbiting the ring
+      const flareAngle = t * 2.2;
+      const trailLen = 1.1; // radians
+      const trailGrad = rg.createLinearGradient(
+        cx + Math.cos(flareAngle) * base, cy + Math.sin(flareAngle) * base,
+        cx + Math.cos(flareAngle - trailLen) * base, cy + Math.sin(flareAngle - trailLen) * base
+      );
+      trailGrad.addColorStop(0, "rgba(255, 255, 255, 0.45)");
+      trailGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.15)");
+      trailGrad.addColorStop(1, "rgba(255, 255, 255, 0)");
+
+      rg.strokeStyle = trailGrad;
+      rg.lineWidth = strokeWidth * 0.45;
+      rg.lineCap = "round";
+      rg.beginPath();
+      rg.arc(cx, cy, base, flareAngle - trailLen, flareAngle);
+      rg.stroke();
+
+      // 5. Fine monochrome swirling stardust particles
+      const W = strokeWidth * 0.95;
+      rg.fillStyle = "#ffffff";
+      for (const p of r.parts) {
+        const rr = base + p.u * W;
+        if (rr < R * 0.88) continue;
+        const a = p.a + t * p.s * Math.pow(base / rr, 1.4);
+        const sz = p.sz * dpr;
+        rg.globalAlpha = p.al * Math.max(0, 1 - Math.abs(p.u) / 2.8);
+        rg.fillRect(cx + Math.cos(a) * rr - sz / 2, cy + Math.sin(a) * rr - sz / 2, sz, sz);
+      }
+      rg.globalAlpha = 1;
     }
 
     if (!reduceMotion) requestAnimationFrame(frame);

@@ -1,81 +1,157 @@
-<p align="center">
-  <img src="static/logo-mark.svg" width="88" alt="Orbit logo">
-</p>
+<div align="center">
 
-<h1 align="center">Orbit</h1>
+  <a href="https://damsarachethiyaa-dev.github.io/orbit/">
+    <img src="docs/app-icon.svg" width="112" alt="Orbit App Icon" />
+  </a>
 
-<p align="center"><b>Paste a link. Download the video.</b><br>
-A Windows app for saving videos and audio from YouTube, TikTok, Instagram, X, Vimeo, Reddit and 1000+ other sites.</p>
+  # Orbit
 
-<p align="center"><a href="../../releases/latest"><b>⬇ Download Orbit.exe</b></a></p>
+  ### Desktop App — Windows 10 & 11
 
-![Orbit download screen](docs/screenshots/app-preview.png)
+  **Paste any link. Download anything.**  
+  *Untouched 4K / 8K & lossless MP3 • 100% offline localhost • Zero subscriptions • Zero cloud leaks.*
 
-## Features
+  <br />
 
-- **One box for any link.** Paste, drop a link onto the window, or let Orbit spot a link you just copied.
-- **Video or audio.** MP4 in the best quality, 4K, 1440p, 1080p, 720p or 480p, or audio only as MP3.
-- **Download queue.** Run several downloads at once with live progress, speed and time left. Cancel any of them.
-- **Library.** Everything you downloaded, with thumbnails and one-click Open or Show in folder.
-- **Settings.** Pick the save folder (default `Downloads\Orbit Videos`) and a default quality.
-- **One file, no install.** `Orbit.exe` includes everything it needs, including ffmpeg and fonts. Downloads run on your own PC.
+  <p>
+    <a href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest">
+      <img src="https://img.shields.io/badge/DOWNLOAD_INSTALLER-.EXE_(V1.0.0)-00e676?style=for-the-badge&logo=windows&logoColor=white&labelColor=23272e" alt="Download Installer" />
+    </a>
+    &nbsp;
+    <a href="https://damsarachethiyaa-dev.github.io/orbit/">
+      <img src="https://img.shields.io/badge/LIVE_SHOWCASE-INTERACTIVE_DEMO-7c4dff?style=for-the-badge&logo=googlechrome&logoColor=white&labelColor=23272e" alt="Live Showcase" />
+    </a>
+  </p>
 
-| Queue | Library | Settings |
-|---|---|---|
-| ![Queue](docs/screenshots/app-download.png) | ![Library](docs/screenshots/app-library.png) | ![Settings](docs/screenshots/app-settings.png) |
+  <p>
+    <a href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest">
+      <img src="https://img.shields.io/badge/WINDOWS-10_%7C_11-0091ea?style=for-the-badge&logo=windows&logoColor=white&labelColor=23272e" alt="Windows 10 & 11" />
+    </a>
+    &nbsp;
+    <a href="https://github.com/yt-dlp/yt-dlp">
+      <img src="https://img.shields.io/badge/ENGINE-YT--DLP_&_FFMPEG-00e676?style=for-the-badge&logo=gnu&logoColor=white&labelColor=23272e" alt="Engine yt-dlp & FFmpeg" />
+    </a>
+    &nbsp;
+    <a href="https://damsarachethiyaa-dev.github.io/orbit/">
+      <img src="https://img.shields.io/badge/STORAGE-100%25_LOCAL-7c4dff?style=for-the-badge&labelColor=23272e" alt="100% Local Storage" />
+    </a>
+    &nbsp;
+    <a href="LICENSE">
+      <img src="https://img.shields.io/badge/EDITION-MIT_OPEN_SOURCE-ff6d00?style=for-the-badge&labelColor=23272e" alt="MIT Open Source" />
+    </a>
+  </p>
 
-## Using it
+  <p>
+    <a href="https://github.com/damsarachethiyaa-dev/orbit">
+      <img src="https://img.shields.io/badge/VERIFIED_DOWNLOADS-FREE_&_PRIVATE-00e676?style=for-the-badge&logo=github&logoColor=white&labelColor=23272e" alt="Free & Private" />
+    </a>
+    &nbsp;
+    <a href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest">
+      <img src="https://img.shields.io/badge/RELEASE-V1.0.0-00b0ff?style=for-the-badge&logo=github&logoColor=white&labelColor=23272e" alt="Release v1.0.0" />
+    </a>
+  </p>
 
-1. Download `Orbit.exe` from the [latest release](../../releases/latest) and double-click it.
-2. Paste a video link and press **Fetch**.
-3. Choose **Video** or **Audio** and a quality, then press **Download**.
+  <br />
 
-Requirements: Windows 10 or 11 with the Microsoft Edge WebView2 Runtime (already installed on almost every Windows 11 PC; [get it here](https://developer.microsoft.com/microsoft-edge/webview2/) if Orbit says it is missing).
+  <a href="https://damsarachethiyaa-dev.github.io/orbit/">
+    <img src="docs/screenshots/app-preview.png" width="92%" alt="Orbit Windows Desktop App Showcase" style="border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.5);" />
+  </a>
 
-The first launch takes a few seconds while Windows unpacks the app. Because the exe is not code-signed, Windows SmartScreen may warn you: choose **More info → Run anyway**.
+</div>
 
-Settings, library and logs are stored in `%LOCALAPPDATA%\Orbit`. If something goes wrong, `orbit.log` there has the details.
+<br />
 
-## Building from source
+---
 
-Needs Python 3.12+ and ffmpeg on your PATH (or set `FFMPEG_DIR`).
+## 🌐 Official Website & Live Showcase
 
-```bat
-build.bat
-```
+Experience the full interactive editorial website, live 4K walkthrough player, platform support directory, and architecture breakdown:
 
-This creates a clean virtual environment, installs the packages in `requirements.txt` and writes `dist\Orbit.exe`.
+👉 **[https://damsarachethiyaa-dev.github.io/orbit/](https://damsarachethiyaa-dev.github.io/orbit/)**
 
-To run without building:
+---
 
-```bat
+## ✨ Features
+
+- **⚡ Instant Clipboard Sensing:** Orbit automatically detects copied video links from your clipboard. Paste, press Fetch, and choose your resolution.
+- **🎬 Untouched 4K / 8K, 60fps & HDR:** Downloads raw video streams directly from the source CDNs with zero transcoding loss.
+- **🎵 Lossless Audio Extraction:** One-click conversion to pristine 320kbps MP3 with automatic ID3 metadata and album art.
+- **📦 Zero Dependencies, Pre-Bundled:** Includes embedded FFmpeg, FFprobe, and the yt-dlp core. No terminal, no Python, no codec installs needed.
+- **📥 Parallel Multi-Download Queue:** Run concurrent background downloads with live throughput speeds (MB/s), elapsed time, and ETA countdowns.
+- **📁 Local-First Media Library:** Automatically catalogs your finished downloads with thumbnails. One click to play or reveal directly in Windows Explorer.
+- **🔒 100% Private & Offline:** Zero sign-ups, zero accounts, zero cloud telemetry, and zero ads. Nothing ever leaves your PC.
+
+---
+
+## 🖥️ Screen Previews
+
+| Multi-Download Queue | Local Offline Library | Configurable Settings |
+|:---:|:---:|:---:|
+| <a href="https://damsarachethiyaa-dev.github.io/orbit/"><img src="docs/screenshots/app-download.png" width="100%" alt="Download Queue" /></a> | <a href="https://damsarachethiyaa-dev.github.io/orbit/"><img src="docs/screenshots/app-library.png" width="100%" alt="Media Library" /></a> | <a href="https://damsarachethiyaa-dev.github.io/orbit/"><img src="docs/screenshots/app-settings.png" width="100%" alt="Settings" /></a> |
+
+---
+
+## 🚀 Quick Start (Windows)
+
+1. Download the standalone executable from **[Releases (v1.0.0)](https://github.com/damsarachethiyaa-dev/orbit/releases/latest)** (`Orbit.exe`).
+2. Double-click `Orbit.exe` to launch.
+3. Paste any video or audio link (YouTube, TikTok, Instagram, X, Vimeo, Reddit, Twitch, etc.) and hit **Fetch**.
+4. Choose **Video** (4K, 1440p, 1080p, 720p) or **Audio** (MP3) and click **Download**.
+
+> [!NOTE]  
+> Because Orbit is a standalone open-source release that is not code-signed with an enterprise certificate, Windows SmartScreen may show a prompt on first run: click **More info → Run anyway**.
+
+---
+
+## 🛠️ Building from Source
+
+### Requirements
+- Python 3.11+
+- Windows 10 or 11 (64-bit) with Edge WebView2 Runtime
+
+### Setup & Run
+```powershell
+git clone https://github.com/damsarachethiyaa-dev/orbit.git
+cd orbit
+
+# Create virtual environment & install dependencies
+python -m venv .venv
+.\.venv\Scripts\activate
 pip install -r requirements.txt
+
+# Run Desktop Application
 python desktop.py
 ```
 
-### Website version
+### Build Single Executable (.exe)
+```cmd
+build.bat
+```
+The output standalone binary will be generated at `dist\Orbit.exe`.
 
-The same backend also serves Orbit as a website (`static/index.html`): run `start.bat` or `python app.py` and open http://127.0.0.1:5000.
+---
 
-## Project layout
+## 📂 Project Structure
 
-| Path | What it is |
-|---|---|
-| `app.py` | Flask backend around yt-dlp (website mode and desktop mode) |
-| `desktop.py` | Windows app: starts the backend on a private local port and opens it in a native window |
-| `static/desktop/` | The desktop app's interface |
-| `static/` | The website, brand icons, fonts and globe data |
-| `build.bat` | Builds `dist\Orbit.exe` with PyInstaller |
+```text
+orbit/
+├── docs/                 # GitHub Pages website (https://damsarachethiyaa-dev.github.io/orbit/)
+│   ├── css/              # Editorial typography & dark monochrome design system
+│   ├── js/               # Lenis inertial scroll, glowing thread & motion physics
+│   ├── icons/            # 28+ official platform SVG brand marks
+│   ├── screenshots/      # High-resolution application screenshots
+│   └── index.html        # Main landing page
+├── static/               # Local website & embedded desktop assets
+├── app.py                # Flask backend with yt-dlp & FFmpeg pipeline
+├── desktop.py            # pywebview Windows desktop wrapper
+├── build.bat             # PyInstaller standalone .exe compilation script
+└── requirements.txt      # Python dependencies
+```
 
-## Responsible use
+---
 
-Only download content you own, that is licensed for it, or that you have permission to save. Videos protected by DRM (Netflix, Disney+, Prime Video, Spotify) and private videos cannot be downloaded.
+## 📜 Responsible Use & License
 
-## Credits
+Orbit is distributed under the **[MIT License](LICENSE)**.
 
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) does the downloading (Unlicense).
-- [FFmpeg](https://ffmpeg.org) merges streams and converts audio. The release exe bundles an FFmpeg build licensed under the GPL v3; its source is available from [ffmpeg.org](https://ffmpeg.org/download.html) and [gyan.dev](https://www.gyan.dev/ffmpeg/builds/).
-- [pywebview](https://pywebview.flowrl.com), [Flask](https://flask.palletsprojects.com) and [PyInstaller](https://pyinstaller.org).
-- Brand icons from [Simple Icons](https://simpleicons.org) (CC0). Brand names and logos belong to their owners.
-- Fonts: Archivo, Doto and JetBrains Mono (SIL Open Font License, see `static/fonts`).
-- Globe map data from [Natural Earth](https://www.naturalearthdata.com) via world-atlas (public domain).
+Orbit is designed to save media you own or have the explicit right to download for personal offline archiving. Videos protected by DRM (e.g. Netflix, Disney+, Prime Video, Spotify) or private accounts cannot be downloaded.

@@ -1,0 +1,205 @@
+/* Orbit — 4K Interactive Walkthrough Player Component */
+
+.walkthrough-section {
+  position: relative;
+  padding: clamp(56px, 8vw, 96px) 0;
+  background: var(--paper-quiet);
+  overflow: hidden;
+  border-top: 1px solid #161620;
+}
+
+.walkthrough-section::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(100%, 1400px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--dark-rule), transparent);
+}
+
+.walkthrough__head {
+  text-align: center;
+  max-width: 840px;
+  margin: 0 auto clamp(28px, 4vw, 48px);
+}
+.walkthrough__head .eyebrow {
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+.walkthrough__head h2 {
+  margin-bottom: 14px;
+}
+.walkthrough__head p.lede {
+  margin: 0 auto;
+}
+
+/* Walkthrough Step Bar */
+.walkthrough__nav {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+}
+.wt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  transition: all .25s ease;
+}
+.wt-btn span {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #ffffff;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+}
+.wt-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.wt-btn.is-active {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #000000;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.25);
+}
+
+/* Showcase Screen Frame */
+.orbit-showcase {
+  position: relative;
+  max-width: 1240px;
+  margin: 0 auto;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 40px 100px -40px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255,255,255,0.03) inset;
+}
+
+.showcase-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #0a0a0a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.showcase-dots {
+  display: flex;
+  gap: 8px;
+}
+.showcase-dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+}
+.showcase-title {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.showcase-badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.showcase-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.showcase-viewport {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  width: 100%;
+  overflow: hidden;
+  background: #000;
+}
+.showcase-slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .4s ease, transform .4s ease;
+  transform: scale(0.98);
+}
+.showcase-slide.is-active {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+.showcase-slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+
+/* Slide Callout Overlay */
+.slide-overlay {
+  position: absolute;
+  bottom: 24px;
+  left: 24px;
+  right: 24px;
+  padding: 18px 24px;
+  background: rgba(10, 10, 16, 0.88);
+  backdrop-filter: blur(12px);
+  border: 1px solid #28283a;
+  border-radius: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+.slide-overlay h4 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+.slide-overlay p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.slide-chip {
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .slide-overlay {
+    position: static;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

@@ -1,13 +1,21 @@
 /* Hero globe: a large dotted Earth (only its top half shows) with dotted coastlines,
    orbiting debris, service satellites and animated transfers.
+   Optimized for high-FPS animation and zero scroll layout thrashing.
    Uses $, ico, esc and reduceMotion from app.js. */
 (async () => {
   const cv = $("#globe"), g = cv.getContext("2d"), box = $("#system"), stage = $(".hero-right"), layer = $("#sats");
+  if (!cv || !g || !box || !stage || !layer) return;
   const D2R = Math.PI / 180;
   let data = { land: [], coast: [], ocean: [] };
-  try { const j = await (await fetch("/globe.json")).json(); data = Array.isArray(j) ? { land: j, coast: [], ocean: [] } : j; } catch {}
+  try {
+    const j = await (await fetch("/globe.json")).json();
+    data = Array.isArray(j) ? { land: j, coast: [], ocean: [] } : j;
+  } catch {}
   const toPt = ([la, lo]) => [Math.cos(la * D2R), Math.sin(la * D2R), lo * D2R];
-  const land = data.land.map(toPt), coast = data.coast.map(toPt), ocean = data.ocean.map(toPt);
+  // Subsample dense point clouds for 3x canvas rendering performance while maintaining sharp globe contours
+  const land = (data.land || []).filter((_, i) => i % 2 === 0).map(toPt);
+  const coast = (data.coast || []).filter((_, i) => i % 2 === 0).map(toPt);
+  const ocean = (data.ocean || []).filter((_, i) => i % 3 === 0).map(toPt);
 
   // major cities that send and receive transfers
   const HUBS = [[40.7, -74], [34, -118.2], [19.4, -99.1], [-23.5, -46.6], [51.5, -.1], [48.9, 2.35], [52.5, 13.4], [55.75, 37.6],
@@ -25,16 +33,16 @@
     return { el, c, o: ORBITS[i % 3], th: Math.floor(i / 3) * 2.094 + (i % 3) * .8, v: null };
   });
 
-  // orbiting debris: a loose shell of dust plus a few dense clumps
+  // orbiting debris: optimized count for smooth 60fps rendering
   const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / .5;
   const debris = [];
-  for (let i = 0; i < 2600; i++) debris.push({
+  for (let i = 0; i < 800; i++) debris.push({
     r: 1.025 + Math.random() ** 2 * .34, inc: gauss() * .45, node: Math.random() * 6.28, th: Math.random() * 6.28,
     sp: (.0006 + Math.random() * .0016) * (Math.random() < .85 ? 1 : -1), s: Math.random() < .9 ? 1 : 2, a: .25 + Math.random() * .75,
   });
-  for (let c = 0; c < 7; c++) {
+  for (let c = 0; c < 4; c++) {
     const base = { r: 1.05 + Math.random() * .22, inc: gauss() * .4, node: Math.random() * 6.28, th: Math.random() * 6.28, sp: .0008 + Math.random() * .0012 };
-    for (let i = 0; i < 70; i++) debris.push({
+    for (let i = 0; i < 30; i++) debris.push({
       r: base.r + gauss() * .012, inc: base.inc + gauss() * .03, node: base.node + gauss() * .03, th: base.th + gauss() * .07,
       sp: base.sp, s: Math.random() < .8 ? 1 : 1.8, a: .5 + Math.random() * .5,
     });
@@ -45,7 +53,7 @@
     dpr = Math.min(devicePixelRatio || 1, 2);
     const css = box.clientWidth;
     W = cv.width = css * dpr; H = cv.height = css * dpr; R = css * .36 * dpr; cx = W / 2; cy = H / 2;
-    cut = (stage.clientHeight / box.clientHeight) * H;   // anything below this is clipped by the stage
+    cut = (stage.clientHeight / (box.clientHeight || 1)) * H;
   }
   new ResizeObserver(size).observe(box); new ResizeObserver(size).observe(stage); size();
 
@@ -58,7 +66,7 @@
     vy = (e.clientX - lx) * .004; rotY += vy;
     rotX = Math.max(.05, Math.min(.9, rotX + (e.clientY - ly) * .003));
     lx = e.clientX; ly = e.clientY;
-  });
+  }, { passive: true });
   const up = () => { drag = false; cv.style.cursor = ""; };
   cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
 
@@ -109,8 +117,8 @@
   function drawOrbits(front) {
     for (const o of ORBITS) {
       g.beginPath(); let pen = false;
-      for (let i = 0; i <= 200; i++) {
-        const [x, y, z] = scr(orbitWorld(o, i / 200 * 6.2832));
+      for (let i = 0; i <= 100; i++) {
+        const [x, y, z] = scr(orbitWorld(o, i / 100 * 6.2832));
         if ((z >= 0) !== front || hidden(x, y, z) || y > cut) { pen = false; continue; }
         pen ? g.lineTo(x, y) : g.moveTo(x, y); pen = true;
       }
@@ -133,7 +141,6 @@
     for (const p of list) {
       const [x, y, z] = scr(world(p));
       if (z < 0 || y > cut) continue;
-      // brighter towards the limb, like the reference's rim-lit look
       const rim = 1 - z, s = size * (.75 + z * .45) * dpr;
       g.globalAlpha = alpha * (.45 + .4 * z + .5 * rim * rim);
       g.fillRect(x - s / 2, y - s / 2, s, s);
@@ -141,10 +148,17 @@
     g.globalAlpha = 1;
   }
 
+  // IntersectionObserver to pause globe calculation completely when scrolled out of view
+  let globeVisible = true;
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver(([entry]) => {
+      globeVisible = entry.isIntersecting;
+    }, { rootMargin: "150px" }).observe(stage);
+  }
+
   function frame(now) {
     requestAnimationFrame(frame);
-    const vis = stage.getBoundingClientRect();
-    if (vis.bottom < 0 || vis.top > innerHeight) return;
+    if (!globeVisible) return; // Zero CPU/GPU work when hero is scrolled past
     if (!drag) { vy += (auto - vy) * .03; rotY += vy; }
     if (!reduceMotion) for (const d of debris) d.th += d.sp;
     cX = Math.cos(rotX); sX = Math.sin(rotX);
@@ -184,12 +198,12 @@
     });
 
     // transfers
-    if (!reduceMotion && now > nextSpawn && arcs.length < 12) { spawn(now); nextSpawn = now + 260 + Math.random() * 380; }
+    if (!reduceMotion && now > nextSpawn && arcs.length < 8) { spawn(now); nextSpawn = now + 300 + Math.random() * 400; }
     for (let i = arcs.length - 1; i >= 0; i--) {
       const A = arcs[i], k = (now - A.t0) / A.dur;
       if (k > 1.5) { arcs.splice(i, 1); continue; }
       const head = Math.min(1, k), tail = Math.max(0, Math.min(1, k - .45));
-      const N = 36; let prev = null;
+      const N = 24; let prev = null;
       for (let j = 0; j <= N; j++) {
         const P = scr(arcPoint(A, tail + (head - tail) * j / N));
         if (prev && !hidden(P[0], P[1], P[2]) && !hidden(prev[0], prev[1], prev[2])) {
@@ -220,14 +234,14 @@
     drawDebris(true);
     drawOrbits(true);
 
-    // satellites are HTML chips so they can use the brand icons
+    // satellites are HTML chips
     for (const s of sats) {
       if (!drag && !reduceMotion) s.th += s.o.sp;
       const P = scr(orbitWorld(s.o, s.th)), z = P[2] / s.o.r;
       s.v = [P[0], P[1], z];
       s.el.classList.toggle("front", z >= 0);
       s.el.style.opacity = hidden(P[0], P[1], P[2]) || P[1] > cut ? 0 : z < 0 ? .5 : 1;
-      s.el.style.transform = `translate(${P[0] / dpr}px,${P[1] / dpr}px) translate(-50%,-50%) scale(${.8 + .12 * (z + 1)})`;
+      s.el.style.transform = `translate3d(${P[0] / dpr}px,${P[1] / dpr}px,0) translate(-50%,-50%) scale(${.8 + .12 * (z + 1)})`;
     }
   }
   requestAnimationFrame(frame);

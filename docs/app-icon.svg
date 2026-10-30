@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="orbitBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1c2032"/>
+      <stop offset="100%" stop-color="#07080d"/>
+    </linearGradient>
+    <linearGradient id="orbitStroke" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.3)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0.06)"/>
+    </linearGradient>
+    <filter id="orbitGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="rgba(0,0,0,0.6)"/>
+    </filter>
+  </defs>
+  
+  <!-- Outer Rounded Squircle -->
+  <rect x="4" y="4" width="120" height="120" rx="32" fill="url(#orbitBg)" stroke="url(#orbitStroke)" stroke-width="2" filter="url(#orbitGlow)"/>
+  
+  <!-- Inner Orbit Logo Symbol -->
+  <g transform="translate(19, 19) scale(1.667)">
+    <path d="M47.47 25.93A20.5 20.5 0 1 1 28.07 6.53" fill="none" stroke="#ffffff" stroke-width="6.5" stroke-linecap="round"/>
+    <circle cx="41.5" cy="12.5" r="6" fill="#00e676"/>
+    <circle cx="27" cy="27" r="5" fill="#ffffff"/>
+  </g>
+</svg>

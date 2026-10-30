@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbit — A local-first Windows video &amp; audio downloader</title>
+  <meta name="description" content="Paste a link. Orbit fetches videos from YouTube, TikTok, Instagram, X and 1,000+ sites directly to your PC in 4K/8K or MP3. Zero ads, zero subscriptions, 100% private.">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="orbit.ico" type="image/x-icon">
+  <link rel="icon" href="logo-mark.svg" type="image/svg+xml">
+  
+  <!-- Typography (Bundled Archivo, Doto, JetBrains Mono + Google Fonts fallback) -->
+  <link rel="stylesheet" href="fonts/fonts.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="css/journal.css">
+  <link rel="stylesheet" href="css/player.css">
+</head>
+<body>
+
+<!-- Dynamic Background Canvas & Atmospheric Layers -->
+<canvas id="stars" aria-hidden="true"></canvas>
+<div class="nebula" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="grain" aria-hidden="true"></div>
+<div class="cursor-glow" aria-hidden="true"></div>
+
+<!-- Top Inertial Scroll Progress Runner -->
+<div class="scroll-bar" aria-hidden="true"><i id="sbar"></i></div>
+
+<!-- Header Navigation -->
+<header class="nav" id="nav">
+  <div class="wrap nav__inner">
+    <a href="#top" class="nav__brand">
+      <svg viewBox="0 0 54 54" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M47.47 25.93A20.5 20.5 0 1 1 28.07 6.53" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/>
+        <circle class="orbit-dot" cx="41.5" cy="12.5" r="6" fill="#ffffff"/>
+        <circle cx="27" cy="27" r="5" fill="currentColor"/>
+      </svg>
+      <span>Orbit</span>
+    </a>
+    
+    <nav class="nav__links" aria-label="Sections">
+      <a href="#pricing">Pricing</a>
+      <a href="#walkthrough">Walkthrough</a>
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    
+    <div style="display:flex;align-items:center;gap:16px">
+      <a href="https://github.com/damsarachethiyaa-dev/orbit" target="_blank" rel="noopener noreferrer" style="font-size:13.5px;font-weight:500;color:var(--dim)">GitHub ↗</a>
+      <a class="nav__cta pill magnetic" href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest" download="Orbit.exe">
+        <span>Download Free</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="wrap wrap--full">
+      <!-- Auto-Fitting Massive Wordmark -->
+      <h1 class="wordmark wordmark--stack" aria-label="Orbit Windows">
+        <span class="wm-line" data-fit>Orbit Windows</span>
+      </h1>
+
+      <div class="hero__row wrap">
+        <!-- Left Column: Copy & Primary Actions -->
+        <div class="hero__body">
+          <h2 class="display h-xl reveal" aria-label="PASTE ANY LINK. DOWNLOAD ANYTHING.">
+            <span class="thin">PASTE ANY LINK.</span><br>
+            <span class="bold">D<span class="o-ring"></span>WNLOAD</span> <span class="bold grad" id="rotator">ANYTHING.</span>
+          </h2>
+
+          <p class="lede reveal">Connect YouTube, TikTok, Instagram, X, Vimeo, Reddit and 1,000+ sites. Hardware-accelerated 4K/8K downloads, instant MP3 extraction, and zero cloud leaks. Everything stays on your PC.</p>
+
+          <div class="hero__actions reveal">
+            <a class="btn-primary conic-border magnetic" href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest" download="Orbit.exe">
+              <span>Download Free (v1.0.0)</span>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8h12M9 3l5 5-5 5"/></svg>
+            </a>
+            <a class="link-arrow" href="#walkthrough">
+              <span>See walkthrough</span>
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 9l6-6M4 3h5v5"/></svg>
+            </a>
+          </div>
+        </div>
+
+        <!-- Right Column: Local-First Metrics -->
+        <div class="hero__aside reveal">
+          <h3 class="display h-xl">
+            <span class="thin">SUB-SECOND FETCH.</span><br>
+            <span class="accent">100% PRIVATE.</span>
+          </h3>
+
+          <p class="lede">Zero subscription paywalls, zero cloud telemetry, zero shady web redirect converters. Runs completely locally on your PC with embedded yt-dlp &amp; ffmpeg binaries. No terminal, no Python installation needed.</p>
+
+          <div class="hero__stats-inline">
+            <div class="hero__stat-item">
+              <span class="stat__num" data-count="1000" data-suffix="+">1,000+</span>
+              <span class="stat__label">Sites Supported</span>
+            </div>
+            <div class="hero__stat-item">
+              <span class="stat__num">4K<small>/ 8K</small></span>
+              <span class="stat__label">Max Resolution</span>
+            </div>
+            <div class="hero__stat-item">
+              <span class="stat__num">$0<small>forever</small></span>
+              <span class="stat__label">Free &amp; Open Source</span>
+            </div>
+            <div class="hero__stat-item">
+              <span class="stat__num" data-count="100" data-suffix="%">100%</span>
+              <span class="stat__label">Local &amp; Private</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero Visual Screenshot Strip -->
+      <div class="hero__strip reveal">
+        <figure class="spot"><img src="screenshots/app-preview.png" alt="Orbit Main Screen" data-lightbox="screenshots/app-preview.png" data-caption="Orbit — Smart Link Fetch &amp; Format Selector"></figure>
+        <figure class="spot"><img src="screenshots/app-download.png" alt="Orbit Download Queue" data-lightbox="screenshots/app-download.png" data-caption="Orbit — Multi-Threaded Concurrent Download Queue"></figure>
+        <figure class="spot"><img src="screenshots/app-library.png" alt="Orbit Local Library" data-lightbox="screenshots/app-library.png" data-caption="Orbit — Offline Video Library &amp; Explorer Reveal"></figure>
+        <figure class="spot"><img src="screenshots/app-settings.png" alt="Orbit Settings" data-lightbox="screenshots/app-settings.png" data-caption="Orbit — Configurable Destinations &amp; Presets"></figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATS RUNNER -->
+  <section class="stats" id="stats" data-thread="Signal">
+    <div class="stat reveal"><b data-count="1000" data-suffix="+">0</b><span>Supported sites</span></div>
+    <div class="stat reveal"><b data-count="4" data-suffix="K">0</b><span>Max resolution</span></div>
+    <div class="stat reveal"><b data-count="0">0</b><span>Sign ups or paywalls</span></div>
+    <div class="stat reveal"><b data-count="100" data-suffix="%">0</b><span>Local &amp; private</span></div>
+  </section>
+
+  <!-- Marquee: Supported Platforms with Real Brand Icons & Colors -->
+  <section class="logos" aria-label="Supported Platforms">
+    <div class="marquee">
+      <div class="mtrack">
+        <span class="mq" style="--c:#ff3d3d"><b class="ico" style="--i:url('icons/youtube.svg')"></b>YouTube &amp; Shorts</span>
+        <span class="mq" style="--c:#25f4ee"><b class="ico" style="--i:url('icons/tiktok.svg')"></b>TikTok</span>
+        <span class="mq" style="--c:#e1306c"><b class="ico" style="--i:url('icons/instagram.svg')"></b>Instagram Reels</span>
+        <span class="mq" style="--c:#ffffff"><b class="ico" style="--i:url('icons/x.svg')"></b>X / Twitter</span>
+        <span class="mq" style="--c:#ff4500"><b class="ico" style="--i:url('icons/reddit.svg')"></b>Reddit</span>
+        <span class="mq" style="--c:#1ab7ea"><b class="ico" style="--i:url('icons/vimeo.svg')"></b>Vimeo</span>
+        <span class="mq" style="--c:#9146ff"><b class="ico" style="--i:url('icons/twitch.svg')"></b>Twitch Clips</span>
+        <span class="mq" style="--c:#ff5500"><b class="ico" style="--i:url('icons/soundcloud.svg')"></b>SoundCloud</span>
+        <span class="mq" style="--c:#00a1d6"><b class="ico" style="--i:url('icons/bilibili.svg')"></b>Bilibili</span>
+        <span class="mq" style="--c:#53fc18"><b class="ico" style="--i:url('icons/kick.svg')"></b>Kick</span>
+        <span class="mq" style="--c:#1185fe"><b class="ico" style="--i:url('icons/bluesky.svg')"></b>Bluesky</span>
+        <span class="mq" style="--c:#1877f2"><b class="ico" style="--i:url('icons/facebook.svg')"></b>Facebook</span>
+        <span class="mq" style="--c:#625df5"><b class="ico" style="--i:url('icons/loom.svg')"></b>Loom</span>
+        <span class="mq" style="--c:#e62b1e"><b class="ico" style="--i:url('icons/ted.svg')"></b>TED Talks</span>
+        <!-- Duplicated for seamless loop -->
+        <span class="mq" style="--c:#ff3d3d"><b class="ico" style="--i:url('icons/youtube.svg')"></b>YouTube &amp; Shorts</span>
+        <span class="mq" style="--c:#25f4ee"><b class="ico" style="--i:url('icons/tiktok.svg')"></b>TikTok</span>
+        <span class="mq" style="--c:#e1306c"><b class="ico" style="--i:url('icons/instagram.svg')"></b>Instagram Reels</span>
+        <span class="mq" style="--c:#ffffff"><b class="ico" style="--i:url('icons/x.svg')"></b>X / Twitter</span>
+        <span class="mq" style="--c:#ff4500"><b class="ico" style="--i:url('icons/reddit.svg')"></b>Reddit</span>
+        <span class="mq" style="--c:#1ab7ea"><b class="ico" style="--i:url('icons/vimeo.svg')"></b>Vimeo</span>
+        <span class="mq" style="--c:#9146ff"><b class="ico" style="--i:url('icons/twitch.svg')"></b>Twitch Clips</span>
+        <span class="mq" style="--c:#ff5500"><b class="ico" style="--i:url('icons/soundcloud.svg')"></b>SoundCloud</span>
+        <span class="mq" style="--c:#00a1d6"><b class="ico" style="--i:url('icons/bilibili.svg')"></b>Bilibili</span>
+        <span class="mq" style="--c:#53fc18"><b class="ico" style="--i:url('icons/kick.svg')"></b>Kick</span>
+        <span class="mq" style="--c:#1185fe"><b class="ico" style="--i:url('icons/bluesky.svg')"></b>Bluesky</span>
+        <span class="mq" style="--c:#1877f2"><b class="ico" style="--i:url('icons/facebook.svg')"></b>Facebook</span>
+        <span class="mq" style="--c:#625df5"><b class="ico" style="--i:url('icons/loom.svg')"></b>Loom</span>
+        <span class="mq" style="--c:#e62b1e"><b class="ico" style="--i:url('icons/ted.svg')"></b>TED Talks</span>
+      </div>
+    </div>
+    <div class="marquee rev">
+      <div class="mtrack">
+        <span class="mq" style="--c:#ffffff"><b class="ico" style="--i:url('icons/threads.svg')"></b>Threads</span>
+        <span class="mq" style="--c:#e60023"><b class="ico" style="--i:url('icons/pinterest.svg')"></b>Pinterest</span>
+        <span class="mq" style="--c:#0a66c2"><b class="ico" style="--i:url('icons/linkedin.svg')"></b>LinkedIn</span>
+        <span class="mq" style="--c:#2aabee"><b class="ico" style="--i:url('icons/telegram.svg')"></b>Telegram</span>
+        <span class="mq" style="--c:#fffc00"><b class="ico" style="--i:url('icons/snapchat.svg')"></b>Snapchat</span>
+        <span class="mq" style="--c:#1da0c3"><b class="ico" style="--i:url('icons/bandcamp.svg')"></b>Bandcamp</span>
+        <span class="mq" style="--c:#ffa200"><b class="ico" style="--i:url('icons/audiomack.svg')"></b>Audiomack</span>
+        <span class="mq" style="--c:#85c742"><b class="ico" style="--i:url('icons/rumble.svg')"></b>Rumble</span>
+        <span class="mq" style="--c:#ef1970"><b class="ico" style="--i:url('icons/odysee.svg')"></b>Odysee</span>
+        <span class="mq" style="--c:#2a7bff"><b class="ico" style="--i:url('icons/dailymotion.svg')"></b>Dailymotion</span>
+        <span class="mq" style="--c:#cccccc"><b class="ico" style="--i:url('icons/internetarchive.svg')"></b>Internet Archive</span>
+        <span class="mq" style="--c:#14bf96"><b class="ico" style="--i:url('icons/khanacademy.svg')"></b>Khan Academy</span>
+        <span class="mq" style="--c:#54bbff"><b class="ico" style="--i:url('icons/wistia.svg')"></b>Wistia</span>
+        <span class="mq" style="--c:#b150e2"><b class="ico" style="--i:url('icons/applepodcasts.svg')"></b>Apple Podcasts</span>
+        <!-- Duplicated for seamless loop -->
+        <span class="mq" style="--c:#ffffff"><b class="ico" style="--i:url('icons/threads.svg')"></b>Threads</span>
+        <span class="mq" style="--c:#e60023"><b class="ico" style="--i:url('icons/pinterest.svg')"></b>Pinterest</span>
+        <span class="mq" style="--c:#0a66c2"><b class="ico" style="--i:url('icons/linkedin.svg')"></b>LinkedIn</span>
+        <span class="mq" style="--c:#2aabee"><b class="ico" style="--i:url('icons/telegram.svg')"></b>Telegram</span>
+        <span class="mq" style="--c:#fffc00"><b class="ico" style="--i:url('icons/snapchat.svg')"></b>Snapchat</span>
+        <span class="mq" style="--c:#1da0c3"><b class="ico" style="--i:url('icons/bandcamp.svg')"></b>Bandcamp</span>
+        <span class="mq" style="--c:#ffa200"><b class="ico" style="--i:url('icons/audiomack.svg')"></b>Audiomack</span>
+        <span class="mq" style="--c:#85c742"><b class="ico" style="--i:url('icons/rumble.svg')"></b>Rumble</span>
+        <span class="mq" style="--c:#ef1970"><b class="ico" style="--i:url('icons/odysee.svg')"></b>Odysee</span>
+        <span class="mq" style="--c:#2a7bff"><b class="ico" style="--i:url('icons/dailymotion.svg')"></b>Dailymotion</span>
+        <span class="mq" style="--c:#cccccc"><b class="ico" style="--i:url('icons/internetarchive.svg')"></b>Internet Archive</span>
+        <span class="mq" style="--c:#14bf96"><b class="ico" style="--i:url('icons/khanacademy.svg')"></b>Khan Academy</span>
+        <span class="mq" style="--c:#54bbff"><b class="ico" style="--i:url('icons/wistia.svg')"></b>Wistia</span>
+        <span class="mq" style="--c:#b150e2"><b class="ico" style="--i:url('icons/applepodcasts.svg')"></b>Apple Podcasts</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing Comparison Section -->
+  <section class="section" id="pricing" data-thread="Pricing">
+    <div class="wrap">
+      <div class="section__head">
+        <div>
+          <p class="mono label"><span>01 / Fair Model</span><i></i></p>
+          <h2 class="sec-title reveal"><span class="thin">FAIR MODEL.</span> <span class="bold">ZERO SUBSCRIPTIONS.</span></h2>
+        </div>
+        <p class="lede reveal">Orbit is 100% free and open-source. No subscription paywalls, no daily limits, no ad trackers.</p>
+      </div>
+
+      <div class="plans">
+        <article class="plan plan--dark conic-border spot reveal">
+          <div class="plan__top">
+            <p class="eyebrow">Orbit Windows App</p>
+            <p class="eyebrow badge-mit">MIT LICENCE</p>
+          </div>
+          <p class="plan__price">$0</p>
+          <p>Download the standalone .exe and run it directly on your PC. Zero sign-up, zero ads.</p>
+          <ul>
+            <li>Untouched 4K / 8K, 60fps &amp; HDR downloads</li>
+            <li>Embedded FFmpeg &amp; FFprobe binaries</li>
+            <li>Lossless audio extraction as 320kbps MP3</li>
+            <li>1,000+ supported video &amp; audio platforms</li>
+            <li>Concurrent multi-download background queue</li>
+            <li>Local offline media library &amp; folder reveal</li>
+            <li>Zero cloud tracking or telemetry</li>
+          </ul>
+          <a class="btn-primary conic-border magnetic" href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest" download="Orbit.exe">
+            <span>Download Free (v1.0.0)</span>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8h12M9 3l5 5-5 5"/></svg>
+          </a>
+        </article>
+
+        <article class="plan plan--cloud spot reveal">
+          <div class="plan__top">
+            <p class="eyebrow" style="color:var(--faint)">Commercial Downloaders</p>
+            <p class="eyebrow" style="color:var(--faint)">SUBSCRIPTIONS</p>
+          </div>
+          <p class="plan__price" style="color:var(--dim)">$19<small style="font-size:18px;color:var(--faint)">/mo</small></p>
+          <p>Commercial apps lock basic features behind paywalls and web converters spam malicious ads.</p>
+          <ul>
+            <li>Resolution capped at 720p or 1080p unless you pay</li>
+            <li>Deceptive popups, malware redirects &amp; tracking cookies</li>
+            <li>Throttled cloud servers that fail on long videos</li>
+            <li>Daily download limits &amp; artificial cooldown timers</li>
+            <li>Require installing separate codecs or terminal tools</li>
+            <li>Store your downloaded links on remote cloud servers</li>
+          </ul>
+          <p class="pricing__note">Say goodbye to subscriptions and sketchy web downloaders.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Manifesto -->
+  <section class="section manifesto" id="manifesto" data-thread="Manifesto">
+    <div class="sticky">
+      <p class="mono label"><span>02 / Manifesto</span><i></i></p>
+      <p class="big" id="mtext">Videos live behind players, ads and cloud paywalls. Orbit runs directly on your Windows PC and streams raw media straight to your disk. No subscriptions. No watermarks. No limits on what you save.</p>
+    </div>
+  </section>
+
+  <!-- 4K Walkthrough Showcase Player -->
+  <section class="section walkthrough-section" id="walkthrough" data-thread="Walkthrough" data-loop>
+    <div class="wrap">
+      <div class="walkthrough__head">
+        <p class="mono label"><span>03 / Walkthrough</span><i></i></p>
+        <h2 class="sec-title reveal"><span class="thin">INTERACTIVE</span> <span class="bold">WALKTHROUGH.</span></h2>
+        <p class="lede reveal">From smart clipboard detection to parallel background downloads and offline playback.</p>
+      </div>
+
+      <!-- Step Navigation Buttons -->
+      <div class="walkthrough__nav">
+        <button class="wt-btn is-active" data-step="1"><span>01</span> Smart Fetch</button>
+        <button class="wt-btn" data-step="2"><span>02</span> Multi-Queue</button>
+        <button class="wt-btn" data-step="3"><span>03</span> Offline Library</button>
+        <button class="wt-btn" data-step="4"><span>04</span> Directory &amp; Settings</button>
+      </div>
+
+      <!-- App Frame Container with Conic Glow -->
+      <div class="orbit-showcase conic-border spot reveal">
+        <div class="showcase-viewport">
+          <!-- Slide 1 -->
+          <div class="showcase-slide is-active" data-slide="1">
+            <img src="screenshots/app-preview.png" alt="Smart Fetch">
+          </div>
+
+          <!-- Slide 2 -->
+          <div class="showcase-slide" data-slide="2">
+            <img src="screenshots/app-download.png" alt="Download Queue">
+          </div>
+
+          <!-- Slide 3 -->
+          <div class="showcase-slide" data-slide="3">
+            <img src="screenshots/app-library.png" alt="Offline Library">
+          </div>
+
+          <!-- Slide 4 -->
+          <div class="showcase-slide" data-slide="4">
+            <img src="screenshots/app-settings.png" alt="Settings &amp; Directory">
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Experience Tabs -->
+  <section class="section" id="features" data-thread="Capabilities">
+    <div class="wrap">
+      <div class="section__head">
+        <div>
+          <p class="mono label"><span>04 / Capabilities</span><i></i></p>
+          <h2 class="sec-title reveal"><span class="thin">EVERYTHING</span> <span class="bold">YOU NEED.</span></h2>
+        </div>
+      </div>
+
+      <div class="exp">
+        <ul class="exp__tabs" role="tablist" id="expTabs">
+          <li><button role="tab" aria-selected="true" data-i="0"><span>01</span> Universal Engine</button></li>
+          <li><button role="tab" aria-selected="false" data-i="1"><span>02</span> Untouched 4K/8K</button></li>
+          <li><button role="tab" aria-selected="false" data-i="2"><span>03</span> Lossless MP3</button></li>
+          <li><button role="tab" aria-selected="false" data-i="3"><span>04</span> Queue Engine</button></li>
+          <li><button role="tab" aria-selected="false" data-i="4"><span>05</span> Local Library</button></li>
+          <li><button role="tab" aria-selected="false" data-i="5"><span>06</span> Zero Dependencies</button></li>
+        </ul>
+
+        <div id="expPanels">
+          <!-- Panel 1 -->
+          <div class="exp__panel is-active" role="tabpanel">
+            <div>
+              <p class="eyebrow">Orbit / 01</p>
+              <h3 class="display h-md">1,000+ streaming sites supported.</h3>
+              <p class="lede">From mainstream platforms like YouTube, TikTok, Instagram, and X to Vimeo, Reddit, Twitch, and Bilibili. Orbit's yt-dlp core resolves streams effortlessly.</p>
+              <button class="btn-primary conic-border magnetic" data-lightbox="screenshots/app-preview.png"><span>View screen</span> <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8h12M9 3l5 5-5 5"/></svg></button>
+            </div>
+            <div>
+              <div class="exp__shot spot" data-lightbox="screenshots/app-preview.png"><img src="screenshots/app-preview.png" alt="Universal Engine"></div>
+              <div class="exp__shot-meta"><span>Universal Link Fetcher</span><span>01 / 06</span></div>
+            </div>
+          </div>
+
+          <!-- Panel 2 -->
+          <div class="exp__panel" role="tabpanel">
+            <div>
+              <p class="eyebrow">Orbit / 02</p>
+              <h3 class="display h-md">Pristine 4K, 8K &amp; 60fps HDR.</h3>
+              <p class="lede">Orbit automatically pairs the highest-bitrate video stream with pristine audio streams, multiplexing them with bundled FFmpeg without transcoding loss.</p>
+              <button class="btn-primary conic-border magnetic" data-lightbox="screenshots/app-preview.png"><span>View screen</span> <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8h12M9 3l5 5-5 5"/></svg></button>
+            </div>
+            <div>
+              <div class="exp__shot spot" data-lightbox="screenshots/app-preview.png"><img src="screenshots/app-preview.png" alt="4K Quality"></div>
+              <div class="exp__shot-meta"><span>Pristine Bitrate Multiplexing</span><span>02 / 06</span></div>
+            </div>
+          </div>
+
+          <!-- Panel 3 -->
+          <div class="exp__panel" role="tabpanel">
+            <div>
+              <p class="eyebrow">Orbit / 03</p>
+              <h3 class="display h-md">Instant audio extraction to MP3.</h3>
+              <p class="lede">Need podcast episodes, lectures, or music tracks? Toggle "Audio" and Orbit extracts the clean 320kbps MP3 directly from the source video.</p>
+              <button class="btn-primary conic-border magnetic" data-lightbox="screenshots/app-preview.png"><span>View screen</span> <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8h12M9 3l5 5-5 5"/></svg></button>
+            </div>
+            <div>
+              <div class="exp__shot spot" data-lightbox="screenshots/app-preview.png"><img src="screenshots/app-preview.png" alt="Audio Extraction"></div>
+              <div class="exp__shot-meta"><span>Lossless Audio Extraction</span><span>03 / 06</span></div>
+            </div>
+          </div>
+
+          <!-- Panel 4 -->
+          <div class="exp__panel" role="tabpanel">
+            <div>
+              <p class="eyebrow">Orbit / 04</p>
+              <h3 class="display h-md">Multi-download queue with live ETA.</h3>
+              <p class="lede">Queue dozens of videos at once. Orbit manages concurrent workers, displays real-time MB/s throughput, and lets you cancel any job anytime.</p>
+              <button class="btn-primary conic-border magnetic" data-lightbox="screenshots/app-download.png"><span>View screen</span> <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8h12M9 3l5 5-5 5"/></svg></button>
+            </div>
+            <div>
+              <div class="exp__shot spot" data-lightbox="screenshots/app-download.png"><img src="screenshots/app-download.png" alt="Queue Engine"></div>
+              <div class="exp__shot-meta"><span>Multi-threaded Transfer Engine</span><span>04 / 06</span></div>
+            </div>
+          </div>
+
+          <!-- Panel 5 -->
+          <div class="exp__panel" role="tabpanel">
+            <div>
+              <p class="eyebrow">Orbit / 05</p>
+              <h3 class="display h-md">Your local offline media library.</h3>
+              <p class="lede">Never lose track of a downloaded file. The Library view displays file sizes, durations, and provides instant "Open" or "Show in folder" buttons.</p>
+              <button class="btn-primary conic-border magnetic" data-lightbox="screenshots/app-library.png"><span>View screen</span> <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8h12M9 3l5 5-5 5"/></svg></button>
+            </div>
+            <div>
+              <div class="exp__shot spot" data-lightbox="screenshots/app-library.png"><img src="screenshots/app-library.png" alt="Media Library"></div>
+              <div class="exp__shot-meta"><span>Persistent Offline Archive</span><span>05 / 06</span></div>
+            </div>
+          </div>
+
+          <!-- Panel 6 -->
+          <div class="exp__panel" role="tabpanel">
+            <div>
+              <p class="eyebrow">Orbit / 06</p>
+              <h3 class="display h-md">Zero setup: single standalone .exe.</h3>
+              <p class="lede">Everything Orbit needs—including ffmpeg, ffprobe, and Python runtime—is pre-packaged into a single executable. Just double-click and run.</p>
+              <button class="btn-primary conic-border magnetic" data-lightbox="screenshots/app-settings.png"><span>View screen</span> <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8h12M9 3l5 5-5 5"/></svg></button>
+            </div>
+            <div>
+              <div class="exp__shot spot" data-lightbox="screenshots/app-settings.png"><img src="screenshots/app-settings.png" alt="Preferences &amp; Bundling"></div>
+              <div class="exp__shot-meta"><span>Pre-Bundled Windows Binary</span><span>06 / 06</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Principles: What You Get (KPI Cards) -->
+  <section class="section" style="padding-top:0" data-thread="Architecture">
+    <div class="wrap">
+      <div class="section__head">
+        <div>
+          <p class="mono label"><span>05 / Architecture</span><i></i></p>
+          <h2 class="sec-title reveal"><span class="thin">WHAT YOU</span> <span class="bold">ACTUALLY GET.</span></h2>
+        </div>
+      </div>
+      <div class="trio">
+        <div class="spot reveal">
+          <div class="trio-chip" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <p class="eyebrow">01 / Privacy</p>
+          <h3 class="display h-md">Nothing leaves your PC.</h3>
+          <p>Zero cloud accounts, zero telemetry, zero analytics. Your downloaded links and files are stored strictly on your own drive.</p>
+        </div>
+        <div class="spot reveal">
+          <div class="trio-chip" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          </div>
+          <p class="eyebrow">02 / Speed</p>
+          <h3 class="display h-md">Direct socket streaming.</h3>
+          <p>Transfers flow straight from media CDN endpoints directly to your storage without any cloud proxy bottlenecks.</p>
+        </div>
+        <div class="spot reveal">
+          <div class="trio-chip" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
+          </div>
+          <p class="eyebrow">03 / Codecs</p>
+          <h3 class="display h-md">Bundled FFmpeg engine.</h3>
+          <p>Full lossless remuxing of VP9, AV1, H.264, AAC, and Opus streams. 4K and 8K videos merge seamlessly with pristine audio.</p>
+        </div>
+        <div class="spot reveal">
+          <div class="trio-chip" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><circle cx="12" cy="14" r="2"/></svg>
+          </div>
+          <p class="eyebrow">04 / Control</p>
+          <h3 class="display h-md">Customizable destination.</h3>
+          <p>Select any internal drive, secondary SSD, or NAS storage folder. Orbit automatically creates and manages your library.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Workflow: How it Works (Contrasting Inverted Stone Section from 5000) -->
+  <section class="section how wrap light" id="how" data-thread="Workflow">
+    <div class="section__head">
+      <div>
+        <p class="mono label"><span>06 / How it works</span><i></i></p>
+        <h2 class="sec-title reveal"><span class="thin">FOUR STEPS.</span> <span class="bold">ZERO FRICTION.</span></h2>
+      </div>
+    </div>
+    <div class="steps" id="steps">
+      <div class="steps-line"><i id="stepsFill"></i></div>
+      <div class="step reveal">
+        <span class="node mono">01</span>
+        <h3>Copy</h3>
+        <p>Copy any URL from your browser, TikTok app, Twitter, or YouTube. Orbit detects clipboard links automatically.</p>
+      </div>
+      <div class="step reveal">
+        <span class="node mono">02</span>
+        <h3>Choose</h3>
+        <p>Select Video (Best, 4K, 1440p, 1080p, 720p) or Audio (MP3). Orbit parses available bitrate ladders instantly.</p>
+      </div>
+      <div class="step reveal">
+        <span class="node mono">03</span>
+        <h3>Download</h3>
+        <p>Hit Download. Orbit buffers chunks concurrently in the background with live speed and progress readouts.</p>
+      </div>
+      <div class="step reveal">
+        <span class="node mono">04</span>
+        <h3>Enjoy</h3>
+        <p>Watch immediately or click "Show in folder" to access your pristine MP4 or MP3 file on your computer.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ Section -->
+  <section class="section" id="faq" data-thread="FAQ">
+    <div class="wrap faq">
+      <div>
+        <p class="mono label"><span>07 / FAQ</span><i></i></p>
+        <h2 class="sec-title reveal"><span class="thin">QUESTIONS,</span><br><span class="bold">ANSWERED.</span></h2>
+      </div>
+      <div class="faq__list spot reveal">
+        <details class="faq__item" open>
+          <summary>Is Orbit really 100% free?</summary>
+          <p>Yes. Orbit is free and open-source under the MIT license. There are no paid tiers, no subscription paywalls, no daily quotas, and absolutely no ads.</p>
+        </details>
+        <details class="faq__item">
+          <summary>Do I need to install FFmpeg or Python?</summary>
+          <p>No! Unlike command-line yt-dlp tools, Orbit bundles both FFmpeg, FFprobe, and the entire runtime inside a single standalone executable (Orbit.exe). It works out of the box on any Windows 10 or 11 PC.</p>
+        </details>
+        <details class="faq__item">
+          <summary>Which platforms can I download from?</summary>
+          <p>Orbit supports YouTube, Shorts, TikTok, Instagram Reels, X (Twitter), Vimeo, Reddit, Twitch, SoundCloud, Bilibili, Facebook, Kick, Bluesky, Loom, and over 1,000 other websites supported by yt-dlp.</p>
+        </details>
+        <details class="faq__item">
+          <summary>Where are my downloads saved?</summary>
+          <p>By default, files are saved in your <code>Downloads\Orbit Videos</code> directory. You can customize the save directory to any drive or folder in the Orbit Settings tab.</p>
+        </details>
+        <details class="faq__item">
+          <summary>Why does Windows SmartScreen show a blue warning?</summary>
+          <p>Because Orbit is a brand-new open-source executable that is not code-signed with an expensive enterprise certificate. Simply click <strong>More info → Run anyway</strong>.</p>
+        </details>
+        <details class="faq__item">
+          <summary>Can I download audio-only as MP3?</summary>
+          <p>Yes. Select the "Audio" tab and choose MP3. Orbit extracts the highest quality audio stream and converts it into a clean MP3 file with embedded metadata.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- Closing Call to Action -->
+  <section class="closing cta wrap">
+    <div class="cta-box spot reveal">
+      <div class="cta-rings" aria-hidden="true"><i></i><i></i><i></i></div>
+      <p class="mono tiny accent">Ready to archive?</p>
+      <h2><span class="thin">BRING THE LINK.</span><br><span class="bold">WE'LL SAVE THE FILE.</span></h2>
+      <a class="pill big-pill magnetic" style="display:inline-flex;margin:28px auto 0;" href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest" download="Orbit.exe">
+        <span>Download Free (v1.0.0)</span>
+        <span aria-hidden="true">↓</span>
+      </a>
+    </div>
+  </section>
+</main>
+
+<!-- Footer -->
+<footer class="foot wrap">
+  <div class="foot-top">
+    <div>
+      <svg width="112" height="26" viewBox="0 0 230 54" fill="none" xmlns="http://www.w3.org/2000/svg" style="color:#ffffff">
+        <path d="M47.47 25.93A20.5 20.5 0 1 1 28.07 6.53" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/>
+        <circle cx="41.5" cy="12.5" r="6" fill="#ffffff"/>
+        <circle fill="currentColor" cx="27" cy="27" r="5"/>
+        <text font-family="Inter, sans-serif" fill="currentColor" x="72" y="46.6" font-size="52" font-weight="600" letter-spacing="-0.5px">Orbit</text>
+      </svg>
+      <p class="foot-tag">A local-first Windows video &amp; audio downloader.</p>
+    </div>
+    <div class="foot-cols">
+      <div>
+        <p class="mono tiny dim">Product</p>
+        <a href="#pricing">Pricing</a>
+        <a href="#walkthrough">Walkthrough</a>
+        <a href="#features">Capabilities</a>
+        <a href="#how">How it works</a>
+      </div>
+      <div>
+        <p class="mono tiny dim">App &amp; Source</p>
+        <a href="https://github.com/damsarachethiyaa-dev/orbit" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/damsarachethiyaa-dev/orbit/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+        <a href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest" download="Orbit.exe">Download v1.0.0</a>
+        <a href="#faq">FAQ</a>
+      </div>
+    </div>
+  </div>
+  <div class="foot-giant" aria-hidden="true"><span class="o-ring"></span>RBIT</div>
+  <div class="foot-bot">
+    <p class="mono tiny dim">© 2026 Chethiya Damsara · Orbit Windows. Download only what you have the right to save.</p>
+    <a class="mono tiny" href="#top">Back to top ↑</a>
+  </div>
+</footer>
+
+<!-- Lightbox Modal -->
+<div class="lightbox" id="lightbox" aria-hidden="true" role="dialog">
+  <button class="lightbox__close" id="lightboxClose">CLOSE ✕</button>
+  <figure>
+    <img id="lightboxImg" src="" alt="Screenshot">
+    <figcaption id="lightboxCap"></figcaption>
+  </figure>
+</div>
+
+<!-- Direct Download Toast -->
+<div id="dl-toast" role="status" aria-live="polite">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+  <span>Downloading Orbit.exe... Check your browser downloads!</span>
+</div>
+
+<!-- Scripts (Lenis Smooth Scroll + Orbit Motion System) -->
+<script src="js/lenis.min.js"></script>
+<script src="js/motion.js"></script>
+
+</body>
+</html>
