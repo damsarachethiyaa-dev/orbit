@@ -505,6 +505,16 @@ def download_update_thread():
             target_path.unlink()
         temp_path.rename(target_path)
 
+        if sys.platform == "win32":
+            try:
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", f"Unblock-File -Path '{target_path}'"],
+                    creationflags=0x08000000,
+                    timeout=5,
+                )
+            except Exception:
+                pass
+
         update_state["ready_to_install"] = True
         update_state["update_file"] = str(target_path)
         update_state["download_percent"] = 100
@@ -546,6 +556,7 @@ if errorlevel 1 (
     copy /y "{new_exe}" "{current_exe}" >nul
 )
 
+powershell -NoProfile -Command "Unblock-File -Path '%current_exe%'" >nul 2>&1
 start "" "{current_exe}"
 del "%~f0" & exit
 """
@@ -554,6 +565,15 @@ del "%~f0" & exit
         threading.Thread(target=lambda: (time.sleep(0.6), os._exit(0)), daemon=True).start()
         return True, "Restarting Orbit to apply update..."
     else:
+        if sys.platform == "win32":
+            try:
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", f"Unblock-File -Path '{new_exe}'"],
+                    creationflags=0x08000000,
+                    timeout=5,
+                )
+            except Exception:
+                pass
         subprocess.Popen([str(new_exe)], creationflags=0x08000000 | 0x00000008)
         threading.Thread(target=lambda: (time.sleep(0.6), os._exit(0)), daemon=True).start()
         return True, "Launching updated Orbit binary..."

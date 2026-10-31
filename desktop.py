@@ -18,6 +18,32 @@ DATA = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Orbit"
 DATA.mkdir(parents=True, exist_ok=True)
 LOG = DATA / "orbit.log"
 
+_mutex_handle = None
+
+def ensure_single_instance():
+    """Ensure only one Orbit window runs at a time. If already open, brings it to front."""
+    global _mutex_handle
+    if sys.platform == "win32" and "--no-window" not in sys.argv:
+        import ctypes
+        _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, "OrbitAppMutex")
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            hwnd = ctypes.windll.user32.FindWindowW(None, "Orbit")
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            sys.exit(0)
+
+def clean_stale_locks(folder: Path):
+    """Remove leftover lock files from previous unclean shutdowns so WebView2 doesn't freeze with 0x800700AA."""
+    if not folder.exists():
+        return
+    for item in folder.rglob("*LOCK*"):
+        if item.is_file():
+            try:
+                item.unlink(missing_ok=True)
+            except OSError:
+                pass
+
 # a windowed exe has no console: send output to a log file so crashes can be diagnosed
 if getattr(sys, "frozen", False) or sys.stdout is None:
     _log = open(LOG, "a", encoding="utf-8", buffering=1)
@@ -58,6 +84,7 @@ class Api:
 
 
 def main():
+    ensure_single_instance()
     port = int(os.environ.get("ORBIT_PORT") or free_port())
     server = make_server("127.0.0.1", port, orbit.app, threaded=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -80,12 +107,13 @@ def main():
     else:
         import webview
         data = DATA / "webview"
+        clean_stale_locks(data)
         data.mkdir(parents=True, exist_ok=True)
         api = Api()
         api._window = webview.create_window("Orbit", url, js_api=api, width=1080, height=720,
-                                           min_size=(760, 560), background_color="#000000")
+                                           min_size=(760, 560), background_color="#0b0b0b")
         try:
-            webview.start(gui="edgechromium", storage_path=str(data), private_mode=False)  # keeps history between launches
+            webview.start(gui="edgechromium", storage_path=str(data), private_mode=False)
         except Exception:
             traceback.print_exc()
             message_box("Orbit needs the Microsoft Edge WebView2 Runtime, which is missing or broken on this PC.\n\n"

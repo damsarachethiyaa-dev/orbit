@@ -28,6 +28,9 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed --name Orbit --ic
   --collect-submodules yt_dlp --collect-all webview ^
   desktop.py || goto :fail
 
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path '%~dp0dist\Orbit.exe'" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$c = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -like '*Orbit Media Software*' } | Select-Object -First 1; if ($c) { Set-AuthenticodeSignature -Certificate $c -FilePath '%~dp0dist\Orbit.exe' }" >nul 2>&1
+
 echo.
 echo Done: %~dp0dist\Orbit.exe
 exit /b 0
