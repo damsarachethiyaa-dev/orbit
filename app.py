@@ -7,11 +7,13 @@ Runs two ways:
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
@@ -19,12 +21,17 @@ from urllib.parse import urlparse
 import yt_dlp
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
+APP_VERSION = "1.0.0"
+GITHUB_REPO = "damsarachethiyaa-dev/orbit"
+
 DESKTOP = os.environ.get("ORBIT_DESKTOP") == "1"
 FROZEN = getattr(sys, "frozen", False)
 ROOT = Path(sys._MEIPASS) if FROZEN else Path(__file__).parent          # bundled read-only files
 DATA = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Orbit" if DESKTOP else ROOT   # writable files
 DOWNLOADS = DATA / "downloads"
 DOWNLOADS.mkdir(parents=True, exist_ok=True)
+UPDATE_DIR = DATA / "updates"
+UPDATE_DIR.mkdir(parents=True, exist_ok=True)
 JOB_TTL = 60 * 60  # website mode: delete finished files after an hour
 
 # ffmpeg: use the copy bundled with the app, otherwise whatever is on PATH
@@ -346,7 +353,14 @@ def clear_history():
 @app.get("/api/settings")
 def get_settings():
     desktop_only()
-    return jsonify({**settings(), "yt_dlp": yt_dlp.version.__version__, "ffmpeg": bool(FFMPEG or shutil.which("ffmpeg"))})
+    return jsonify({
+        **settings(),
+        "version": APP_VERSION,
+        "has_update": update_state["has_update"],
+        "latest_version": update_state["latest_version"],
+        "yt_dlp": yt_dlp.version.__version__,
+        "ffmpeg": bool(FFMPEG or shutil.which("ffmpeg")),
+    })
 
 
 @app.post("/api/settings")
@@ -379,6 +393,205 @@ def open_folder():
 def clipboard():
     desktop_only()
     return jsonify(text=read_clipboard().strip()[:2000])
+
+
+# ---------------------------------------------------------------- in-app auto-updater
+update_state = {
+    "checking": False,
+    "has_update": False,
+    "current_version": APP_VERSION,
+    "latest_version": APP_VERSION,
+    "release_name": "",
+    "release_notes": "",
+    "download_url": "",
+    "html_url": f"https://github.com/{GITHUB_REPO}/releases/latest",
+    "downloading": False,
+    "download_percent": 0,
+    "download_speed": "",
+    "download_total": 0,
+    "download_done": 0,
+    "ready_to_install": False,
+    "update_file": None,
+    "error": None,
+}
+
+
+def parse_version(v: str) -> tuple:
+    parts = re.findall(r"\d+", str(v or ""))
+    return tuple(map(int, parts)) if parts else (0,)
+
+
+def check_for_updates(force_test: bool = False) -> dict:
+    update_state["checking"] = True
+    update_state["error"] = None
+    try:
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": f"Orbit-App/{APP_VERSION}"})
+        with urllib.request.urlopen(req, timeout=10) as res:
+            data = json.loads(res.read().decode("utf-8"))
+
+        latest_tag = data.get("tag_name", "").lstrip("v")
+        latest_ver = parse_version(latest_tag)
+        curr_ver = parse_version(APP_VERSION)
+
+        download_url = ""
+        for asset in data.get("assets", []):
+            name = asset.get("name", "")
+            if name.lower().endswith(".exe"):
+                download_url = asset.get("browser_download_url")
+                break
+
+        has_update = (latest_ver > curr_ver and bool(download_url)) or (force_test and bool(download_url))
+        update_state.update(
+            has_update=has_update,
+            latest_version=data.get("tag_name", ""),
+            release_name=data.get("name") or data.get("tag_name", ""),
+            release_notes=data.get("body") or "",
+            download_url=download_url,
+            html_url=data.get("html_url") or f"https://github.com/{GITHUB_REPO}/releases/latest",
+        )
+    except Exception as e:
+        update_state["error"] = str(e)
+    finally:
+        update_state["checking"] = False
+    return update_state
+
+
+def download_update_thread():
+    if update_state["downloading"] or not update_state.get("download_url"):
+        return
+    update_state["downloading"] = True
+    update_state["download_percent"] = 0
+    update_state["ready_to_install"] = False
+    update_state["error"] = None
+
+    url = update_state["download_url"]
+    filename = url.split("/")[-1] or "Orbit.exe"
+    target_path = UPDATE_DIR / filename
+    temp_path = UPDATE_DIR / (filename + ".tmp")
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": f"Orbit-App/{APP_VERSION}"})
+        with urllib.request.urlopen(req, timeout=60) as res:
+            total = int(res.headers.get("Content-Length", 0))
+            update_state["download_total"] = total
+            downloaded = 0
+            start_time = time.time()
+            last_time = start_time
+            last_bytes = 0
+
+            with open(temp_path, "wb") as f:
+                while True:
+                    chunk = res.read(64 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    update_state["download_done"] = downloaded
+                    if total > 0:
+                        update_state["download_percent"] = round((downloaded / total) * 100, 1)
+
+                    now = time.time()
+                    if now - last_time >= 0.5:
+                        speed = (downloaded - last_bytes) / (now - last_time) if (now - last_time) > 0 else 0
+                        if speed > 1e6:
+                            update_state["download_speed"] = f"{speed / 1e6:.1f} MB/s"
+                        else:
+                            update_state["download_speed"] = f"{max(1, int(speed / 1e3))} KB/s"
+                        last_time = now
+                        last_bytes = downloaded
+
+        if target_path.exists():
+            target_path.unlink()
+        temp_path.rename(target_path)
+
+        update_state["ready_to_install"] = True
+        update_state["update_file"] = str(target_path)
+        update_state["download_percent"] = 100
+        update_state["download_speed"] = ""
+    except Exception as e:
+        update_state["error"] = f"Download failed: {e}"
+        temp_path.unlink(missing_ok=True)
+    finally:
+        update_state["downloading"] = False
+
+
+def apply_update_process():
+    if not update_state.get("ready_to_install") or not update_state.get("update_file"):
+        return False, "No update file is ready to install."
+
+    new_exe = Path(update_state["update_file"])
+    if not new_exe.exists():
+        return False, "Downloaded update executable was not found."
+
+    pid = os.getpid()
+
+    if FROZEN:
+        current_exe = Path(sys.executable)
+        updater_bat = DATA / "updater.bat"
+        bat_content = f"""@echo off
+setlocal
+echo Updating Orbit to latest version...
+timeout /t 1 /nobreak >nul
+:wait_loop
+tasklist /fi "pid eq {pid}" | find "{pid}" >nul
+if not errorlevel 1 (
+    timeout /t 1 /nobreak >nul
+    goto wait_loop
+)
+
+copy /y "{new_exe}" "{current_exe}" >nul
+if errorlevel 1 (
+    timeout /t 2 /nobreak >nul
+    copy /y "{new_exe}" "{current_exe}" >nul
+)
+
+start "" "{current_exe}"
+del "%~f0" & exit
+"""
+        updater_bat.write_text(bat_content, encoding="utf-8")
+        subprocess.Popen(["cmd.exe", "/c", str(updater_bat)], creationflags=0x08000000 | 0x00000008)
+        threading.Thread(target=lambda: (time.sleep(0.6), os._exit(0)), daemon=True).start()
+        return True, "Restarting Orbit to apply update..."
+    else:
+        subprocess.Popen([str(new_exe)], creationflags=0x08000000 | 0x00000008)
+        threading.Thread(target=lambda: (time.sleep(0.6), os._exit(0)), daemon=True).start()
+        return True, "Launching updated Orbit binary..."
+
+
+@app.get("/api/update/check")
+def update_check():
+    force = request.args.get("force") == "1"
+    res = check_for_updates(force_test=force)
+    return jsonify(res)
+
+
+@app.get("/api/update/status")
+def update_status():
+    return jsonify(update_state)
+
+
+@app.post("/api/update/download")
+def update_download():
+    if not update_state.get("download_url"):
+        check_for_updates()
+    if not update_state.get("download_url"):
+        return jsonify(error="No download URL available for update."), 400
+    threading.Thread(target=download_update_thread, daemon=True).start()
+    return jsonify(ok=True)
+
+
+@app.post("/api/update/apply")
+def update_apply():
+    ok, msg = apply_update_process()
+    if not ok:
+        return jsonify(error=msg), 400
+    return jsonify(ok=True, message=msg)
+
+
+@app.get("/api/version")
+def get_version():
+    return jsonify(version=APP_VERSION)
 
 
 if __name__ == "__main__":

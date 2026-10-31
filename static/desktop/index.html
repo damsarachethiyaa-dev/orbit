@@ -42,6 +42,25 @@
 
   <main class="main">
 
+    <!-- UPDATE BANNER -->
+    <div class="update-banner" id="updateBanner" hidden>
+      <div class="ub-left">
+        <span class="ub-badge">UPDATE</span>
+        <div class="ub-copy">
+          <b id="ubTitle">Orbit update available!</b>
+          <span class="mono dim" id="ubMeta">A new release is ready to download.</span>
+        </div>
+      </div>
+      <div class="ub-right">
+        <div class="ub-meter" id="ubMeter" hidden>
+          <div class="ub-track"><div class="ub-fill" id="ubFill"></div></div>
+          <span class="mono ub-stat" id="ubStat">0%</span>
+        </div>
+        <button type="button" class="solid ub-btn" id="ubBtn">Update Now</button>
+        <button type="button" class="ub-close" id="ubClose" aria-label="Dismiss">&times;</button>
+      </div>
+    </div>
+
     <!-- DOWNLOAD -->
     <section class="view on" id="v-download">
       <header class="head">
@@ -129,11 +148,22 @@
           <div><h4>Library</h4><p class="mono dim">Remove the list of past downloads (files stay on disk)</p></div>
           <button class="ghost" id="setClear">Clear list</button>
         </div>
+        <div class="set-row">
+          <div>
+            <h4>App updates</h4>
+            <p class="mono dim" id="setUpdateInfo">Orbit v1.0.0 — Check for new releases</p>
+          </div>
+          <div class="set-act">
+            <button class="ghost" id="setCheckUpdate">Check for updates</button>
+            <button class="solid" id="setUpdateNow" hidden>Update now</button>
+          </div>
+        </div>
       </div>
 
       <div class="about">
         <p class="mono dim">About</p>
         <div class="stat-row">
+          <div><b id="aAppVer">v1.0.0</b><span class="mono">Orbit Version</span></div>
           <div><b id="aVer">—</b><span class="mono">Download engine</span></div>
           <div><b id="aFf">—</b><span class="mono">ffmpeg</span></div>
           <div><b>MP4 / MP3</b><span class="mono">Formats</span></div>

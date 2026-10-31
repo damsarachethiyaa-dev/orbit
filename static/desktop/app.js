@@ -243,7 +243,15 @@ async function loadSettings() {
   try {
     const s = await api("/api/settings");
     applySettings(s);
+    if ($("#aAppVer")) $("#aAppVer").textContent = "v" + (s.version || "1.0.0");
     $("#aVer").textContent = s.yt_dlp; $("#aFf").textContent = s.ffmpeg ? "Ready" : "Missing";
+    if (s.has_update) {
+      if ($("#setUpdateInfo")) $("#setUpdateInfo").textContent = `Update available: ${s.latest_version} (Current: v${s.version})`;
+      if ($("#setUpdateNow")) $("#setUpdateNow").hidden = false;
+    } else {
+      if ($("#setUpdateInfo")) $("#setUpdateInfo").textContent = `Orbit v${s.version} — You are on the latest version`;
+      if ($("#setUpdateNow")) $("#setUpdateNow").hidden = true;
+    }
   } catch {}
 }
 $("#setQuality").onchange = async e => { try { applySettings(await api("/api/settings", { default_quality: e.target.value })); toast("Default quality saved"); } catch {} };
@@ -257,6 +265,118 @@ $("#setChange").onclick = async () => {
 const openFolder = () => api("/api/open-folder", {}).catch(() => toast("Couldn't open the folder"));
 $("#setOpen").onclick = openFolder; $("#openFolder").onclick = openFolder;
 
+/* ---------------- in-app auto updater ---------------- */
+let updatePoll = null;
+
+async function checkUpdate(manual = false) {
+  try {
+    if (manual) toast("Checking for updates...");
+    const data = await api("/api/update/check");
+    renderUpdate(data, manual);
+  } catch (err) {
+    if (manual) toast("Update check failed: " + err.message);
+  }
+}
+
+function renderUpdate(data, manual = false) {
+  const b = $("#updateBanner");
+  const sInfo = $("#setUpdateInfo");
+  const sBtn = $("#setUpdateNow");
+
+  if (data.has_update) {
+    $("#ubTitle").textContent = `Orbit ${data.latest_version} is available!`;
+    $("#ubMeta").textContent = data.release_name || "A new release is ready to download.";
+    b.hidden = false;
+    if (sInfo) sInfo.textContent = `Update available: ${data.latest_version} (Current: v${data.current_version})`;
+    if (sBtn) sBtn.hidden = false;
+  } else {
+    b.hidden = true;
+    if (sInfo) sInfo.textContent = `Orbit v${data.current_version} — You are on the latest version`;
+    if (sBtn) sBtn.hidden = true;
+    if (manual) toast("You're on the latest version of Orbit!");
+  }
+}
+
+async function startUpdate() {
+  const btn = $("#ubBtn");
+  const meter = $("#ubMeter");
+  const stat = $("#ubStat");
+  const fill = $("#ubFill");
+
+  btn.disabled = true;
+  btn.textContent = "Downloading...";
+  meter.hidden = false;
+
+  try {
+    await api("/api/update/download", {}, "POST");
+    clearInterval(updatePoll);
+    updatePoll = setInterval(async () => {
+      try {
+        const s = await api("/api/update/status");
+        if (s.downloading) {
+          fill.style.width = (s.download_percent || 0) + "%";
+          stat.textContent = (s.download_percent || 0) + "%";
+          btn.textContent = s.download_speed ? `Downloading (${s.download_speed})` : "Downloading...";
+        } else if (s.ready_to_install) {
+          clearInterval(updatePoll);
+          fill.style.width = "100%";
+          stat.textContent = "100%";
+          btn.disabled = false;
+          btn.textContent = "Restart & Install";
+          toast("Update downloaded! Click Restart to finish.");
+        } else if (s.error) {
+          clearInterval(updatePoll);
+          btn.disabled = false;
+          btn.textContent = "Retry Update";
+          toast("Update failed: " + s.error);
+        }
+      } catch (e) {
+        clearInterval(updatePoll);
+      }
+    }, 300);
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = "Update Now";
+    meter.hidden = true;
+    toast("Could not start update: " + err.message);
+  }
+}
+
+async function applyUpdate() {
+  const btn = $("#ubBtn");
+  btn.disabled = true;
+  btn.textContent = "Restarting...";
+  try {
+    toast("Restarting Orbit to apply update...");
+    await api("/api/update/apply", {}, "POST");
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = "Restart & Install";
+    toast("Failed to restart: " + err.message);
+  }
+}
+
+$("#ubBtn").addEventListener("click", () => {
+  if ($("#ubBtn").textContent.includes("Restart")) {
+    applyUpdate();
+  } else {
+    startUpdate();
+  }
+});
+
+$("#ubClose").addEventListener("click", () => {
+  $("#updateBanner").hidden = true;
+});
+
+const sCheck = $("#setCheckUpdate");
+if (sCheck) sCheck.addEventListener("click", () => checkUpdate(true));
+
+const sUpdateNow = $("#setUpdateNow");
+if (sUpdateNow) sUpdateNow.addEventListener("click", () => {
+  $("#updateBanner").hidden = false;
+  startUpdate();
+});
+
 /* ---------------- start up ---------------- */
 // optional deep links: #library / #settings open a screen, ?url=... fetches a link,
 // ?shot turns off the clipboard prompt (used for README screenshots)
@@ -267,3 +387,6 @@ loadSettings();
 urlEl.focus();
 if (params.get("url")) { urlEl.value = params.get("url"); fetchInfo(); }
 else if (!params.has("shot")) checkClip();
+
+// Background check for updates 2.5s after launch
+setTimeout(() => checkUpdate(false), 2500);
