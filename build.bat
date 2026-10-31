@@ -1,7 +1,9 @@
 @echo off
-rem Builds the Orbit Windows app into one file: dist\Orbit.exe
+rem Builds the Orbit Windows app (--onedir) and packages it into a Windows Installer: dist\Orbit-Setup.exe
 rem Uses a clean virtual environment so unrelated packages (torch, tensorflow...) are not bundled.
 cd /d "%~dp0"
+
+taskkill /F /IM Orbit.exe >nul 2>&1
 
 if not exist .venv-build (
     python -m venv .venv-build || goto :fail
@@ -21,18 +23,37 @@ if not exist "%FFMPEG_DIR%ffmpeg.exe" (
 )
 
 if exist "%~dp0dist" rmdir /s /q "%~dp0dist"
-python -m PyInstaller --noconfirm --clean --onefile --windowed --name Orbit --icon "%~dp0orbit.ico" ^
+python -m PyInstaller --noconfirm --clean --onedir --contents-directory _internal --windowed ^
+  --name Orbit --icon "%~dp0orbit.ico" --version-file "%~dp0version_info.txt" ^
   --distpath "%~dp0dist" --workpath "%~dp0build" --specpath "%~dp0build" ^
   --add-data "%~dp0static;static" ^
   --add-binary "%FFMPEG_DIR%ffmpeg.exe;bin" --add-binary "%FFMPEG_DIR%ffprobe.exe;bin" ^
   --collect-submodules yt_dlp --collect-all webview ^
   desktop.py || goto :fail
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path '%~dp0dist\Orbit.exe'" >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$c = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -like '*Orbit Media Software*' } | Select-Object -First 1; if ($c) { Set-AuthenticodeSignature -Certificate $c -FilePath '%~dp0dist\Orbit.exe' }" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path '%~dp0dist\Orbit\Orbit.exe'" >nul 2>&1
+
+rem Locate NSIS (makensis.exe) to build the Windows Setup Installer
+set "MAKENSIS="
+for /f "delims=" %%i in ('where makensis 2^>nul') do set "MAKENSIS=%%i"
+if not defined MAKENSIS if exist "C:\Program Files (x86)\NSIS\makensis.exe" set "MAKENSIS=C:\Program Files (x86)\NSIS\makensis.exe"
+if not defined MAKENSIS if exist "C:\Program Files\NSIS\makensis.exe" set "MAKENSIS=C:\Program Files\NSIS\makensis.exe"
+if not defined MAKENSIS (
+    for /f "delims=" %%i in ('powershell -NoProfile -Command "$m = Get-ChildItem \"$env:LOCALAPPDATA\electron-builder\Cache\" -Recurse -Filter makensis.exe -ErrorAction SilentlyContinue | Select-Object -First 1; if ($m) { $m.FullName }"') do set "MAKENSIS=%%i"
+)
+
+if not defined MAKENSIS (
+    echo Could not find makensis.exe to build installer.
+    goto :fail
+)
+
+echo Building Windows Setup Installer with NSIS...
+"%MAKENSIS%" /V2 "%~dp0installer.nsi" || goto :fail
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path '%~dp0dist\Orbit-Setup.exe'" >nul 2>&1
 
 echo.
-echo Done: %~dp0dist\Orbit.exe
+echo Done: %~dp0dist\Orbit-Setup.exe
 exit /b 0
 
 :fail

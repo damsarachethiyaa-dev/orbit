@@ -14,7 +14,7 @@
   <br />
 
   <p>
-    <a href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest">
+    <a href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest/download/Orbit-Setup.exe">
       <img src="https://img.shields.io/badge/DOWNLOAD_INSTALLER-.EXE_(V1.0.2)-00e676?style=for-the-badge&logo=windows&logoColor=white&labelColor=23272e" alt="Download Installer" />
     </a>
     &nbsp;
@@ -93,8 +93,8 @@ Experience the full interactive editorial website, live 4K walkthrough player, p
 
 ## 🚀 Quick Start (Windows)
 
-1. Download the standalone executable from **[Releases (v1.0.2)](https://github.com/damsarachethiyaa-dev/orbit/releases/latest)** (`Orbit.exe`).
-2. Double-click `Orbit.exe` to launch.
+1. Download the Windows Setup Installer from **[Releases (v1.0.2)](https://github.com/damsarachethiyaa-dev/orbit/releases/latest/download/Orbit-Setup.exe)** (`Orbit-Setup.exe`).
+2. Double-click `Orbit-Setup.exe` to install Orbit and launch it.
 3. Paste any video or audio link (YouTube, TikTok, Instagram, X, Vimeo, Reddit, Twitch, etc.) and hit **Fetch**.
 4. Choose **Video** (4K, 1440p, 1080p, 720p) or **Audio** (MP3) and click **Download**.
 

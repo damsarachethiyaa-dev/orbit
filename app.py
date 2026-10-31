@@ -440,11 +440,17 @@ def check_for_updates(force_test: bool = False) -> dict:
         curr_ver = parse_version(APP_VERSION)
 
         download_url = ""
-        for asset in data.get("assets", []):
-            name = asset.get("name", "")
-            if name.lower().endswith(".exe") and trusted_update_url(asset.get("browser_download_url")):
-                download_url = asset.get("browser_download_url")
+        exe_assets = [
+            a.get("browser_download_url")
+            for a in data.get("assets", [])
+            if a.get("name", "").lower().endswith(".exe") and trusted_update_url(a.get("browser_download_url"))
+        ]
+        for u in exe_assets:
+            if "setup" in u.lower() or "install" in u.lower():
+                download_url = u
                 break
+        if not download_url and exe_assets:
+            download_url = exe_assets[0]
 
         has_update = (latest_ver > curr_ver and bool(download_url)) or (force_test and bool(download_url))
         update_state.update(
@@ -534,6 +540,14 @@ def download_update_thread():
         update_state["downloading"] = False
 
 
+def is_nsis_installer(path: Path) -> bool:
+    try:
+        with open(path, "rb") as f:
+            return b"Nullsoft" in f.read(131072)
+    except Exception:
+        return "setup" in path.name.lower()
+
+
 def apply_update_process():
     if not update_state.get("ready_to_install") or not update_state.get("update_file"):
         return False, "No update file is ready to install."
@@ -543,10 +557,33 @@ def apply_update_process():
         return False, "Downloaded update executable was not found."
 
     pid = os.getpid()
+    installed_default = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "Orbit" / "Orbit.exe"
+    current_exe = Path(sys.executable) if FROZEN else installed_default
+    installer_mode = is_nsis_installer(new_exe)
 
-    if FROZEN:
-        current_exe = Path(sys.executable)
-        updater_bat = DATA / "updater.bat"
+    updater_bat = DATA / "updater.bat"
+    if installer_mode:
+        bat_content = f"""@echo off
+setlocal
+echo Updating Orbit to latest version...
+timeout /t 1 /nobreak >nul
+:wait_loop
+tasklist /fi "pid eq {pid}" | find "{pid}" >nul
+if not errorlevel 1 (
+    timeout /t 1 /nobreak >nul
+    goto wait_loop
+)
+
+powershell -NoProfile -Command "Unblock-File -Path '{new_exe}'" >nul 2>&1
+start /wait "" "{new_exe}" /S
+if exist "{installed_default}" (
+    start "" "{installed_default}"
+) else if exist "{current_exe}" (
+    start "" "{current_exe}"
+)
+del "%~f0" & exit
+"""
+    elif FROZEN:
         bat_content = f"""@echo off
 setlocal
 echo Updating Orbit to latest version...
@@ -568,10 +605,6 @@ powershell -NoProfile -Command "Unblock-File -Path '{current_exe}'" >nul 2>&1
 start "" "{current_exe}"
 del "%~f0" & exit
 """
-        updater_bat.write_text(bat_content, encoding="utf-8")
-        subprocess.Popen(["cmd.exe", "/c", str(updater_bat)], creationflags=0x08000000 | 0x00000008)
-        threading.Thread(target=lambda: (time.sleep(0.6), os._exit(0)), daemon=True).start()
-        return True, "Restarting Orbit to apply update..."
     else:
         if sys.platform == "win32":
             try:
@@ -586,11 +619,17 @@ del "%~f0" & exit
         threading.Thread(target=lambda: (time.sleep(0.6), os._exit(0)), daemon=True).start()
         return True, "Launching updated Orbit binary..."
 
+    updater_bat.write_text(bat_content, encoding="utf-8")
+    subprocess.Popen(["cmd.exe", "/c", str(updater_bat)], creationflags=0x08000000 | 0x00000008)
+    threading.Thread(target=lambda: (time.sleep(0.6), os._exit(0)), daemon=True).start()
+    return True, "Restarting Orbit to apply update..."
+
 
 @app.get("/api/update/check")
 def update_check():
     desktop_only()
-    return jsonify(check_for_updates())
+    force = request.args.get("force") == "1"
+    return jsonify(check_for_updates(force_test=force))
 
 
 @app.get("/api/update/status")
