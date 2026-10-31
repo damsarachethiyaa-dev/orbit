@@ -4,6 +4,7 @@
     python desktop.py --no-window  just serve (used for testing)
 """
 import os
+import shutil
 import socket
 import sys
 import threading
@@ -18,30 +19,15 @@ DATA = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Orbit"
 DATA.mkdir(parents=True, exist_ok=True)
 LOG = DATA / "orbit.log"
 
-_mutex_handle = None
-
-def ensure_single_instance():
-    """Ensure only one Orbit window runs at a time. If already open, brings it to front."""
-    global _mutex_handle
-    if sys.platform == "win32" and "--no-window" not in sys.argv:
-        import ctypes
-        _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, "OrbitAppMutex")
-        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-            hwnd = ctypes.windll.user32.FindWindowW(None, "Orbit")
-            if hwnd:
-                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
-            sys.exit(0)
-
-def clean_stale_locks(folder: Path):
-    """Remove leftover lock files from previous unclean shutdowns so WebView2 doesn't freeze with 0x800700AA."""
-    if not folder.exists():
+def clean_old_sessions(base: Path):
+    """Remove leftover session folders from past runs so disk space stays clean."""
+    if not base.exists():
         return
-    for item in folder.rglob("*LOCK*"):
-        if item.is_file():
+    for item in base.glob("p_*"):
+        if item.is_dir():
             try:
-                item.unlink(missing_ok=True)
-            except OSError:
+                shutil.rmtree(item, ignore_errors=True)
+            except Exception:
                 pass
 
 # a windowed exe has no console: send output to a log file so crashes can be diagnosed
@@ -84,7 +70,6 @@ class Api:
 
 
 def main():
-    ensure_single_instance()
     port = int(os.environ.get("ORBIT_PORT") or free_port())
     server = make_server("127.0.0.1", port, orbit.app, threaded=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -106,8 +91,9 @@ def main():
             pass
     else:
         import webview
-        data = DATA / "webview"
-        clean_stale_locks(data)
+        base = DATA / "webview"
+        clean_old_sessions(base)
+        data = base / f"p_{os.getpid()}"
         data.mkdir(parents=True, exist_ok=True)
         api = Api()
         api._window = webview.create_window("Orbit", url, js_api=api, width=1080, height=720,
@@ -119,6 +105,8 @@ def main():
             message_box("Orbit needs the Microsoft Edge WebView2 Runtime, which is missing or broken on this PC.\n\n"
                         "Install it from https://developer.microsoft.com/microsoft-edge/webview2/ and open Orbit again.\n\n"
                         f"Details were saved to {LOG}")
+        finally:
+            shutil.rmtree(data, ignore_errors=True)
 
     server.shutdown()
 

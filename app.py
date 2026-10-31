@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import yt_dlp
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.2"
 GITHUB_REPO = "damsarachethiyaa-dev/orbit"
 
 DESKTOP = os.environ.get("ORBIT_DESKTOP") == "1"
@@ -126,7 +126,7 @@ def cleanup():
     now = time.time()
     with lock:
         for jid, j in list(jobs.items()):
-            if j["state"] in ("done", "error") and now - j["created"] > JOB_TTL:
+            if j["state"] in ("done", "error", "cancelled") and now - j["created"] > JOB_TTL:
                 if not DESKTOP:
                     shutil.rmtree(DOWNLOADS / jid, ignore_errors=True)
                 jobs.pop(jid, None)
@@ -150,7 +150,7 @@ def index():
 
 @app.post("/api/info")
 def info():
-    url = (request.get_json(silent=True) or {}).get("url", "").strip()
+    url = str((request.get_json(silent=True) or {}).get("url") or "").strip()
     if not valid_url(url):
         return jsonify(error="That doesn't look like a valid link."), 400
     try:
@@ -236,8 +236,8 @@ def run_job(jid: str, url: str, quality: str):
 @app.post("/api/download")
 def download():
     body = request.get_json(silent=True) or {}
-    url, quality = (body.get("url") or "").strip(), body.get("quality", "best")
-    if not valid_url(url) or quality not in QUALITY:
+    url, quality = str(body.get("url") or "").strip(), body.get("quality", "best")
+    if not valid_url(url) or not isinstance(quality, str) or quality not in QUALITY:
         return jsonify(error="Invalid request."), 400
     cleanup()
     jid = uuid.uuid4().hex[:12]
@@ -421,6 +421,11 @@ def parse_version(v: str) -> tuple:
     return tuple(map(int, parts)) if parts else (0,)
 
 
+def trusted_update_url(u: str) -> bool:
+    p = urlparse(u or "")
+    return p.scheme == "https" and p.hostname in ("github.com", "objects.githubusercontent.com")
+
+
 def check_for_updates(force_test: bool = False) -> dict:
     update_state["checking"] = True
     update_state["error"] = None
@@ -437,7 +442,7 @@ def check_for_updates(force_test: bool = False) -> dict:
         download_url = ""
         for asset in data.get("assets", []):
             name = asset.get("name", "")
-            if name.lower().endswith(".exe"):
+            if name.lower().endswith(".exe") and trusted_update_url(asset.get("browser_download_url")):
                 download_url = asset.get("browser_download_url")
                 break
 
@@ -466,7 +471,7 @@ def download_update_thread():
     update_state["error"] = None
 
     url = update_state["download_url"]
-    filename = url.split("/")[-1] or "Orbit.exe"
+    filename = "Orbit-update.exe"
     target_path = UPDATE_DIR / filename
     temp_path = UPDATE_DIR / (filename + ".tmp")
 
@@ -501,6 +506,9 @@ def download_update_thread():
                         last_time = now
                         last_bytes = downloaded
 
+        with open(temp_path, "rb") as f:
+            if downloaded < 1_000_000 or f.read(2) != b"MZ" or (total and downloaded != total):
+                raise RuntimeError("the downloaded file is incomplete or not a valid program")
         if target_path.exists():
             target_path.unlink()
         temp_path.rename(target_path)
@@ -556,7 +564,7 @@ if errorlevel 1 (
     copy /y "{new_exe}" "{current_exe}" >nul
 )
 
-powershell -NoProfile -Command "Unblock-File -Path '%current_exe%'" >nul 2>&1
+powershell -NoProfile -Command "Unblock-File -Path '{current_exe}'" >nul 2>&1
 start "" "{current_exe}"
 del "%~f0" & exit
 """
@@ -581,18 +589,21 @@ del "%~f0" & exit
 
 @app.get("/api/update/check")
 def update_check():
-    force = request.args.get("force") == "1"
-    res = check_for_updates(force_test=force)
-    return jsonify(res)
+    desktop_only()
+    return jsonify(check_for_updates())
 
 
 @app.get("/api/update/status")
 def update_status():
+    desktop_only()
     return jsonify(update_state)
 
 
 @app.post("/api/update/download")
 def update_download():
+    desktop_only()
+    if update_state["downloading"]:
+        return jsonify(ok=True)
     if not update_state.get("download_url"):
         check_for_updates()
     if not update_state.get("download_url"):
@@ -603,6 +614,7 @@ def update_download():
 
 @app.post("/api/update/apply")
 def update_apply():
+    desktop_only()
     ok, msg = apply_update_process()
     if not ok:
         return jsonify(error=msg), 400

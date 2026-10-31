@@ -1,5 +1,6 @@
 # build output (the exe is published as a GitHub Release, not committed)
 dist/
+updates/
 build/
 *.spec
 .venv-build/

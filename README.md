@@ -15,7 +15,7 @@
 
   <p>
     <a href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest">
-      <img src="https://img.shields.io/badge/DOWNLOAD_INSTALLER-.EXE_(V1.0.0)-00e676?style=for-the-badge&logo=windows&logoColor=white&labelColor=23272e" alt="Download Installer" />
+      <img src="https://img.shields.io/badge/DOWNLOAD_INSTALLER-.EXE_(V1.0.2)-00e676?style=for-the-badge&logo=windows&logoColor=white&labelColor=23272e" alt="Download Installer" />
     </a>
     &nbsp;
     <a href="https://damsarachethiyaa-dev.github.io/orbit/">
@@ -47,7 +47,7 @@
     </a>
     &nbsp;
     <a href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest">
-      <img src="https://img.shields.io/badge/RELEASE-V1.0.0-00b0ff?style=for-the-badge&logo=github&logoColor=white&labelColor=23272e" alt="Release v1.0.0" />
+      <img src="https://img.shields.io/badge/RELEASE-V1.0.2-00b0ff?style=for-the-badge&logo=github&logoColor=white&labelColor=23272e" alt="Release v1.0.2" />
     </a>
   </p>
 
@@ -93,7 +93,7 @@ Experience the full interactive editorial website, live 4K walkthrough player, p
 
 ## 🚀 Quick Start (Windows)
 
-1. Download the standalone executable from **[Releases (v1.0.0)](https://github.com/damsarachethiyaa-dev/orbit/releases/latest)** (`Orbit.exe`).
+1. Download the standalone executable from **[Releases (v1.0.2)](https://github.com/damsarachethiyaa-dev/orbit/releases/latest)** (`Orbit.exe`).
 2. Double-click `Orbit.exe` to launch.
 3. Paste any video or audio link (YouTube, TikTok, Instagram, X, Vimeo, Reddit, Twitch, etc.) and hit **Fetch**.
 4. Choose **Video** (4K, 1440p, 1080p, 720p) or **Audio** (MP3) and click **Download**.
