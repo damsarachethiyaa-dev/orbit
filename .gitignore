@@ -18,3 +18,7 @@ android/build/
 android/app/build/
 android/local.properties
 android/app/*.jks
+
+# Temporary scratch & debug files
+scratch_*
+

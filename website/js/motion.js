@@ -687,6 +687,80 @@
     });
   });
 
+  /* ======================= Dynamic GitHub Release Version Sync ======================= */
+  (function initReleaseAutoSync() {
+    const REPO = 'damsarachethiyaa-dev/orbit';
+    const CACHE_KEY = 'orbit_latest_release';
+    const CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache
+
+    function applyRelease(data) {
+      if (!data || !data.tag_name) return;
+      const rawTag = String(data.tag_name).trim();
+      const version = /^v/i.test(rawTag) ? rawTag : ('v' + rawTag);
+
+      // 1. Update marked version elements
+      $$('[data-orbit-version]').forEach(el => {
+        el.textContent = `Download Free (${version})`;
+      });
+
+      // Fallback for any elements matching the version pattern
+      $$('a[download] span').forEach(el => {
+        if (/Download Free \(v[0-9.]+\)/i.test(el.textContent)) {
+          el.textContent = `Download Free (${version})`;
+        }
+      });
+
+      // 2. Update footer link
+      $$('[data-orbit-footer-version]').forEach(el => {
+        el.textContent = `Download ${version}`;
+      });
+      $$('footer a').forEach(el => {
+        if (/Download v[0-9.]+/i.test(el.textContent)) {
+          el.textContent = `Download ${version}`;
+        }
+      });
+
+      // 3. Update download URLs if assets are present
+      if (Array.isArray(data.assets)) {
+        const exeAsset = data.assets.find(a => a.name && a.name.toLowerCase().endsWith('.exe'));
+        if (exeAsset && exeAsset.browser_download_url) {
+          $$('a[download*="Orbit-Setup"], a[download="Orbit-Setup.exe"]').forEach(a => {
+            a.href = exeAsset.browser_download_url;
+            a.setAttribute('download', exeAsset.name);
+          });
+        }
+      }
+    }
+
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && Date.now() - parsed.timestamp < CACHE_TTL && parsed.data) {
+          applyRelease(parsed.data);
+          return;
+        }
+      }
+    } catch (e) {}
+
+    fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+      headers: { 'Accept': 'application/vnd.github.v3+json' }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        applyRelease(data);
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify({ timestamp: Date.now(), data }));
+        } catch (e) {}
+      })
+      .catch(() => {
+        // Fallback: retains existing HTML version
+      });
+  })();
+
   /* ======================= Download Toast Notification ======================= */
   const dlToast = $('#dl-toast');
   $$('a[download]').forEach(link => {

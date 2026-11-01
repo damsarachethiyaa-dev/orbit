@@ -1,0 +1,59 @@
+name: Auto-Update Website on New Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-website-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Resolve Release Tag
+        id: resolve_tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG=$(gh release view --repo ${{ github.repository }} --json tagName -q .tagName)
+          fi
+          # Normalize tag to have leading 'v'
+          if [[ ! $TAG =~ ^v ]]; then
+            TAG="v$TAG"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Resolved release tag: $TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Version in Website Files
+        run: |
+          TAG="${{ steps.resolve_tag.outputs.tag }}"
+          echo "Updating website files to version: $TAG"
+
+          for file in docs/index.html website/index.html; do
+            if [ -f "$file" ]; then
+              sed -i -E "s/Download Free \(v[0-9]+\.[0-9]+\.[0-9]+\)/Download Free ($TAG)/g" "$file"
+              sed -i -E "s/Download v[0-9]+\.[0-9]+\.[0-9]+/Download $TAG/g" "$file"
+            fi
+          done
+
+      - name: Commit and Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html website/index.html
+          if git diff --staged --quiet; then
+            echo "No changes needed. Website is already on version ${{ steps.resolve_tag.outputs.tag }}."
+          else
+            git commit -m "chore(website): auto-update download buttons to ${{ steps.resolve_tag.outputs.tag }}"
+            git push origin main
+          fi
