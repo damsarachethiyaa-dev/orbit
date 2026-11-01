@@ -252,14 +252,18 @@ object OrbitEngine {
 
     fun resolveDirectImage(rawUrl: String): CustomMediaInfo? {
         val clean = extractUrl(rawUrl) ?: rawUrl
+        val lower = clean.lowercase()
         val path = try { Uri.parse(clean).path?.lowercase() ?: "" } catch (_: Exception) { "" }
-        val isImg = path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".png") ||
-                path.endsWith(".webp") || path.endsWith(".gif") || path.endsWith(".bmp")
-        if (!isImg) return null
+        val isImgExt = path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".png") ||
+                path.endsWith(".webp") || path.endsWith(".gif") || path.endsWith(".bmp") ||
+                path.endsWith(".avif") || path.endsWith(".heic") ||
+                lower.contains("format=jpg") || lower.contains("format=png") || lower.contains("format=webp") ||
+                lower.contains(".jpg?") || lower.contains(".jpeg?") || lower.contains(".png?") || lower.contains(".webp?")
+        if (!isImgExt) return null
         val fileName = path.substringAfterLast("/").substringBefore(".").ifBlank { "Image" }
         return CustomMediaInfo(
             title = fileName,
-            site = "Image",
+            site = try { Uri.parse(clean).host?.removePrefix("www.")?.substringBefore(".")?.replaceFirstChar { it.uppercase() } ?: "Image" } catch (_: Exception) { "Image" },
             uploader = try { Uri.parse(clean).host ?: "" } catch (_: Exception) { "" },
             duration = 0,
             thumbnail = clean,
@@ -267,6 +271,210 @@ object OrbitEngine {
             imageUrls = listOf(clean),
             mediaType = "image"
         )
+    }
+
+    fun resolveSocialAndWebImage(rawUrl: String): CustomMediaInfo? {
+        val clean = extractUrl(rawUrl) ?: rawUrl
+        if (!clean.startsWith("http://") && !clean.startsWith("https://")) return null
+
+        try {
+            var currentUrl = clean
+            val ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            var html = ""
+
+            for (i in 0..5) {
+                val conn = (java.net.URL(currentUrl).openConnection() as java.net.HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 12000
+                    readTimeout = 15000
+                    setRequestProperty("User-Agent", ua)
+                    setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+                    setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+                }
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val loc = conn.getHeaderField("Location")
+                    conn.disconnect()
+                    if (!loc.isNullOrBlank()) {
+                        currentUrl = if (loc.startsWith("http")) loc else java.net.URL(java.net.URL(currentUrl), loc).toString()
+                        continue
+                    }
+                }
+                val contentType = conn.contentType?.lowercase() ?: ""
+                if (contentType.startsWith("image/")) {
+                    conn.disconnect()
+                    val fileName = try {
+                        Uri.parse(currentUrl).path?.substringAfterLast("/")?.substringBefore(".")?.ifBlank { "Photo" } ?: "Photo"
+                    } catch (_: Exception) { "Photo" }
+                    return CustomMediaInfo(
+                        title = fileName,
+                        site = try { Uri.parse(currentUrl).host?.removePrefix("www.")?.substringBefore(".")?.replaceFirstChar { it.uppercase() } ?: "Image" } catch (_: Exception) { "Image" },
+                        uploader = try { Uri.parse(currentUrl).host ?: "" } catch (_: Exception) { "" },
+                        duration = 0,
+                        thumbnail = currentUrl,
+                        directVideoUrl = currentUrl,
+                        imageUrls = listOf(currentUrl),
+                        mediaType = "image"
+                    )
+                }
+
+                html = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                currentUrl = conn.url.toString()
+                conn.disconnect()
+                break
+            }
+
+            if (html.isBlank()) return null
+            val siteName = try { Uri.parse(currentUrl).host?.removePrefix("www.")?.substringBefore(".")?.replaceFirstChar { it.uppercase() } ?: "Web" } catch (_: Exception) { "Web" }
+
+            // 1. TikTok photo mode
+            if (currentUrl.contains("tiktok.com", ignoreCase = true)) {
+                val scriptMatch = Regex("""<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL).find(html)
+                if (scriptMatch != null) {
+                    try {
+                        val root = JSONObject(scriptMatch.groupValues[1])
+                        val scope = root.optJSONObject("__DEFAULT_SCOPE__")
+                        var itemStruct: JSONObject? = null
+                        if (scope != null) {
+                            itemStruct = scope.optJSONObject("webapp.video-detail")?.optJSONObject("itemInfo")?.optJSONObject("itemStruct")
+                            if (itemStruct == null) {
+                                val keys = scope.keys()
+                                while (keys.hasNext()) {
+                                    val k = keys.next()
+                                    val sub = scope.optJSONObject(k)
+                                    val itm = sub?.optJSONObject("itemInfo")?.optJSONObject("itemStruct")
+                                    if (itm != null) { itemStruct = itm; break }
+                                }
+                            }
+                        }
+                        val images = itemStruct?.optJSONObject("imagePost")?.optJSONArray("images")
+                        if (images != null && images.length() > 0) {
+                            val ttImages = mutableListOf<String>()
+                            for (idx in 0 until images.length()) {
+                                val imgObj = images.optJSONObject(idx) ?: continue
+                                val urlList = imgObj.optJSONObject("imageURL")?.optJSONArray("urlList")
+                                if (urlList != null && urlList.length() > 0) {
+                                    val bestUrl = urlList.optString(urlList.length() - 1)
+                                    if (bestUrl.isNotBlank()) ttImages.add(bestUrl)
+                                }
+                            }
+                            if (ttImages.isNotEmpty()) {
+                                val desc = (itemStruct?.optString("desc") ?: "").ifBlank { "TikTok Photos" }
+                                return CustomMediaInfo(
+                                    title = desc.take(80),
+                                    site = "TikTok",
+                                    uploader = itemStruct?.optJSONObject("author")?.optString("nickname") ?: "TikTok",
+                                    duration = 0,
+                                    thumbnail = ttImages.first(),
+                                    directVideoUrl = ttImages.first(),
+                                    imageUrls = ttImages,
+                                    mediaType = "image"
+                                )
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+
+            // 2. Reddit Galleries and Image Posts
+            if (currentUrl.contains("reddit.com", ignoreCase = true) || currentUrl.contains("redd.it", ignoreCase = true)) {
+                val matches = Regex("""https://(?:i|preview)\.redd\.it/[a-zA-Z0-9_-]+\.(?:jpg|jpeg|png|webp)""").findAll(html)
+                val redditImages = mutableListOf<String>()
+                val seen = mutableSetOf<String>()
+                for (m in matches) {
+                    val direct = m.value.replace("preview.redd.it", "i.redd.it").substringBefore("?")
+                    if (!seen.contains(direct)) {
+                        seen.add(direct)
+                        redditImages.add(direct)
+                    }
+                }
+                if (redditImages.isNotEmpty()) {
+                    val titleMatch = Regex("""<title>(.*?)</title>""", RegexOption.IGNORE_CASE).find(html)
+                    val rawTitle = titleMatch?.groupValues?.getOrNull(1)?.replace(Regex("""\s*:\s*r/\w+.*"""), "")?.trim()?.ifBlank { "Reddit Photos" } ?: "Reddit Photos"
+                    return CustomMediaInfo(
+                        title = rawTitle.take(80),
+                        site = "Reddit",
+                        uploader = "Reddit",
+                        duration = 0,
+                        thumbnail = redditImages.first(),
+                        directVideoUrl = redditImages.first(),
+                        imageUrls = redditImages,
+                        mediaType = "image"
+                    )
+                }
+            }
+
+            // 3. Twitter / X Images
+            if (currentUrl.contains("twitter.com", ignoreCase = true) || currentUrl.contains("x.com", ignoreCase = true)) {
+                val matches = Regex("""https://pbs\.twimg\.com/media/[a-zA-Z0-9_-]+""").findAll(html)
+                val xImages = mutableListOf<String>()
+                val seen = mutableSetOf<String>()
+                for (m in matches) {
+                    val base = m.value
+                    if (!seen.contains(base)) {
+                        seen.add(base)
+                        xImages.add("$base?format=jpg&name=orig")
+                    }
+                }
+                if (xImages.isNotEmpty()) {
+                    val titleMatch = Regex("""<title>(.*?)</title>""", RegexOption.IGNORE_CASE).find(html)
+                    val rawTitle = titleMatch?.groupValues?.getOrNull(1)?.replace(Regex("""\s*/\s*X.*"""), "")?.trim()?.ifBlank { "X Post Photos" } ?: "X Post Photos"
+                    return CustomMediaInfo(
+                        title = rawTitle.take(80),
+                        site = "X",
+                        uploader = "X",
+                        duration = 0,
+                        thumbnail = xImages.first(),
+                        directVideoUrl = xImages.first(),
+                        imageUrls = xImages,
+                        mediaType = "image"
+                    )
+                }
+            }
+
+            // 4. Universal OpenGraph & Twitter Image Fallback (Instagram, Threads, Facebook, Unsplash, Flickr, Blogs, Web)
+            val ogMatches = Regex("""<meta[^>]+(?:property|name)=["'](?:og:image:secure_url|og:image|twitter:image)["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE).findAll(html)
+            val ogImages = mutableListOf<String>()
+            val seen = mutableSetOf<String>()
+            for (m in ogMatches) {
+                var u = m.groupValues[1].replace("&amp;", "&").trim()
+                if (u.startsWith("//")) u = "https:$u"
+                if (u.startsWith("http") && !seen.contains(u)) {
+                    seen.add(u)
+                    ogImages.add(u)
+                }
+            }
+            if (ogImages.isEmpty()) {
+                val reversedOg = Regex("""<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:image:secure_url|og:image|twitter:image)["']""", RegexOption.IGNORE_CASE).findAll(html)
+                for (m in reversedOg) {
+                    var u = m.groupValues[1].replace("&amp;", "&").trim()
+                    if (u.startsWith("//")) u = "https:$u"
+                    if (u.startsWith("http") && !seen.contains(u)) {
+                        seen.add(u)
+                        ogImages.add(u)
+                    }
+                }
+            }
+
+            if (ogImages.isNotEmpty()) {
+                val titleMatch = Regex("""<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(html)
+                    ?: Regex("""<title[^>]*>(.*?)</title>""", RegexOption.IGNORE_CASE).find(html)
+                val rawTitle = titleMatch?.groupValues?.getOrNull(1)?.replace("&amp;", "&")?.trim()?.ifBlank { "$siteName Image" } ?: "$siteName Image"
+
+                return CustomMediaInfo(
+                    title = rawTitle.take(80),
+                    site = siteName,
+                    uploader = siteName,
+                    duration = 0,
+                    thumbnail = ogImages.first(),
+                    directVideoUrl = ogImages.first(),
+                    imageUrls = ogImages,
+                    mediaType = "image"
+                )
+            }
+
+        } catch (_: Exception) {}
+        return null
     }
 
     fun resolvePinterest(rawUrl: String): CustomMediaInfo? {

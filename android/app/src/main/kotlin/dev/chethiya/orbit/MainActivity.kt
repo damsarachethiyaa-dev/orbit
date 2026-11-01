@@ -581,18 +581,21 @@ class MainActivity : AppCompatActivity() {
         val info = try {
             YoutubeDL.getInstance().getInfo(req)
         } catch (e: Exception) {
-            val msg = e.message ?: ""
-            if (msg.contains("No video formats found", ignoreCase = true) || msg.contains("No video could be found", ignoreCase = true)) {
+            val fallbackImg = OrbitEngine.resolveSocialAndWebImage(url)
+            if (fallbackImg != null && fallbackImg.imageUrls.isNotEmpty()) {
+                val imgArr = JSONArray()
+                fallbackImg.imageUrls.forEach { imgArr.put(it) }
                 return JSONObject().apply {
-                    put("title", "Photo Post")
-                    put("site", "Post")
-                    put("uploader", "")
+                    put("title", fallbackImg.title)
+                    put("site", fallbackImg.site)
+                    put("uploader", fallbackImg.uploader)
                     put("duration", 0)
-                    put("thumbnail", "")
+                    put("thumbnail", fallbackImg.thumbnail)
                     put("heights", JSONArray())
-                    put("directUrl", url)
+                    put("directUrl", fallbackImg.directVideoUrl)
+                    put("imageUrls", imgArr)
                     put("type", "image")
-                    put("count", 1)
+                    put("count", fallbackImg.imageUrls.size)
                 }
             }
             throw IllegalArgumentException(cleanErrorMessage(e.message))
@@ -613,8 +616,8 @@ class MainActivity : AppCompatActivity() {
             "Media"
         }
 
-        val isImage = heightsSet.isEmpty() && (!info.thumbnail.isNullOrBlank() || !info.thumbnails.isNullOrEmpty())
-        val thumb = info.thumbnail ?: info.thumbnails?.lastOrNull()?.url ?: ""
+        val isImage = heightsSet.isEmpty()
+        var thumb = info.thumbnail ?: info.thumbnails?.lastOrNull()?.url ?: ""
 
         val heightsArr = JSONArray()
         if (!isImage) {
@@ -623,7 +626,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         val imgArr = JSONArray()
-        if (thumb.isNotBlank()) {
+        if (isImage) {
+            val socialAlbum = OrbitEngine.resolveSocialAndWebImage(url)
+            if (socialAlbum != null && socialAlbum.imageUrls.isNotEmpty()) {
+                socialAlbum.imageUrls.forEach { imgArr.put(it) }
+                if (thumb.isBlank()) thumb = socialAlbum.thumbnail
+            } else if (thumb.isNotBlank()) {
+                imgArr.put(thumb)
+            }
+        } else if (thumb.isNotBlank()) {
             imgArr.put(thumb)
         }
 

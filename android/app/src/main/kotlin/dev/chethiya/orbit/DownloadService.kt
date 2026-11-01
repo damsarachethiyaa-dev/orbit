@@ -325,114 +325,143 @@ class DownloadService : Service() {
                clean.endsWith(".m4v") || url.contains("sns-video") || url.contains("xhscdn.com")
     }
 
-    private fun openConnectionWithRedirects(initialUrl: String, isVideo: Boolean = false): HttpURLConnection {
-        var currentUrl = initialUrl
-        for (i in 0..5) {
-            val u = URL(currentUrl)
-            val conn = (u.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15000
-                readTimeout = 30000
-                instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                setRequestProperty("Accept", if (isVideo) "*/*" else "image/*,*/*;q=0.8")
-            }
-            val code = conn.responseCode
-            if (code in 300..399) {
-                val loc = conn.getHeaderField("Location")
-                conn.disconnect()
-                if (!loc.isNullOrBlank()) {
-                    currentUrl = if (loc.startsWith("http")) loc else URL(u, loc).toString()
-                    continue
-                }
-            }
-            return conn
-        }
-        return (URL(currentUrl).openConnection() as HttpURLConnection)
-    }
-
-    private fun runImageBatchDownload(notifId: Int, job: OrbitEngine.DownloadJob, rawImageUrls: List<String>) {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val saveDir = OrbitEngine.currentSaveDir(this)
-        saveDir.mkdirs()
-
-        val totalPhotos = rawImageUrls.size
-        var totalBytesAll = 0L
-        var firstSavedFile: File? = null
-
-        val safePrefix = job.title
-            .replace(Regex("""[\\/:*?"<>|]"""), "_")
-            .trim()
-            .take(80)
-            .ifBlank { "orbit_${job.id}" }
-
-        try {
-            for ((index, imgUrl) in rawImageUrls.withIndex()) {
-                if (!activeJobIds.contains(job.id)) {
-                    job.state = "cancelled"
-                    nm.cancel(notifId)
-                    return
-                }
-
-                val currentPhotoNum = index + 1
-                nm.notify(
-                    notifId,
-                    buildNotification(
-                        notifId = notifId,
-                        jobId = job.id,
-                        title = job.title,
-                        text = if (totalPhotos > 1) "Downloading photo $currentPhotoNum of $totalPhotos..." else "Downloading photo...",
-                        progress = ((index.toDouble() / totalPhotos) * 100).toInt(),
-                        indeterminate = false,
-                        ongoing = true
-                    )
-                )
-
-                val conn = openConnectionWithRedirects(imgUrl, isVideo = false)
-
-                val contentType = conn.contentType ?: ""
-                val ext = when {
-                    contentType.contains("png", true) || imgUrl.contains(".png", true) -> "png"
-                    contentType.contains("webp", true) || imgUrl.contains(".webp", true) -> "webp"
-                    contentType.contains("gif", true) || imgUrl.contains(".gif", true) -> "gif"
-                    else -> "jpg"
-                }
-
-                val fileName = if (totalPhotos > 1) {
-                    "$safePrefix (${currentPhotoNum} of ${totalPhotos}) [${job.id}].$ext"
-                } else {
-                    "$safePrefix [${job.id}].$ext"
-                }
-
-                val targetFile = File(saveDir, fileName)
-                val buffer = ByteArray(16384)
-
-                conn.inputStream.use { input ->
-                    targetFile.outputStream().use { output ->
-                        var bytesRead: Int
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            if (!activeJobIds.contains(job.id)) {
-                                targetFile.delete()
-                                job.state = "cancelled"
-                                nm.cancel(notifId)
-                                return
-                            }
-                            output.write(buffer, 0, bytesRead)
-                        }
-                    }
-                }
-
-                if (firstSavedFile == null) firstSavedFile = targetFile
-                totalBytesAll += targetFile.length()
-
-                MediaScannerConnection.scanFile(
-                    applicationContext,
-                    arrayOf(targetFile.absolutePath),
-                    null,
-                    null
-                )
-
-                job.percent = (((index + 1).toDouble() / totalPhotos) * 100.0).coerceIn(0.0, 100.0)
-            }
+    private fun openConnectionWithRedirects(initialUrl: String, isVideo: Boolean = false): HttpURLConnection {
+        var currentUrl = initialUrl.replace("&amp;", "&").trim()
+        val host = try { Uri.parse(currentUrl).host?.lowercase() ?: "" } catch (_: Exception) { "" }
+        val referer = when {
+            host.contains("xhscdn.com") || host.contains("xiaohongshu") -> "https://www.xiaohongshu.com/"
+            host.contains("tiktok") || host.contains("byteoversea") -> "https://www.tiktok.com/"
+            host.contains("pinimg.com") || host.contains("pinterest") -> "https://www.pinterest.com/"
+            host.contains("cdninstagram") || host.contains("fbcdn") || host.contains("instagram") -> "https://www.instagram.com/"
+            host.contains("twimg.com") || host.contains("twitter") || host.contains("x.com") -> "https://twitter.com/"
+            host.contains("redd.it") || host.contains("reddit") -> "https://www.reddit.com/"
+            else -> try { "https://${Uri.parse(currentUrl).host}/" } catch (_: Exception) { "" }
+        }
+
+        for (i in 0..5) {
+            val u = URL(currentUrl)
+            val conn = (u.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15000
+                readTimeout = 30000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                setRequestProperty("Accept", if (isVideo) "*/*" else "image/*,*/*;q=0.8")
+                if (referer.isNotBlank()) setRequestProperty("Referer", referer)
+            }
+            val code = conn.responseCode
+            if (code in 300..399) {
+                val loc = conn.getHeaderField("Location")
+                conn.disconnect()
+                if (!loc.isNullOrBlank()) {
+                    currentUrl = if (loc.startsWith("http")) loc else URL(u, loc).toString()
+                    continue
+                }
+            } else if (code == 403 && referer.isNotBlank()) {
+                conn.disconnect()
+                return (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    setRequestProperty("Accept", if (isVideo) "*/*" else "image/*,*/*;q=0.8")
+                }
+            }
+            return conn
+        }
+        return (URL(currentUrl).openConnection() as HttpURLConnection)
+    }
+
+    private fun runImageBatchDownload(notifId: Int, job: OrbitEngine.DownloadJob, rawImageUrls: List<String>) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val saveDir = OrbitEngine.currentSaveDir(this)
+        saveDir.mkdirs()
+
+        val cleanUrls = rawImageUrls.map { it.replace("&amp;", "&").trim() }.filter { it.isNotBlank() }
+        val totalPhotos = cleanUrls.size
+        var totalBytesAll = 0L
+        var firstSavedFile: File? = null
+
+        val safePrefix = job.title
+            .replace(Regex("""[\/:*?"<>|]"""), "_")
+            .trim()
+            .take(80)
+            .ifBlank { "orbit_${job.id}" }
+
+        try {
+            for ((index, imgUrl) in cleanUrls.withIndex()) {
+                if (!activeJobIds.contains(job.id)) {
+                    job.state = "cancelled"
+                    nm.cancel(notifId)
+                    return
+                }
+
+                val currentPhotoNum = index + 1
+                nm.notify(
+                    notifId,
+                    buildNotification(
+                        notifId = notifId,
+                        jobId = job.id,
+                        title = job.title,
+                        text = if (totalPhotos > 1) "Downloading photo $currentPhotoNum of $totalPhotos..." else "Downloading photo...",
+                        progress = ((index.toDouble() / totalPhotos) * 100).toInt(),
+                        indeterminate = false,
+                        ongoing = true
+                    )
+                )
+
+                val conn = openConnectionWithRedirects(imgUrl, isVideo = false)
+
+                val contentType = conn.contentType ?: ""
+                val ext = when {
+                    contentType.contains("png", true) || imgUrl.contains(".png", true) -> "png"
+                    contentType.contains("webp", true) || imgUrl.contains(".webp", true) -> "webp"
+                    contentType.contains("gif", true) || imgUrl.contains(".gif", true) -> "gif"
+                    contentType.contains("avif", true) || imgUrl.contains(".avif", true) -> "avif"
+                    else -> "jpg"
+                }
+
+                val fileName = if (totalPhotos > 1) {
+                    "$safePrefix (${currentPhotoNum} of ${totalPhotos}) [${job.id}].$ext"
+                } else {
+                    "$safePrefix [${job.id}].$ext"
+                }
+
+                val targetFile = File(saveDir, fileName)
+                val buffer = ByteArray(16384)
+
+                conn.inputStream.use { input ->
+                    targetFile.outputStream().use { output ->
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            if (!activeJobIds.contains(job.id)) {
+                                targetFile.delete()
+                                job.state = "cancelled"
+                                nm.cancel(notifId)
+                                return
+                            }
+                            output.write(buffer, 0, bytesRead)
+                        }
+                    }
+                }
+
+                if (firstSavedFile == null) firstSavedFile = targetFile
+                totalBytesAll += targetFile.length()
+
+                MediaScannerConnection.scanFile(
+                    applicationContext,
+                    arrayOf(targetFile.absolutePath),
+                    arrayOf("image/$ext"),
+                    null
+                )
+                try {
+                    val scanIntent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE).apply {
+                        data = Uri.fromFile(targetFile)
+                    }
+                    applicationContext.sendBroadcast(scanIntent)
+                } catch (_: Exception) {}
+
+                job.percent = (((index + 1).toDouble() / totalPhotos) * 100.0).coerceIn(0.0, 100.0)
+            }
 
             if (firstSavedFile == null) throw java.io.IOException("No photo could be downloaded.")
 

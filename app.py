@@ -151,17 +151,23 @@ def index():
 
 
 def resolve_direct_image(url: str):
+    lower = url.lower()
     clean = url.split("?")[0].lower()
-    if any(clean.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"]):
+    is_img = any(clean.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif", ".heic"]) or \
+             any(k in lower for k in ["format=jpg", "format=png", "format=webp", ".jpg?", ".png?", ".webp?"])
+    if is_img:
         import urllib.parse
-        name = os.path.basename(clean).rsplit(".", 1)[0] or "Image"
+        path = urllib.parse.urlparse(url).path
+        name = os.path.basename(path).rsplit(".", 1)[0] or "Image"
+        domain = urllib.parse.urlparse(url).netloc.replace("www.", "").split(".")[0].capitalize()
         return {
             "title": name,
-            "uploader": urllib.parse.urlparse(url).netloc,
+            "uploader": domain or "Web",
             "thumbnail": url,
             "duration": 0,
             "directUrl": url,
-            "site": "Image",
+            "imageUrls": [url],
+            "site": domain or "Image",
             "type": "image",
             "count": 1,
             "heights": []
@@ -282,6 +288,161 @@ def resolve_xiaohongshu(url: str):
 
 
 @app.post("/api/info")
+
+def resolve_social_and_web_image(url: str):
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return None
+    try:
+        import urllib.request, json, re, html as html_lib, urllib.parse
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            content_type = resp.headers.get_content_type().lower()
+            final_url = resp.geturl()
+            if content_type.startswith("image/"):
+                name = os.path.basename(urllib.parse.urlparse(final_url).path).rsplit(".", 1)[0] or "Photo"
+                domain = urllib.parse.urlparse(final_url).netloc.replace("www.", "").split(".")[0].capitalize()
+                return {
+                    "title": name,
+                    "uploader": domain,
+                    "thumbnail": final_url,
+                    "duration": 0,
+                    "directUrl": final_url,
+                    "imageUrls": [final_url],
+                    "site": domain or "Image",
+                    "type": "image",
+                    "count": 1,
+                    "heights": []
+                }
+            html_text = resp.read().decode("utf-8", errors="ignore")
+
+        domain = urllib.parse.urlparse(final_url).netloc.replace("www.", "").split(".")[0].capitalize() or "Web"
+
+        # 1. TikTok photo mode
+        if "tiktok.com" in final_url:
+            m = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', html_text, re.DOTALL)
+            if m:
+                try:
+                    data = json.loads(m.group(1))
+                    scope = data.get("__DEFAULT_SCOPE__", {})
+                    detail = None
+                    for k, v in scope.items():
+                        if isinstance(v, dict) and "itemInfo" in v:
+                            detail = v["itemInfo"].get("itemStruct", {})
+                            break
+                    images = (detail or {}).get("imagePost", {}).get("images", [])
+                    if images:
+                        img_urls = []
+                        for img in images:
+                            u_list = img.get("imageURL", {}).get("urlList", [])
+                            if u_list:
+                                img_urls.append(u_list[-1])
+                        if img_urls:
+                            return {
+                                "title": (detail.get("desc") or "TikTok Photos")[:80],
+                                "uploader": (detail.get("author") or {}).get("nickname") or "TikTok",
+                                "thumbnail": img_urls[0],
+                                "duration": 0,
+                                "directUrl": img_urls[0],
+                                "imageUrls": img_urls,
+                                "site": "TikTok",
+                                "type": "image",
+                                "count": len(img_urls),
+                                "heights": []
+                            }
+                except Exception:
+                    pass
+
+        # 2. Reddit gallery / post
+        if "reddit.com" in final_url or "redd.it" in final_url:
+            redd_imgs = re.findall(r'https://(?:i|preview)\.redd\.it/[a-zA-Z0-9_-]+\.(?:jpg|jpeg|png|webp)', html_text)
+            seen = set()
+            uniq_imgs = []
+            for u in redd_imgs:
+                clean_u = u.replace("preview.redd.it", "i.redd.it").split("?")[0]
+                if clean_u not in seen:
+                    seen.add(clean_u)
+                    uniq_imgs.append(clean_u)
+            if uniq_imgs:
+                title_m = re.search(r'<title>(.*?)</title>', html_text, re.I)
+                raw_title = (title_m.group(1).split(" : r/")[0] if title_m else "Reddit Photos").strip()[:80]
+                return {
+                    "title": raw_title,
+                    "uploader": "Reddit",
+                    "thumbnail": uniq_imgs[0],
+                    "duration": 0,
+                    "directUrl": uniq_imgs[0],
+                    "imageUrls": uniq_imgs,
+                    "site": "Reddit",
+                    "type": "image",
+                    "count": len(uniq_imgs),
+                    "heights": []
+                }
+
+        # 3. Twitter / X Images
+        if "twitter.com" in final_url or "x.com" in final_url:
+            tw_imgs = re.findall(r'https://pbs\.twimg\.com/media/[a-zA-Z0-9_-]+', html_text)
+            seen = set()
+            uniq_tw = []
+            for u in tw_imgs:
+                if u not in seen:
+                    seen.add(u)
+                    uniq_tw.append(f"{u}?format=jpg&name=orig")
+            if uniq_tw:
+                title_m = re.search(r'<title>(.*?)</title>', html_text, re.I)
+                raw_title = (title_m.group(1).split(" / X")[0] if title_m else "X Photos").strip()[:80]
+                return {
+                    "title": raw_title,
+                    "uploader": "X",
+                    "thumbnail": uniq_tw[0],
+                    "duration": 0,
+                    "directUrl": uniq_tw[0],
+                    "imageUrls": uniq_tw,
+                    "site": "X",
+                    "type": "image",
+                    "count": len(uniq_tw),
+                    "heights": []
+                }
+
+        # 4. Universal OpenGraph & Twitter Image Fallback
+        og_images = re.findall(r'<meta[^>]+(?:property|name)=["\'](?:og:image:secure_url|og:image|twitter:image)["\'][^>]+content=["\']([^"\']+)["\']', html_text, re.I)
+        if not og_images:
+            og_images = re.findall(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:og:image:secure_url|og:image|twitter:image)["\']', html_text, re.I)
+
+        cleaned_og = []
+        seen = set()
+        for img in og_images:
+            decoded = html_lib.unescape(img).strip()
+            if decoded.startswith("//"):
+                decoded = "https:" + decoded
+            if decoded.startswith("http") and decoded not in seen:
+                seen.add(decoded)
+                cleaned_og.append(decoded)
+
+        if cleaned_og:
+            title_m = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']', html_text, re.I) or re.search(r'<title[^>]*>(.*?)</title>', html_text, re.I)
+            raw_title = html_lib.unescape(title_m.group(1)).strip()[:80] if title_m else f"{domain} Image"
+            return {
+                "title": raw_title,
+                "uploader": domain,
+                "thumbnail": cleaned_og[0],
+                "duration": 0,
+                "directUrl": cleaned_og[0],
+                "imageUrls": cleaned_og,
+                "site": domain,
+                "type": "image",
+                "count": len(cleaned_og),
+                "heights": []
+            }
+    except Exception:
+        pass
+    return None
+
+
 def info():
     url = str((request.get_json(silent=True) or {}).get("url") or "").strip()
     if not valid_url(url):
@@ -304,18 +465,10 @@ def info():
                                "skip_download": True, "ignore_no_formats_error": True}) as ydl:
             d = ydl.extract_info(url, download=False)
     except Exception as e:
+        social_img = resolve_social_and_web_image(url)
+        if social_img and social_img.get("imageUrls"):
+            return jsonify(social_img)
         msg = str(e).replace("ERROR: ", "")
-        if "No video formats found" in msg or "No video could be found" in msg:
-            return jsonify(
-                title="Photo Post",
-                thumbnail="",
-                duration=0,
-                uploader="",
-                site="Post",
-                type="image",
-                count=1,
-                heights=[]
-            )
         return jsonify(error=msg[:300] or "Couldn't read that link."), 422
 
     heights = sorted({f["height"] for f in d.get("formats", []) if f.get("height")}, reverse=True)
