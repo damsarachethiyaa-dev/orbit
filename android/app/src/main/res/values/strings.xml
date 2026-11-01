@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Orbit</string>
+    <string name="quick_download">Orbit (Quick Download)</string>
+    <string name="open_preview">Orbit (Preview)</string>
 </resources>

@@ -213,43 +213,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestStoragePermissionsIfNeeded() {
+        val perms = mutableListOf<String>()
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-            val perms = arrayOf(
-                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            )
-            val missing = perms.filter {
-                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (missing.isNotEmpty()) {
-                ActivityCompat.requestPermissions(this, missing.toTypedArray(), 1001)
-            }
+            perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            perms.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val missing = perms.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), 1001)
         }
     }
 
     private fun initEngineAsync() {
+        OrbitEngine.init(applicationContext)
         executor.execute {
-            try {
-                YoutubeDL.getInstance().init(applicationContext)
-                engineReady = true
-                ytDlpVersion = YoutubeDL.getInstance().version(applicationContext) ?: "Bundled"
-            } catch (e: Exception) {
-                ytDlpVersion = "Bundled"
-            }
-            try {
-                FFmpeg.getInstance().init(applicationContext)
-                ffmpegReady = true
-            } catch (e: Exception) {
-                ffmpegReady = false
-            }
+            OrbitEngine.initLatch.await(30, TimeUnit.SECONDS)
+            engineReady = OrbitEngine.engineReady
+            ytDlpVersion = OrbitEngine.ytDlpVersion
+            ffmpegReady = OrbitEngine.ffmpegReady
             initLatch.countDown()
-
-            // Opportunistically update yt-dlp in the background
-            try {
-                YoutubeDL.getInstance().updateYoutubeDL(applicationContext, YoutubeDL.UpdateChannel.STABLE)
-                ytDlpVersion = YoutubeDL.getInstance().version(applicationContext) ?: ytDlpVersion
-            } catch (_: Exception) {
-            }
         }
     }
 
