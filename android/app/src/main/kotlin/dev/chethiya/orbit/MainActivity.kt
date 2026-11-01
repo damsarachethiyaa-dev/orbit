@@ -14,6 +14,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.Settings
+import android.widget.Toast
 import android.webkit.JavascriptInterface
 import android.webkit.MimeTypeMap
 import android.webkit.WebChromeClient
@@ -450,7 +452,7 @@ class MainActivity : AppCompatActivity() {
                 JSONObject().put("ok", true)
             }
             path == "/api/update/check" -> checkForUpdates()
-            path == "/api/update/download" -> startUpdateDownload()
+            path == "/api/update/download" || path == "/api/update/start" -> startUpdateDownload()
             path == "/api/update/status" -> getUpdateStatus()
             path == "/api/update/apply" -> applyApkUpdate()
             else -> JSONObject().put("ok", true)
@@ -798,14 +800,34 @@ class MainActivity : AppCompatActivity() {
                 val updateDir = File(externalCacheDir ?: cacheDir, "update")
                 updateDir.mkdirs()
                 val outApk = File(updateDir, "Orbit-update.apk")
+                if (outApk.exists()) outApk.delete()
 
-                val conn = (URL(downloadUrl).openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = true
-                    connectTimeout = 15000
-                    readTimeout = 30000
-                    setRequestProperty("User-Agent", "Orbit-Android/${BuildConfig.VERSION_NAME}")
+                var currentUrl = downloadUrl
+                var conn: HttpURLConnection? = null
+                var total = -1L
+
+                for (redirect in 0..5) {
+                    val c = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                        instanceFollowRedirects = true
+                        connectTimeout = 15000
+                        readTimeout = 30000
+                        setRequestProperty("User-Agent", "Orbit-Android/${BuildConfig.VERSION_NAME}")
+                    }
+                    val code = c.responseCode
+                    if (code in 300..399) {
+                        val loc = c.getHeaderField("Location")
+                        if (!loc.isNullOrBlank()) {
+                            currentUrl = loc
+                            continue
+                        }
+                    }
+                    conn = c
+                    total = c.contentLengthLong
+                    break
                 }
-                val total = conn.contentLengthLong
+
+                if (conn == null) throw java.io.IOException("Could not connect to update server.")
+
                 var downloaded = 0L
                 val startTime = System.currentTimeMillis()
 
@@ -826,6 +848,12 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
+
+                if (!outApk.exists() || outApk.length() < 1000000) {
+                    throw java.io.IOException("Downloaded update package is incomplete.")
+                }
+
+                outApk.setReadable(true, false)
                 downloadedApkPath = outApk.absolutePath
                 updatePercent = 100
                 readyToInstall = true
@@ -850,14 +878,60 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyApkUpdate(): JSONObject {
         val apkFile = File(downloadedApkPath)
-        if (!apkFile.exists()) throw IllegalArgumentException("Downloaded APK not found.")
+        if (!apkFile.exists()) throw IllegalArgumentException("Downloaded update package not found.")
         runOnUiThread {
-            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", apkFile)
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                apkFile.setReadable(true, false)
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    if (!packageManager.canRequestPackageInstalls()) {
+                        Toast.makeText(
+                            applicationContext,
+                            "Please allow Orbit to install updates from unknown sources.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        val manageIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                            data = Uri.parse("package:$packageName")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(manageIntent)
+                        return@runOnUiThread
+                    }
+                }
+
+                val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", apkFile)
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                val resolved = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                for (info in resolved) {
+                    try {
+                        grantUriPermission(info.activityInfo.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    } catch (_: Exception) {}
+                }
+
+                val commonInstallers = listOf(
+                    "com.google.android.packageinstaller",
+                    "com.android.packageinstaller",
+                    "com.google.android.apps.packageinstaller",
+                    "com.miui.packageinstaller",
+                    "com.samsung.android.packageinstaller",
+                    "com.coloros.packageinstaller",
+                    "com.oppo.packageinstaller",
+                    "com.vivo.packageinstaller"
+                )
+                for (pkg in commonInstallers) {
+                    try {
+                        grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    } catch (_: Exception) {}
+                }
+
+                startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(applicationContext, "Install failed: ${e.message}", Toast.LENGTH_LONG).show()
             }
-            startActivity(intent)
         }
         return JSONObject().put("ok", true)
     }

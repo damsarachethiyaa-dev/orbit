@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import yt_dlp
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 GITHUB_REPO = "damsarachethiyaa-dev/orbit"
 
 DESKTOP = os.environ.get("ORBIT_DESKTOP") == "1"

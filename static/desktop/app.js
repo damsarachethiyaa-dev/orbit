@@ -297,7 +297,7 @@ async function loadSettings() {
   try {
     const s = await api("/api/settings");
     applySettings(s);
-    if ($("#aAppVer")) $("#aAppVer").textContent = "v" + (s.version || "1.0.2");
+    if ($("#aAppVer")) $("#aAppVer").textContent = "v" + (s.version || "1.0.3");
     $("#aVer").textContent = s.yt_dlp; $("#aFf").textContent = s.ffmpeg ? "Ready" : "Missing";
     if (s.has_update) {
       if ($("#setUpdateInfo")) $("#setUpdateInfo").textContent = `Update available: ${s.latest_version} (Current: v${s.version})`;
@@ -373,9 +373,11 @@ async function startUpdate() {
   const meter = $("#ubMeter");
   const stat = $("#ubStat");
   const fill = $("#ubFill");
+  const sBtn = $("#setUpdateNow");
 
   btn.disabled = true;
   btn.textContent = "Downloading...";
+  if (sBtn) { sBtn.disabled = true; sBtn.textContent = "Downloading..."; }
   meter.hidden = false;
 
   try {
@@ -385,20 +387,26 @@ async function startUpdate() {
       try {
         const s = await api("/api/update/status");
         if (s.downloading) {
-          fill.style.width = (s.download_percent || 0) + "%";
-          stat.textContent = (s.download_percent || 0) + "%";
-          btn.textContent = s.download_speed ? `Downloading (${s.download_speed})` : "Downloading...";
+          const pct = Math.max(2, s.download_percent || 0);
+          fill.style.width = pct + "%";
+          stat.textContent = pct + "%";
+          const speedTxt = s.download_speed ? `Downloading (${s.download_speed})` : "Downloading...";
+          btn.textContent = speedTxt;
+          if (sBtn) { sBtn.textContent = `${pct}%`; }
         } else if (s.ready_to_install) {
           clearInterval(updatePoll);
           fill.style.width = "100%";
           stat.textContent = "100%";
           btn.disabled = false;
-          btn.textContent = "Restart & Install";
-          toast("Update downloaded! Click Restart to finish.");
+          const instTxt = window.OrbitAndroid ? "Install Update" : "Restart & Install";
+          btn.textContent = instTxt;
+          if (sBtn) { sBtn.disabled = false; sBtn.textContent = instTxt; }
+          toast("Update downloaded! Click to install.");
         } else if (s.error) {
           clearInterval(updatePoll);
           btn.disabled = false;
           btn.textContent = "Retry Update";
+          if (sBtn) { sBtn.disabled = false; sBtn.textContent = "Retry"; }
           toast("Update failed: " + s.error);
         }
       } catch (e) {
@@ -408,6 +416,7 @@ async function startUpdate() {
   } catch (err) {
     btn.disabled = false;
     btn.textContent = "Update Now";
+    if (sBtn) { sBtn.disabled = false; sBtn.textContent = "Update"; }
     meter.hidden = true;
     toast("Could not start update: " + err.message);
   }
@@ -415,20 +424,33 @@ async function startUpdate() {
 
 async function applyUpdate() {
   const btn = $("#ubBtn");
+  const sBtn = $("#setUpdateNow");
   btn.disabled = true;
-  btn.textContent = "Restarting...";
+  const opTxt = window.OrbitAndroid ? "Opening Installer..." : "Restarting...";
+  btn.textContent = opTxt;
+  if (sBtn) { sBtn.disabled = true; sBtn.textContent = opTxt; }
   try {
-    toast("Restarting Orbit to apply update...");
+    toast(window.OrbitAndroid ? "Opening package installer..." : "Restarting Orbit to apply update...");
     await api("/api/update/apply", {}, "POST");
+    if (window.OrbitAndroid) {
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = "Install Update";
+        if (sBtn) { sBtn.disabled = false; sBtn.textContent = "Install Update"; }
+      }, 3000);
+    }
   } catch (err) {
     btn.disabled = false;
-    btn.textContent = "Restart & Install";
-    toast("Failed to restart: " + err.message);
+    const retryTxt = window.OrbitAndroid ? "Install Update" : "Restart & Install";
+    btn.textContent = retryTxt;
+    if (sBtn) { sBtn.disabled = false; sBtn.textContent = retryTxt; }
+    toast("Failed: " + err.message);
   }
 }
 
 $("#ubBtn").addEventListener("click", () => {
-  if ($("#ubBtn").textContent.includes("Restart")) {
+  const t = $("#ubBtn").textContent;
+  if (t.includes("Restart") || t.includes("Install")) {
     applyUpdate();
   } else {
     startUpdate();
@@ -444,8 +466,13 @@ if (sCheck) sCheck.addEventListener("click", () => checkUpdate(true));
 
 const sUpdateNow = $("#setUpdateNow");
 if (sUpdateNow) sUpdateNow.addEventListener("click", () => {
-  $("#updateBanner").hidden = false;
-  startUpdate();
+  const t = sUpdateNow.textContent;
+  if (t.includes("Restart") || t.includes("Install")) {
+    applyUpdate();
+  } else {
+    $("#updateBanner").hidden = false;
+    startUpdate();
+  }
 });
 
 /* ---------------- start up ---------------- */
