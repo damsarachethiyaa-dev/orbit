@@ -76,42 +76,10 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
   display: none;
 }
 
-/* Badges: User requested Engine Ready (green) and App Preferences (blue) */
-.badge-engine-ready {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(0, 230, 118, 0.12);
-  border: 1px solid rgba(0, 230, 118, 0.35);
-  color: #00e676;
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 4px 10px;
-  border-radius: 999px;
-  text-transform: uppercase;
-}
-.badge-engine-ready .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #00e676;
-  box-shadow: 0 0 6px #00e676;
-}
-
+/* Badges removed per user request */
+.badge-engine-ready,
 .badge-app-pref {
-  display: inline-flex;
-  align-items: center;
-  background: rgba(0, 153, 255, 0.12);
-  border: 1px solid rgba(0, 153, 255, 0.35);
-  color: #38bdf8;
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  padding: 4px 12px;
-  border-radius: 999px;
-  text-transform: uppercase;
-  margin-bottom: 10px;
+  display: none !important;
 }
 
 /* Sidebar (Desktop) */
@@ -120,8 +88,8 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
   flex-direction: column;
   padding: 24px 16px 16px;
   border-right: 1px solid var(--line);
-  background: rgba(8, 10, 16, 0.7);
-  backdrop-filter: blur(20px);
+  background: rgba(12, 12, 12, 0.95);
+  backdrop-filter: blur(28px);
 }
 .brand { padding: 0 8px 28px; color: #f1f5f9; }
 .orbit-dot { transform-origin: 27px 27px; animation: spin 6s linear infinite; }
@@ -1050,8 +1018,8 @@ input:checked + .slider:before {
     justify-content: space-between;
     align-items: center;
     padding: max(12px, env(safe-area-inset-top, 0px)) 18px 10px;
-    background: rgba(10, 13, 20, 0.88);
-    backdrop-filter: blur(24px);
+    background: rgba(12, 12, 12, 0.95);
+    backdrop-filter: blur(28px);
     border-bottom: 1px solid var(--line);
     position: sticky;
     top: 0;
