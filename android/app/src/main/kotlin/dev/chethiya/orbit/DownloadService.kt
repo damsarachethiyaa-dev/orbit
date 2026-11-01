@@ -325,6 +325,31 @@ class DownloadService : Service() {
                clean.endsWith(".m4v") || url.contains("sns-video") || url.contains("xhscdn.com")
     }
 
+    private fun openConnectionWithRedirects(initialUrl: String, isVideo: Boolean = false): HttpURLConnection {
+        var currentUrl = initialUrl
+        for (i in 0..5) {
+            val u = URL(currentUrl)
+            val conn = (u.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15000
+                readTimeout = 30000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                setRequestProperty("Accept", if (isVideo) "*/*" else "image/*,*/*;q=0.8")
+            }
+            val code = conn.responseCode
+            if (code in 300..399) {
+                val loc = conn.getHeaderField("Location")
+                conn.disconnect()
+                if (!loc.isNullOrBlank()) {
+                    currentUrl = if (loc.startsWith("http")) loc else URL(u, loc).toString()
+                    continue
+                }
+            }
+            return conn
+        }
+        return (URL(currentUrl).openConnection() as HttpURLConnection)
+    }
+
     private fun runImageBatchDownload(notifId: Int, job: OrbitEngine.DownloadJob, rawImageUrls: List<String>) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val saveDir = OrbitEngine.currentSaveDir(this)
@@ -362,13 +387,7 @@ class DownloadService : Service() {
                     )
                 )
 
-                val url = URL(imgUrl)
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 20000
-                    setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    setRequestProperty("Accept", "image/*,*/*;q=0.8")
-                }
+                val conn = openConnectionWithRedirects(imgUrl, isVideo = false)
 
                 val contentType = conn.contentType ?: ""
                 val ext = when {
@@ -487,13 +506,7 @@ class DownloadService : Service() {
                 )
             )
 
-            val url = URL(downloadUrl)
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15000
-                readTimeout = 30000
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
-                setRequestProperty("Accept", "*/*")
-            }
+            val conn = openConnectionWithRedirects(downloadUrl, isVideo = true)
 
             val totalBytes = conn.contentLengthLong.coerceAtLeast(1L)
             var downloaded = 0L

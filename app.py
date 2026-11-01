@@ -321,6 +321,15 @@ def info():
     heights = sorted({f["height"] for f in d.get("formats", []) if f.get("height")}, reverse=True)
     is_image = not heights and bool(d.get("thumbnail") or d.get("thumbnails"))
 
+    img_urls = []
+    if d.get("entries"):
+        for e in d.get("entries"):
+            u = e.get("url") or e.get("thumbnail")
+            if u and u not in img_urls:
+                img_urls.append(u)
+    elif d.get("thumbnail"):
+        img_urls.append(d.get("thumbnail"))
+
     return jsonify(
         title=d.get("title") or ("Photo post" if is_image else "Untitled video"),
         thumbnail=d.get("thumbnail"),
@@ -329,7 +338,8 @@ def info():
         site=d.get("extractor_key") or "Media",
         type="image" if is_image else "video",
         directUrl=d.get("thumbnail") if is_image else "",
-        count=len(d.get("entries") or []) if is_image and d.get("entries") else 1,
+        imageUrls=img_urls,
+        count=len(img_urls) if img_urls else 1,
         heights=heights,
     )
 

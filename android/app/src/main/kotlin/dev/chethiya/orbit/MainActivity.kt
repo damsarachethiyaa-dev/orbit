@@ -622,6 +622,11 @@ class MainActivity : AppCompatActivity() {
             heightsSet.forEach { heightsArr.put(it) }
         }
 
+        val imgArr = JSONArray()
+        if (thumb.isNotBlank()) {
+            imgArr.put(thumb)
+        }
+
         return JSONObject().apply {
             put("title", info.title ?: (if (isImage) "Photo post" else "Untitled video"))
             put("site", rawSite)
@@ -630,8 +635,9 @@ class MainActivity : AppCompatActivity() {
             put("thumbnail", thumb)
             put("heights", heightsArr)
             put("directUrl", if (isImage) thumb else "")
+            put("imageUrls", imgArr)
             put("type", if (isImage) "image" else "video")
-            if (isImage) put("count", 1)
+            if (isImage) put("count", imgArr.length().coerceAtLeast(1))
         }
     }
 
