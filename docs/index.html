@@ -50,10 +50,33 @@
       <a href="#faq">FAQ</a>
     </nav>
     
-    <div style="display:flex;align-items:center;gap:16px">
-      <a href="https://github.com/damsarachethiyaa-dev/orbit" target="_blank" rel="noopener noreferrer" style="font-size:13.5px;font-weight:500;color:var(--dim)">GitHub ↗</a>
+    <div class="nav__actions">
+      <a class="nav__gh" href="https://github.com/damsarachethiyaa-dev/orbit" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
       <a class="nav__cta pill magnetic" href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest/download/Orbit-Setup.exe" download="Orbit-Setup.exe">
         <span>Download Free</span>
+      </a>
+      <button class="nav__toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span class="nav__toggle-bar"></span>
+        <span class="nav__toggle-bar"></span>
+        <span class="nav__toggle-bar"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Mobile Dropdown Navigation -->
+  <div class="nav__mobile" id="navMobile" aria-hidden="true">
+    <nav class="nav__mobile-links" aria-label="Mobile Sections">
+      <a href="#pricing" class="mobile-link">Pricing</a>
+      <a href="#walkthrough" class="mobile-link">Walkthrough</a>
+      <a href="#features" class="mobile-link">Features</a>
+      <a href="#how" class="mobile-link">How it works</a>
+      <a href="#faq" class="mobile-link">FAQ</a>
+      <a href="https://github.com/damsarachethiyaa-dev/orbit" target="_blank" rel="noopener noreferrer" class="mobile-link mobile-link--gh">GitHub ↗</a>
+    </nav>
+    <div class="nav__mobile-cta">
+      <a class="btn-primary conic-border magnetic" href="https://github.com/damsarachethiyaa-dev/orbit/releases/latest/download/Orbit-Setup.exe" download="Orbit-Setup.exe">
+        <span data-orbit-version>Download Free (v1.0.6)</span>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8h12M9 3l5 5-5 5"/></svg>
       </a>
     </div>
   </div>

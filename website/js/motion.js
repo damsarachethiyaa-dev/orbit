@@ -687,6 +687,46 @@
     });
   });
 
+  /* ======================= Mobile Navigation Drawer ======================= */
+  const navToggle = $('#navToggle');
+  const navMobile = $('#navMobile');
+
+  function toggleMobileMenu(forceClose = false) {
+    if (!navToggle || !navMobile) return;
+    const shouldOpen = forceClose ? false : !navMobile.classList.contains('is-open');
+    navToggle.classList.toggle('is-active', shouldOpen);
+    navToggle.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    navMobile.classList.toggle('is-open', shouldOpen);
+    navMobile.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');
+  }
+
+  if (navToggle) {
+    navToggle.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleMobileMenu();
+    });
+  }
+
+  if (navMobile) {
+    navMobile.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        toggleMobileMenu(true);
+      });
+    });
+  }
+
+  document.addEventListener('click', e => {
+    if (navMobile && navMobile.classList.contains('is-open')) {
+      if (!navMobile.contains(e.target) && !navToggle.contains(e.target)) {
+        toggleMobileMenu(true);
+      }
+    }
+  });
+
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') toggleMobileMenu(true);
+  });
+
   /* ======================= Dynamic GitHub Release Version Sync ======================= */
   (function initReleaseAutoSync() {
     const REPO = 'damsarachethiyaa-dev/orbit';

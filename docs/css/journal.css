@@ -469,8 +469,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   font-weight: 700;
   letter-spacing: -0.02em;
   color: #fff;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
-.nav__brand svg { width: 26px; height: 26px; }
+.nav__brand svg { width: 26px; height: 26px; flex-shrink: 0; }
 .nav__links {
   display: flex;
   gap: 6px;
@@ -479,6 +481,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   border-radius: 999px;
   background: rgba(10, 16, 30, 0.4);
   backdrop-filter: blur(10px);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .nav__links a {
   font-size: 0.86rem;
@@ -486,11 +490,28 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   padding: 7px 16px;
   border-radius: 999px;
   color: var(--dim);
+  white-space: nowrap;
   transition: color 0.25s cubic-bezier(0.16, 1, 0.3, 1), background 0.25s;
 }
 .nav__links a:hover, .nav__links a.active {
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
+}
+.nav__actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+.nav__gh {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--dim);
+  white-space: nowrap;
+  transition: color 0.2s;
+}
+.nav__gh:hover {
+  color: #fff;
 }
 .nav__cta {
   background: #ffffff;
@@ -503,6 +524,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: background 0.25s, color 0.25s, border-color 0.25s, box-shadow 0.25s, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .nav__cta:hover {
@@ -511,6 +534,104 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   border-color: #ffffff;
   box-shadow: 0 4px 20px rgba(255, 255, 255, 0.22);
   transform: translateY(-1px);
+}
+
+/* Mobile Toggle Hamburger */
+.nav__toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  background: rgba(10, 16, 30, 0.6);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  z-index: 60;
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s;
+}
+.nav__toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.nav__toggle-bar {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: #ffffff;
+  border-radius: 2px;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s;
+}
+.nav__toggle.is-active .nav__toggle-bar:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+.nav__toggle.is-active .nav__toggle-bar:nth-child(2) {
+  opacity: 0;
+}
+.nav__toggle.is-active .nav__toggle-bar:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
+}
+
+/* Mobile Dropdown Menu */
+.nav__mobile {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: rgba(2, 4, 10, 0.96);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border-bottom: 1px solid var(--line);
+  padding: 16px var(--gutter) 24px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.85);
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.nav__mobile.is-open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.nav__mobile-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mobile-link {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--dim);
+  padding: 11px 16px;
+  border-radius: 10px;
+  transition: color 0.2s, background 0.2s;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mobile-link:hover, .mobile-link.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+.mobile-link--gh {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-top: 4px;
+  color: #fff;
+}
+.nav__mobile-cta {
+  margin-top: 14px;
+}
+.nav__mobile-cta .btn-primary {
+  width: 100%;
+  justify-content: center;
 }
 
 /* ---------- Hero Section ---------- */
@@ -1757,17 +1878,41 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* Responsive adjustments */
 @media (max-width: 960px) {
+  .nav__links { display: none !important; }
+  .nav__toggle { display: flex; }
+  .nav__mobile { display: block; }
+  .nav__gh { display: none; }
   .section__head, .exp, .exp__panel.is-active, .faq, .plans { grid-template-columns: 1fr; }
   .section__head .lede { justify-self: start; }
   .trio { grid-template-columns: 1fr 1fr; }
   .hero__strip { grid-template-columns: repeat(2, 1fr); }
   .hero__strip figure:nth-child(n+3) { display: none; }
+  .hero__body, .hero__aside { max-width: 100%; min-width: 0; }
+  .hero__row { gap: 40px; }
 }
+
 @media (max-width: 640px) {
-  .nav__links { display: none; }
   .trio { grid-template-columns: 1fr; }
   .hero__actions { flex-direction: column; align-items: stretch; }
   .btn-primary { justify-content: center; }
+  .link-arrow { justify-content: center; }
   .hero__strip { display: none; }
   .slide-overlay { position: static; border-radius: 0; flex-direction: column; align-items: flex-start; }
+}
+
+@media (max-width: 480px) {
+  .nav__inner { height: 56px; }
+  .nav__brand { font-size: 16px; gap: 8px; }
+  .nav__brand svg { width: 22px; height: 22px; }
+  .nav__actions { gap: 10px; }
+  .nav__cta { padding: 8px 14px; font-size: 0.8rem; }
+  .nav__toggle { width: 38px; height: 38px; border-radius: 10px; }
+  .nav__toggle-bar { width: 17px; }
+  .h-xl { font-size: clamp(30px, 8.5vw, 46px); }
+  .stats { grid-template-columns: 1fr; }
+  .stat { border-right: 0 !important; border-bottom: 1px solid var(--line); }
+  .stat:last-child { border-bottom: 0; }
+  .foot-cols { flex-direction: column; gap: 28px; }
+  .walkthrough__nav { gap: 8px; }
+  .wt-btn { padding: 8px 14px; font-size: 12px; }
 }
