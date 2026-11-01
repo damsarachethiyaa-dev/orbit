@@ -76,6 +76,44 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
   display: none;
 }
 
+/* Badges: User requested Engine Ready (green) and App Preferences (blue) */
+.badge-engine-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 230, 118, 0.12);
+  border: 1px solid rgba(0, 230, 118, 0.35);
+  color: #00e676;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+.badge-engine-ready .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #00e676;
+  box-shadow: 0 0 6px #00e676;
+}
+
+.badge-app-pref {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(0, 153, 255, 0.12);
+  border: 1px solid rgba(0, 153, 255, 0.35);
+  color: #38bdf8;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 4px 12px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
 /* Sidebar (Desktop) */
 .side {
   display: flex;

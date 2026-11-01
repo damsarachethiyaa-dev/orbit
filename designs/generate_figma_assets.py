@@ -1,0 +1,688 @@
+import os
+
+OUT_DIR = r"C:\Users\LEGION\Downloads\Orbit\designs"
+os.makedirs(OUT_DIR, exist_ok=True)
+
+# Common SVG Header & Defs
+def get_svg_wrapper(width, height, content, title="Orbit Design"):
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap');
+      text {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }}
+      .mono {{ font-family: 'JetBrains Mono', monospace; }}
+    </style>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+    <linearGradient id="glow-selected" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.02" />
+    </linearGradient>
+  </defs>
+  <!-- Frame Background -->
+  <rect width="{width}" height="{height}" fill="#000000"/>
+  {content}
+</svg>'''
+
+# Helper: Device status bar (390 width)
+def status_bar(y=0):
+    return f'''
+    <!-- Status Bar -->
+    <g transform="translate(0, {y})">
+      <text x="32" y="28" fill="#ffffff" font-size="14" font-weight="600">9:41</text>
+      <!-- Dynamic Island / Camera Notch -->
+      <rect x="135" y="11" width="120" height="28" rx="14" fill="#0a0a0a" stroke="#1f1f1f" stroke-width="0.8"/>
+      <circle cx="238" cy="25" r="4.5" fill="#151515"/>
+      <!-- Status Icons -->
+      <g transform="translate(322, 16)" fill="#ffffff">
+        <!-- Cellular -->
+        <rect x="0" y="8" width="2.5" height="4" rx="0.5"/>
+        <rect x="4" y="6" width="2.5" height="6" rx="0.5"/>
+        <rect x="8" y="3" width="2.5" height="9" rx="0.5"/>
+        <rect x="12" y="0" width="2.5" height="12" rx="0.5"/>
+        <!-- Wifi -->
+        <path d="M22 2a11.9 11.9 0 0 0-8 3.2l1.4 1.4a9.9 9.9 0 0 1 6.6-2.6 9.9 9.9 0 0 1 6.6 2.6l1.4-1.4A11.9 11.9 0 0 0 22 2zm0 4a7.9 7.9 0 0 0-5.2 2l1.4 1.4a5.9 5.9 0 0 1 3.8-1.4 5.9 5.9 0 0 1 3.8 1.4l1.4-1.4A7.9 7.9 0 0 0 22 6zm0 4a3.9 3.9 0 0 0-2.4.8l2.4 2.4 2.4-2.4a3.9 3.9 0 0 0-2.4-.8z"/>
+        <!-- Battery -->
+        <rect x="36" y="1" width="20" height="10" rx="2.5" fill="none" stroke="#ffffff" stroke-width="1.2"/>
+        <rect x="38" y="3" width="14" height="6" rx="1" fill="#ffffff"/>
+        <path d="M57 4v4" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round"/>
+      </g>
+    </g>'''
+
+# Helper: Top header with Orbit brand logo and Engine Ready badge
+def top_header(y=54):
+    return f'''
+    <!-- Top Header -->
+    <g transform="translate(0, {y})">
+      <!-- Orbit Brand Logo -->
+      <g transform="translate(20, 0)">
+        <!-- Logo Mark Icon -->
+        <circle cx="14" cy="14" r="9" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+        <circle cx="21" cy="4" r="3.2" fill="#0099ff"/>
+        <!-- Text -->
+        <text x="36" y="21" fill="#ffffff" font-size="20" font-weight="800" letter-spacing="-0.4">Orbit</text>
+      </g>
+      <!-- Green Badge: ENGINE READY -->
+      <g transform="translate(254, 3)">
+        <rect width="116" height="24" rx="12" fill="#002411" stroke="#006633" stroke-width="1"/>
+        <circle cx="14" cy="12" r="3.5" fill="#00e676"/>
+        <text x="62" y="15.5" fill="#00e676" font-size="10" font-weight="700" letter-spacing="0.8" text-anchor="middle">ENGINE READY</text>
+      </g>
+    </g>'''
+
+# Helper: Bottom Navigation Bar
+def bottom_nav(active_tab="download"):
+    tabs = [
+        ("download", "Download", "M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"),
+        ("library", "Library", "M3 7v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-7l-2-2H5a2 2 0 0 0-2 2z"),
+        ("settings", "Settings", "M4 6h16M4 12h16M4 18h16M8 4v4m8 2v4m-4 4v4")
+    ]
+    
+    out = '''
+    <!-- Bottom Navigation Bar -->
+    <g transform="translate(0, 756)">
+      <!-- Nav Background -->
+      <rect width="390" height="88" fill="#090a0d" stroke="#191c22" stroke-width="1"/>
+      <!-- Home Indicator Bar -->
+      <rect x="130" y="76" width="130" height="4" rx="2" fill="#333333"/>
+    '''
+    
+    x_positions = [65, 195, 325]
+    for i, (tab_id, label, icon_path) in enumerate(tabs):
+        cx = x_positions[i]
+        is_active = (tab_id == active_tab)
+        if is_active:
+            # High-contrast white pill for active tab! NO blue!
+            out += f'''
+            <g transform="translate({cx - 48}, 10)">
+              <rect width="96" height="38" rx="19" fill="#ffffff"/>
+              <!-- Icon -->
+              <svg x="18" y="8" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="{icon_path}"/>
+              </svg>
+              <!-- Label -->
+              <text x="44" y="24" fill="#000000" font-size="11" font-weight="700">{label}</text>
+            </g>'''
+        else:
+            out += f'''
+            <g transform="translate({cx}, 29)" text-anchor="middle">
+              <svg x="-11" y="-18" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#71767b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="{icon_path}"/>
+              </svg>
+              <text x="0" y="14" fill="#71767b" font-size="10.5" font-weight="600">{label}</text>
+            </g>'''
+    out += '</g>'
+    return out
+
+# ==========================================
+# SCREEN 1: DOWNLOAD HOME
+# ==========================================
+def make_screen_download():
+    content = status_bar() + top_header()
+    content += '''
+    <!-- Main Content -->
+    <g transform="translate(20, 110)">
+      <!-- Title & Subtitle -->
+      <text x="0" y="28" fill="#ffffff" font-size="28" font-weight="800" letter-spacing="-0.5">Download</text>
+      <text x="0" y="50" fill="#7d8590" font-size="13" font-weight="400">Universal video, audio and image extractor</text>
+
+      <!-- URL Input Box -->
+      <g transform="translate(0, 72)">
+        <rect width="350" height="56" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1.2"/>
+        <!-- Link Icon -->
+        <svg x="14" y="18" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#565f6c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+        <text x="44" y="33" fill="#484f58" font-size="13" font-weight="400">Paste video, reel or image URL...</text>
+        
+        <!-- Paste Button (High contrast white pill) -->
+        <g transform="translate(262, 9)">
+          <rect width="78" height="38" rx="12" fill="#ffffff"/>
+          <svg x="12" y="11" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+          </svg>
+          <text x="32" y="24" fill="#000000" font-size="12" font-weight="700">Paste</text>
+        </g>
+      </g>
+
+      <!-- Clipboard Banner -->
+      <g transform="translate(0, 142)">
+        <rect width="350" height="44" rx="12" fill="#12151b" stroke="#252a33" stroke-width="1"/>
+        <circle cx="22" cy="22" r="4" fill="#ffffff"/>
+        <text x="36" y="26" fill="#c9d1d9" font-size="12" font-weight="500">Clipboard:</text>
+        <text x="96" y="26" fill="#8b949e" font-size="11.5" font-family="'JetBrains Mono', monospace">https://instagram.com/reel/...</text>
+        <text x="306" y="26" fill="#ffffff" font-size="11.5" font-weight="700" text-anchor="middle">USE</text>
+      </g>
+
+      <!-- Supported Sites Section -->
+      <g transform="translate(0, 210)">
+        <text x="0" y="0" fill="#565f6c" font-size="11" font-weight="700" letter-spacing="1">SUPPORTED SITES</text>
+        
+        <!-- Platform Chips Row 1 -->
+        <g transform="translate(0, 14)">
+          <!-- YouTube -->
+          <g transform="translate(0, 0)">
+            <rect width="80" height="34" rx="10" fill="#0d0f12" stroke="#1f232b" stroke-width="1"/>
+            <circle cx="16" cy="17" r="5" fill="#ff0000"/>
+            <text x="28" y="21" fill="#e6edf3" font-size="11.5" font-weight="600">YouTube</text>
+          </g>
+          <!-- Instagram -->
+          <g transform="translate(86, 0)">
+            <rect width="86" height="34" rx="10" fill="#0d0f12" stroke="#1f232b" stroke-width="1"/>
+            <circle cx="16" cy="17" r="5" fill="#e1306c"/>
+            <text x="28" y="21" fill="#e6edf3" font-size="11.5" font-weight="600">Instagram</text>
+          </g>
+          <!-- TikTok -->
+          <g transform="translate(178, 0)">
+            <rect width="76" height="34" rx="10" fill="#0d0f12" stroke="#1f232b" stroke-width="1"/>
+            <circle cx="16" cy="17" r="5" fill="#25f4ee"/>
+            <text x="28" y="21" fill="#e6edf3" font-size="11.5" font-weight="600">TikTok</text>
+          </g>
+          <!-- X / Twitter -->
+          <g transform="translate(260, 0)">
+            <rect width="90" height="34" rx="10" fill="#0d0f12" stroke="#1f232b" stroke-width="1"/>
+            <circle cx="16" cy="17" r="5" fill="#ffffff"/>
+            <text x="28" y="21" fill="#e6edf3" font-size="11.5" font-weight="600">X / Twitter</text>
+          </g>
+        </g>
+
+        <!-- Platform Chips Row 2 -->
+        <g transform="translate(0, 56)">
+          <!-- Xiaohongshu (XHS) -->
+          <g transform="translate(0, 0)">
+            <rect width="100" height="34" rx="10" fill="#0d0f12" stroke="#1f232b" stroke-width="1"/>
+            <circle cx="16" cy="17" r="5" fill="#ff2442"/>
+            <text x="28" y="21" fill="#e6edf3" font-size="11.5" font-weight="600">Xiaohongshu</text>
+          </g>
+          <!-- Facebook -->
+          <g transform="translate(106, 0)">
+            <rect width="84" height="34" rx="10" fill="#0d0f12" stroke="#1f232b" stroke-width="1"/>
+            <circle cx="16" cy="17" r="5" fill="#1877f2"/>
+            <text x="28" y="21" fill="#e6edf3" font-size="11.5" font-weight="600">Facebook</text>
+          </g>
+          <!-- Pinterest -->
+          <g transform="translate(196, 0)">
+            <rect width="80" height="34" rx="10" fill="#0d0f12" stroke="#1f232b" stroke-width="1"/>
+            <circle cx="16" cy="17" r="5" fill="#e60023"/>
+            <text x="28" y="21" fill="#e6edf3" font-size="11.5" font-weight="600">Pinterest</text>
+          </g>
+          <!-- Reddit -->
+          <g transform="translate(282, 0)">
+            <rect width="68" height="34" rx="10" fill="#0d0f12" stroke="#1f232b" stroke-width="1"/>
+            <circle cx="16" cy="17" r="5" fill="#ff4500"/>
+            <text x="28" y="21" fill="#e6edf3" font-size="11.5" font-weight="600">Reddit</text>
+          </g>
+        </g>
+      </g>
+
+      <!-- Active Queue Card -->
+      <g transform="translate(0, 328)">
+        <text x="0" y="0" fill="#565f6c" font-size="11" font-weight="700" letter-spacing="1">CURRENT DOWNLOAD</text>
+        
+        <g transform="translate(0, 14)">
+          <rect width="350" height="96" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+          <!-- Thumbnail Box -->
+          <rect x="14" y="14" width="68" height="68" rx="10" fill="#1c2128"/>
+          <!-- Play icon in thumbnail -->
+          <circle cx="48" cy="48" r="14" fill="#000000" fill-opacity="0.6"/>
+          <polygon points="45,42 54,48 45,54" fill="#ffffff"/>
+          
+          <!-- Title -->
+          <text x="92" y="32" fill="#ffffff" font-size="13" font-weight="700">Cyberpunk 2077 — Night City 4K</text>
+          
+          <!-- Progress Bar -->
+          <rect x="92" y="44" width="244" height="6" rx="3" fill="#1c2128"/>
+          <rect x="92" y="44" width="168" height="6" rx="3" fill="#ffffff"/>
+          
+          <!-- Meta stats (Speed, ETA, Size) -->
+          <text x="92" y="68" fill="#7d8590" font-size="11" font-weight="500">68%</text>
+          <text x="122" y="68" fill="#565f6c" font-size="11">·</text>
+          <text x="134" y="68" fill="#ffffff" font-size="11" font-weight="600">8.4 MB/s</text>
+          <text x="188" y="68" fill="#565f6c" font-size="11">·</text>
+          <text x="200" y="68" fill="#7d8590" font-size="11">ETA 12s</text>
+          
+          <!-- Cancel (X) button -->
+          <circle cx="322" cy="28" r="10" fill="#161b22"/>
+          <path d="M318 24l8 8m0-8l-8 8" stroke="#7d8590" stroke-width="1.5" stroke-linecap="round"/>
+        </g>
+      </g>
+    </g>'''
+    content += bottom_nav("download")
+    return get_svg_wrapper(390, 844, content, "01 · Orbit Download (Home)")
+
+# ==========================================
+# SCREEN 2: FORMAT & QUALITY PICKER SHEET
+# ==========================================
+def make_screen_sheet():
+    content = status_bar() + top_header()
+    # Dim background overlay
+    content += '<rect width="390" height="844" fill="#000000" fill-opacity="0.72"/>'
+    
+    # Bottom Sheet
+    content += '''
+    <!-- Bottom Sheet Container -->
+    <g transform="translate(0, 240)">
+      <!-- Sheet Frame -->
+      <rect width="390" height="604" rx="28" fill="#0d0f12" stroke="#252a33" stroke-width="1.2" filter="url(#shadow)"/>
+      <!-- Sheet Drag Handle -->
+      <rect x="175" y="12" width="40" height="4" rx="2" fill="#30363d"/>
+      
+      <!-- Close Button -->
+      <circle cx="356" cy="36" r="14" fill="#161b22"/>
+      <path d="M351 31l10 10m0-10l-10 10" stroke="#8b949e" stroke-width="1.6" stroke-linecap="round"/>
+
+      <!-- Media Preview Header -->
+      <g transform="translate(20, 36)">
+        <!-- Video 16:9 Thumbnail -->
+        <rect width="112" height="63" rx="10" fill="#1c2128"/>
+        <!-- Duration tag -->
+        <rect x="74" y="44" width="32" height="15" rx="4" fill="#000000" fill-opacity="0.8"/>
+        <text x="90" y="55" fill="#ffffff" font-size="9" font-weight="700" text-anchor="middle">04:12</text>
+        
+        <!-- Video Info -->
+        <text x="124" y="20" fill="#ffffff" font-size="13" font-weight="700">Sony FX3 — Cinema Rig Setup</text>
+        <text x="124" y="38" fill="#7d8590" font-size="11.5" font-weight="400">Cinematography Lab</text>
+        <text x="124" y="54" fill="#565f6c" font-size="11">YouTube · 4K HDR Source</text>
+      </g>
+
+      <!-- Media Type Segment Toggle (Video vs Audio) -->
+      <g transform="translate(20, 118)">
+        <rect width="350" height="40" rx="12" fill="#161b22" stroke="#21262d" stroke-width="1"/>
+        <!-- Video Tab (Active: White Pill) -->
+        <rect x="4" y="4" width="169" height="32" rx="8" fill="#ffffff"/>
+        <text x="88" y="24" fill="#000000" font-size="12" font-weight="700" text-anchor="middle">Video (MP4)</text>
+        
+        <!-- Audio Tab -->
+        <text x="262" y="24" fill="#8b949e" font-size="12" font-weight="600" text-anchor="middle">Audio Only (MP3)</text>
+      </g>
+
+      <!-- Quality Resolution Options -->
+      <g transform="translate(20, 178)">
+        <text x="0" y="0" fill="#565f6c" font-size="11" font-weight="700" letter-spacing="1">SELECT RESOLUTION</text>
+
+        <!-- Option 1: 4K / Max (Selected: Crisp White Border, No Blue!) -->
+        <g transform="translate(0, 12)">
+          <rect width="350" height="56" rx="14" fill="#161b22" stroke="#ffffff" stroke-width="1.8"/>
+          <!-- Checkmark -->
+          <circle cx="28" cy="28" r="10" fill="#ffffff"/>
+          <path d="M24 28l3 3 5-6" stroke="#000000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          
+          <text x="50" y="27" fill="#ffffff" font-size="14" font-weight="700">4K / Max</text>
+          <text x="50" y="43" fill="#8b949e" font-size="11">Highest available · 2160p60 Ultra HD</text>
+          
+          <text x="326" y="33" fill="#ffffff" font-size="13" font-weight="700" text-anchor="end">~248 MB</text>
+        </g>
+
+        <!-- Option 2: 1080p FHD -->
+        <g transform="translate(0, 76)">
+          <rect width="350" height="52" rx="14" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <circle cx="28" cy="26" r="9" fill="none" stroke="#484f58" stroke-width="1.5"/>
+          <text x="50" y="25" fill="#e6edf3" font-size="13.5" font-weight="600">1080p</text>
+          <text x="50" y="40" fill="#6e7681" font-size="11">Full High Def · Standard crisp</text>
+          <text x="326" y="31" fill="#7d8590" font-size="12" font-weight="600" text-anchor="end">~78 MB</text>
+        </g>
+
+        <!-- Option 3: 720p HD -->
+        <g transform="translate(0, 136)">
+          <rect width="350" height="52" rx="14" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <circle cx="28" cy="26" r="9" fill="none" stroke="#484f58" stroke-width="1.5"/>
+          <text x="50" y="25" fill="#e6edf3" font-size="13.5" font-weight="600">720p</text>
+          <text x="50" y="40" fill="#6e7681" font-size="11">Fast download · Mobile friendly</text>
+          <text x="326" y="31" fill="#7d8590" font-size="12" font-weight="600" text-anchor="end">~34 MB</text>
+        </g>
+
+        <!-- Option 4: 480p SD -->
+        <g transform="translate(0, 196)">
+          <rect width="350" height="52" rx="14" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <circle cx="28" cy="26" r="9" fill="none" stroke="#484f58" stroke-width="1.5"/>
+          <text x="50" y="25" fill="#e6edf3" font-size="13.5" font-weight="600">480p</text>
+          <text x="50" y="40" fill="#6e7681" font-size="11">Data saver · Lightweight</text>
+          <text x="326" y="31" fill="#7d8590" font-size="12" font-weight="600" text-anchor="end">~18 MB</text>
+        </g>
+      </g>
+
+      <!-- Primary Action Button: DOWNLOAD NOW -->
+      <g transform="translate(20, 448)">
+        <rect width="350" height="54" rx="16" fill="#ffffff"/>
+        <!-- Download Arrow -->
+        <svg x="110" y="18" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/>
+        </svg>
+        <text x="140" y="33" fill="#000000" font-size="15" font-weight="800">Download 4K</text>
+      </g>
+
+      <!-- Destination Note -->
+      <text x="195" y="522" fill="#565f6c" font-size="11" text-anchor="middle">Saves directly to /storage/emulated/0/Download/Orbit</text>
+    </g>'''
+    return get_svg_wrapper(390, 844, content, "02 · Orbit Format Picker Sheet")
+
+# ==========================================
+# SCREEN 3: LIBRARY / DOWNLOADS MANAGER
+# ==========================================
+def make_screen_library():
+    content = status_bar() + top_header()
+    content += '''
+    <!-- Main Content -->
+    <g transform="translate(20, 110)">
+      <!-- Header -->
+      <text x="0" y="28" fill="#ffffff" font-size="28" font-weight="800" letter-spacing="-0.5">Library</text>
+      <text x="0" y="50" fill="#7d8590" font-size="13" font-weight="400">Manage downloaded videos, music and photos</text>
+
+      <!-- Category Filter Pills -->
+      <g transform="translate(0, 68)">
+        <!-- All (Active) -->
+        <g transform="translate(0, 0)">
+          <rect width="58" height="32" rx="10" fill="#ffffff"/>
+          <text x="29" y="20" fill="#000000" font-size="12" font-weight="700" text-anchor="middle">All (6)</text>
+        </g>
+        <!-- Videos -->
+        <g transform="translate(64, 0)">
+          <rect width="72" height="32" rx="10" fill="#12151b" stroke="#21262d" stroke-width="1"/>
+          <text x="36" y="20" fill="#8b949e" font-size="12" font-weight="600" text-anchor="middle">Videos (4)</text>
+        </g>
+        <!-- Audio -->
+        <g transform="translate(142, 0)">
+          <rect width="70" height="32" rx="10" fill="#12151b" stroke="#21262d" stroke-width="1"/>
+          <text x="35" y="20" fill="#8b949e" font-size="12" font-weight="600" text-anchor="middle">Audio (1)</text>
+        </g>
+        <!-- Photos -->
+        <g transform="translate(218, 0)">
+          <rect width="76" height="32" rx="10" fill="#12151b" stroke="#21262d" stroke-width="1"/>
+          <text x="38" y="20" fill="#8b949e" font-size="12" font-weight="600" text-anchor="middle">Images (1)</text>
+        </g>
+      </g>
+
+      <!-- Library Items List -->
+      <g transform="translate(0, 116)">
+        <!-- Item 1: Complete Video -->
+        <g transform="translate(0, 0)">
+          <rect width="350" height="88" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+          <!-- Thumbnail -->
+          <rect x="12" y="12" width="64" height="64" rx="10" fill="#1c2128"/>
+          <!-- Tag -->
+          <rect x="16" y="56" width="26" height="14" rx="3" fill="#000000" fill-opacity="0.85"/>
+          <text x="29" y="66" fill="#ffffff" font-size="8.5" font-weight="700" text-anchor="middle">4K</text>
+          
+          <text x="86" y="30" fill="#ffffff" font-size="13" font-weight="700">Blade Runner 2049 — Sound...</text>
+          <text x="86" y="48" fill="#7d8590" font-size="11">YouTube · 216 MB · MP4</text>
+          
+          <!-- Actions -->
+          <g transform="translate(86, 56)">
+            <rect width="56" height="22" rx="6" fill="#1c2128"/>
+            <text x="28" y="15" fill="#ffffff" font-size="10.5" font-weight="700" text-anchor="middle">OPEN</text>
+          </g>
+          <g transform="translate(148, 56)">
+            <rect width="56" height="22" rx="6" fill="#161b22"/>
+            <text x="28" y="15" fill="#8b949e" font-size="10.5" font-weight="600" text-anchor="middle">SHARE</text>
+          </g>
+          <!-- Delete -->
+          <circle cx="324" cy="44" r="14" fill="#161b22"/>
+          <svg x="317" y="37" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7d8590" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </g>
+
+        <!-- Item 2: Instagram Reel -->
+        <g transform="translate(0, 100)">
+          <rect width="350" height="88" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+          <rect x="12" y="12" width="64" height="64" rx="10" fill="#1c2128"/>
+          <rect x="16" y="56" width="34" height="14" rx="3" fill="#000000" fill-opacity="0.85"/>
+          <text x="33" y="66" fill="#ffffff" font-size="8.5" font-weight="700" text-anchor="middle">1080p</text>
+          
+          <text x="86" y="30" fill="#ffffff" font-size="13" font-weight="700">Minimal Architecture Reel</text>
+          <text x="86" y="48" fill="#7d8590" font-size="11">Instagram · 14.8 MB · MP4</text>
+          
+          <g transform="translate(86, 56)">
+            <rect width="56" height="22" rx="6" fill="#1c2128"/>
+            <text x="28" y="15" fill="#ffffff" font-size="10.5" font-weight="700" text-anchor="middle">OPEN</text>
+          </g>
+          <g transform="translate(148, 56)">
+            <rect width="56" height="22" rx="6" fill="#161b22"/>
+            <text x="28" y="15" fill="#8b949e" font-size="10.5" font-weight="600" text-anchor="middle">SHARE</text>
+          </g>
+          <circle cx="324" cy="44" r="14" fill="#161b22"/>
+          <svg x="317" y="37" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7d8590" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </g>
+
+        <!-- Item 3: Xiaohongshu Photo Set -->
+        <g transform="translate(0, 200)">
+          <rect width="350" height="88" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+          <rect x="12" y="12" width="64" height="64" rx="10" fill="#1c2128"/>
+          <rect x="16" y="56" width="36" height="14" rx="3" fill="#000000" fill-opacity="0.85"/>
+          <text x="34" y="66" fill="#ffffff" font-size="8.5" font-weight="700" text-anchor="middle">IMG x6</text>
+          
+          <text x="86" y="30" fill="#ffffff" font-size="13" font-weight="700">Kyoto Street Photography</text>
+          <text x="86" y="48" fill="#7d8590" font-size="11">Xiaohongshu · 8.2 MB · ZIP</text>
+          
+          <g transform="translate(86, 56)">
+            <rect width="56" height="22" rx="6" fill="#1c2128"/>
+            <text x="28" y="15" fill="#ffffff" font-size="10.5" font-weight="700" text-anchor="middle">VIEW</text>
+          </g>
+          <g transform="translate(148, 56)">
+            <rect width="56" height="22" rx="6" fill="#161b22"/>
+            <text x="28" y="15" fill="#8b949e" font-size="10.5" font-weight="600" text-anchor="middle">SHARE</text>
+          </g>
+          <circle cx="324" cy="44" r="14" fill="#161b22"/>
+          <svg x="317" y="37" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7d8590" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </g>
+      </g>
+    </g>'''
+    content += bottom_nav("library")
+    return get_svg_wrapper(390, 844, content, "03 · Orbit Library")
+
+# ==========================================
+# SCREEN 4: REDESIGNED SETTINGS (EXACT USER RULES!)
+# ==========================================
+def make_screen_settings():
+    content = status_bar() + top_header()
+    content += '''
+    <!-- Main Content -->
+    <g transform="translate(20, 100)">
+      
+      <!-- Blue Badge: APP PREFERENCES (User Rule: Keep this badge!) -->
+      <g transform="translate(0, 0)">
+        <rect width="138" height="24" rx="12" fill="#001830" stroke="#004d80" stroke-width="1"/>
+        <text x="69" y="16" fill="#38bdf8" font-size="10" font-weight="700" letter-spacing="1.2" text-anchor="middle">APP PREFERENCES</text>
+      </g>
+
+      <!-- Big Title & Subtitle -->
+      <text x="0" y="52" fill="#ffffff" font-size="28" font-weight="800" letter-spacing="-0.5">Settings</text>
+      <text x="0" y="72" fill="#7d8590" font-size="12.5" font-weight="400">Storage paths, default quality, and engine diagnostics</text>
+
+      <!-- Card 1: Save Destination (NO blue path text! Replaced with white monospace) -->
+      <g transform="translate(0, 88)">
+        <rect width="350" height="98" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+        <text x="16" y="26" fill="#ffffff" font-size="14" font-weight="700">Save Destination</text>
+        
+        <!-- Path in clean white mono (NOT blue!) -->
+        <text x="16" y="46" fill="#ffffff" font-size="11.5" font-family="'JetBrains Mono', monospace">/storage/emulated/0/Download/Orbit</text>
+        
+        <!-- Buttons -->
+        <g transform="translate(16, 56)">
+          <!-- Change Button -->
+          <rect width="150" height="32" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+          <text x="75" y="20.5" fill="#ffffff" font-size="11" font-weight="700" letter-spacing="0.5" text-anchor="middle">CHANGE</text>
+        </g>
+        <g transform="translate(174, 56)">
+          <!-- Open Folder Button -->
+          <rect width="160" height="32" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+          <text x="80" y="20.5" fill="#ffffff" font-size="11" font-weight="700" letter-spacing="0.5" text-anchor="middle">OPEN FOLDER</text>
+        </g>
+      </g>
+
+      <!-- Card 2: Default Download Quality -->
+      <!-- USER RULES:
+           1. NO blue borders, NO blue glow -> Crisp white highlight!
+           2. REMOVE ALL extra labels: NO "BEST", "FHD", "HD", "SD", "MP3" badges!
+      -->
+      <g transform="translate(0, 198)">
+        <rect width="350" height="214" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+        <text x="16" y="26" fill="#ffffff" font-size="14" font-weight="700">Default Download Quality</text>
+        <text x="16" y="44" fill="#7d8590" font-size="11.5">One-tap downloads automatically use this format</text>
+
+        <!-- Grid of Quality Chips: 2 columns -->
+        <!-- Card A (Selected): 4K / Max (Solid White Border, NO BEST badge!) -->
+        <g transform="translate(14, 56)">
+          <rect width="155" height="54" rx="12" fill="#161b22" stroke="#ffffff" stroke-width="1.8"/>
+          <!-- Clean title, NO extra label -->
+          <text x="14" y="24" fill="#ffffff" font-size="13.5" font-weight="700">4K / Max</text>
+          <text x="14" y="42" fill="#8b949e" font-size="11">Highest available</text>
+        </g>
+
+        <!-- Card B: 1080p (NO FHD badge!) -->
+        <g transform="translate(181, 56)">
+          <rect width="155" height="54" rx="12" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <!-- Clean title, NO extra label -->
+          <text x="14" y="24" fill="#e6edf3" font-size="13.5" font-weight="600">1080p</text>
+          <text x="14" y="42" fill="#6e7681" font-size="11">Full High Def</text>
+        </g>
+
+        <!-- Card C: 720p (NO HD badge!) -->
+        <g transform="translate(14, 118)">
+          <rect width="155" height="48" rx="12" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <!-- Clean title, NO extra label -->
+          <text x="14" y="22" fill="#e6edf3" font-size="13" font-weight="600">720p</text>
+          <text x="14" y="38" fill="#6e7681" font-size="10.5">Fast download</text>
+        </g>
+
+        <!-- Card D: 480p (NO SD badge!) -->
+        <g transform="translate(181, 118)">
+          <rect width="155" height="48" rx="12" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <!-- Clean title, NO extra label -->
+          <text x="14" y="22" fill="#e6edf3" font-size="13" font-weight="600">480p</text>
+          <text x="14" y="38" fill="#6e7681" font-size="10.5">Data saver</text>
+        </g>
+
+        <!-- Card E (Full Width): Audio Only (NO MP3 badge!) -->
+        <g transform="translate(14, 172)">
+          <rect width="322" height="34" rx="10" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <text x="14" y="22" fill="#e6edf3" font-size="12.5" font-weight="600">Audio Only</text>
+          <text x="96" y="22" fill="#6e7681" font-size="11">· Soundtrack 320k</text>
+        </g>
+      </g>
+
+      <!-- Card 3: Clear History -->
+      <g transform="translate(0, 424)">
+        <rect width="350" height="76" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+        <text x="16" y="26" fill="#ffffff" font-size="14" font-weight="700">Clear History</text>
+        <text x="16" y="44" fill="#7d8590" font-size="11">Removes download logs (saved files stay on disk)</text>
+        <!-- Clear List Button -->
+        <g transform="translate(242, 22)">
+          <rect width="94" height="32" rx="10" fill="#1b1212" stroke="#4a1d1d" stroke-width="1"/>
+          <text x="47" y="20.5" fill="#f87171" font-size="11" font-weight="700" letter-spacing="0.5" text-anchor="middle">CLEAR LIST</text>
+        </g>
+      </g>
+
+      <!-- Card 4: App Releases -->
+      <g transform="translate(0, 510)">
+        <rect width="350" height="74" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+        <text x="16" y="26" fill="#ffffff" font-size="14" font-weight="700">App Releases</text>
+        <text x="16" y="44" fill="#7d8590" font-size="11">Orbit v1.0.5 — You are on latest version</text>
+        <!-- Check Now Button -->
+        <g transform="translate(242, 21)">
+          <rect width="94" height="32" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+          <text x="47" y="20.5" fill="#ffffff" font-size="11" font-weight="700" letter-spacing="0.5" text-anchor="middle">CHECK NOW</text>
+        </g>
+      </g>
+    </g>'''
+    # Bottom nav has SETTINGS active, in crisp high-contrast white pill, NO blue!
+    content += bottom_nav("settings")
+    return get_svg_wrapper(390, 844, content, "04 · Orbit Settings (Redesigned)")
+
+# ==========================================
+# COMBINED: ALL 4 SCREENS SIDE BY SIDE
+# ==========================================
+def make_all_screens():
+    total_w = 390 * 4 + 40 * 5  # 1560 + 200 = 1760
+    total_h = 960
+    
+    s1 = make_screen_download()
+    s2 = make_screen_sheet()
+    s3 = make_screen_library()
+    s4 = make_screen_settings()
+    
+    # Strip <svg> and </svg> wrappers for embedding
+    def get_inner(svg_str):
+        start = svg_str.find('<!-- Frame Background -->')
+        end = svg_str.rfind('</svg>')
+        return svg_str[start:end]
+        
+    content = f'''
+    <!-- Canvas Title -->
+    <g transform="translate(40, 48)">
+      <text x="0" y="0" fill="#ffffff" font-size="28" font-weight="800">Orbit — Android UI Design System (v1.0.5)</text>
+      <text x="0" y="24" fill="#7d8590" font-size="14">Strict High-Contrast Monochrome · Dedicated Blue &amp; Green Badges · Clean Clutter-Free Architecture</text>
+    </g>
+    
+    <!-- Screen 1: Download Home -->
+    <g transform="translate(40, 90)">
+      <text x="0" y="-12" fill="#8b949e" font-size="13" font-weight="700">01 · HOME / DOWNLOAD</text>
+      <rect width="390" height="844" rx="44" fill="#000000" stroke="#252a33" stroke-width="3" filter="url(#shadow)"/>
+      <g clip-path="url(#phone-clip-1)">
+        {get_inner(s1)}
+      </g>
+    </g>
+    
+    <!-- Screen 2: Format Picker -->
+    <g transform="translate(470, 90)">
+      <text x="0" y="-12" fill="#8b949e" font-size="13" font-weight="700">02 · MEDIA FORMAT PICKER</text>
+      <rect width="390" height="844" rx="44" fill="#000000" stroke="#252a33" stroke-width="3" filter="url(#shadow)"/>
+      <g clip-path="url(#phone-clip-2)">
+        {get_inner(s2)}
+      </g>
+    </g>
+    
+    <!-- Screen 3: Library -->
+    <g transform="translate(900, 90)">
+      <text x="0" y="-12" fill="#8b949e" font-size="13" font-weight="700">03 · LIBRARY &amp; QUEUE</text>
+      <rect width="390" height="844" rx="44" fill="#000000" stroke="#252a33" stroke-width="3" filter="url(#shadow)"/>
+      <g clip-path="url(#phone-clip-3)">
+        {get_inner(s3)}
+      </g>
+    </g>
+
+    <!-- Screen 4: Redesigned Settings -->
+    <g transform="translate(1330, 90)">
+      <text x="0" y="-12" fill="#8b949e" font-size="13" font-weight="700">04 · SETTINGS (REDESIGNED)</text>
+      <rect width="390" height="844" rx="44" fill="#000000" stroke="#252a33" stroke-width="3" filter="url(#shadow)"/>
+      <g clip-path="url(#phone-clip-4)">
+        {get_inner(s4)}
+      </g>
+    </g>
+    
+    <defs>
+      <clipPath id="phone-clip-1"><rect width="390" height="844" rx="44"/></clipPath>
+      <clipPath id="phone-clip-2"><rect width="390" height="844" rx="44"/></clipPath>
+      <clipPath id="phone-clip-3"><rect width="390" height="844" rx="44"/></clipPath>
+      <clipPath id="phone-clip-4"><rect width="390" height="844" rx="44"/></clipPath>
+    </defs>
+    '''
+    return get_svg_wrapper(total_w, total_h, content, "Orbit Design System — All Screens")
+
+# Write out all SVGs
+with open(os.path.join(OUT_DIR, "01_Download_Home.svg"), "w", encoding="utf-8") as f:
+    f.write(make_screen_download())
+
+with open(os.path.join(OUT_DIR, "02_Quality_Picker_Sheet.svg"), "w", encoding="utf-8") as f:
+    f.write(make_screen_sheet())
+
+with open(os.path.join(OUT_DIR, "03_Library_Downloads.svg"), "w", encoding="utf-8") as f:
+    f.write(make_screen_library())
+
+with open(os.path.join(OUT_DIR, "04_Settings_Monochrome.svg"), "w", encoding="utf-8") as f:
+    f.write(make_screen_settings())
+
+with open(os.path.join(OUT_DIR, "00_Orbit_Design_System_All_Screens.svg"), "w", encoding="utf-8") as f:
+    f.write(make_all_screens())
+
+print("All SVGs successfully written to", OUT_DIR)

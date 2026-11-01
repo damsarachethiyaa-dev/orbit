@@ -1,0 +1,194 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 390 844" width="390" height="844">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap');
+      text { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+      .mono { font-family: 'JetBrains Mono', monospace; }
+    </style>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+    <linearGradient id="glow-selected" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.02" />
+    </linearGradient>
+  </defs>
+  <!-- Frame Background -->
+  <rect width="390" height="844" fill="#000000"/>
+  
+    <!-- Status Bar -->
+    <g transform="translate(0, 0)">
+      <text x="32" y="28" fill="#ffffff" font-size="14" font-weight="600">9:41</text>
+      <!-- Dynamic Island / Camera Notch -->
+      <rect x="135" y="11" width="120" height="28" rx="14" fill="#0a0a0a" stroke="#1f1f1f" stroke-width="0.8"/>
+      <circle cx="238" cy="25" r="4.5" fill="#151515"/>
+      <!-- Status Icons -->
+      <g transform="translate(322, 16)" fill="#ffffff">
+        <!-- Cellular -->
+        <rect x="0" y="8" width="2.5" height="4" rx="0.5"/>
+        <rect x="4" y="6" width="2.5" height="6" rx="0.5"/>
+        <rect x="8" y="3" width="2.5" height="9" rx="0.5"/>
+        <rect x="12" y="0" width="2.5" height="12" rx="0.5"/>
+        <!-- Wifi -->
+        <path d="M22 2a11.9 11.9 0 0 0-8 3.2l1.4 1.4a9.9 9.9 0 0 1 6.6-2.6 9.9 9.9 0 0 1 6.6 2.6l1.4-1.4A11.9 11.9 0 0 0 22 2zm0 4a7.9 7.9 0 0 0-5.2 2l1.4 1.4a5.9 5.9 0 0 1 3.8-1.4 5.9 5.9 0 0 1 3.8 1.4l1.4-1.4A7.9 7.9 0 0 0 22 6zm0 4a3.9 3.9 0 0 0-2.4.8l2.4 2.4 2.4-2.4a3.9 3.9 0 0 0-2.4-.8z"/>
+        <!-- Battery -->
+        <rect x="36" y="1" width="20" height="10" rx="2.5" fill="none" stroke="#ffffff" stroke-width="1.2"/>
+        <rect x="38" y="3" width="14" height="6" rx="1" fill="#ffffff"/>
+        <path d="M57 4v4" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round"/>
+      </g>
+    </g>
+    <!-- Top Header -->
+    <g transform="translate(0, 54)">
+      <!-- Orbit Brand Logo -->
+      <g transform="translate(20, 0)">
+        <!-- Logo Mark Icon -->
+        <circle cx="14" cy="14" r="9" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+        <circle cx="21" cy="4" r="3.2" fill="#0099ff"/>
+        <!-- Text -->
+        <text x="36" y="21" fill="#ffffff" font-size="20" font-weight="800" letter-spacing="-0.4">Orbit</text>
+      </g>
+      <!-- Green Badge: ENGINE READY -->
+      <g transform="translate(254, 3)">
+        <rect width="116" height="24" rx="12" fill="#002411" stroke="#006633" stroke-width="1"/>
+        <circle cx="14" cy="12" r="3.5" fill="#00e676"/>
+        <text x="62" y="15.5" fill="#00e676" font-size="10" font-weight="700" letter-spacing="0.8" text-anchor="middle">ENGINE READY</text>
+      </g>
+    </g>
+    <!-- Main Content -->
+    <g transform="translate(20, 100)">
+      
+      <!-- Blue Badge: APP PREFERENCES (User Rule: Keep this badge!) -->
+      <g transform="translate(0, 0)">
+        <rect width="138" height="24" rx="12" fill="#001830" stroke="#004d80" stroke-width="1"/>
+        <text x="69" y="16" fill="#38bdf8" font-size="10" font-weight="700" letter-spacing="1.2" text-anchor="middle">APP PREFERENCES</text>
+      </g>
+
+      <!-- Big Title & Subtitle -->
+      <text x="0" y="52" fill="#ffffff" font-size="28" font-weight="800" letter-spacing="-0.5">Settings</text>
+      <text x="0" y="72" fill="#7d8590" font-size="12.5" font-weight="400">Storage paths, default quality, and engine diagnostics</text>
+
+      <!-- Card 1: Save Destination (NO blue path text! Replaced with white monospace) -->
+      <g transform="translate(0, 88)">
+        <rect width="350" height="98" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+        <text x="16" y="26" fill="#ffffff" font-size="14" font-weight="700">Save Destination</text>
+        
+        <!-- Path in clean white mono (NOT blue!) -->
+        <text x="16" y="46" fill="#ffffff" font-size="11.5" font-family="'JetBrains Mono', monospace">/storage/emulated/0/Download/Orbit</text>
+        
+        <!-- Buttons -->
+        <g transform="translate(16, 56)">
+          <!-- Change Button -->
+          <rect width="150" height="32" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+          <text x="75" y="20.5" fill="#ffffff" font-size="11" font-weight="700" letter-spacing="0.5" text-anchor="middle">CHANGE</text>
+        </g>
+        <g transform="translate(174, 56)">
+          <!-- Open Folder Button -->
+          <rect width="160" height="32" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+          <text x="80" y="20.5" fill="#ffffff" font-size="11" font-weight="700" letter-spacing="0.5" text-anchor="middle">OPEN FOLDER</text>
+        </g>
+      </g>
+
+      <!-- Card 2: Default Download Quality -->
+      <!-- USER RULES:
+           1. NO blue borders, NO blue glow -> Crisp white highlight!
+           2. REMOVE ALL extra labels: NO "BEST", "FHD", "HD", "SD", "MP3" badges!
+      -->
+      <g transform="translate(0, 198)">
+        <rect width="350" height="214" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+        <text x="16" y="26" fill="#ffffff" font-size="14" font-weight="700">Default Download Quality</text>
+        <text x="16" y="44" fill="#7d8590" font-size="11.5">One-tap downloads automatically use this format</text>
+
+        <!-- Grid of Quality Chips: 2 columns -->
+        <!-- Card A (Selected): 4K / Max (Solid White Border, NO BEST badge!) -->
+        <g transform="translate(14, 56)">
+          <rect width="155" height="54" rx="12" fill="#161b22" stroke="#ffffff" stroke-width="1.8"/>
+          <!-- Clean title, NO extra label -->
+          <text x="14" y="24" fill="#ffffff" font-size="13.5" font-weight="700">4K / Max</text>
+          <text x="14" y="42" fill="#8b949e" font-size="11">Highest available</text>
+        </g>
+
+        <!-- Card B: 1080p (NO FHD badge!) -->
+        <g transform="translate(181, 56)">
+          <rect width="155" height="54" rx="12" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <!-- Clean title, NO extra label -->
+          <text x="14" y="24" fill="#e6edf3" font-size="13.5" font-weight="600">1080p</text>
+          <text x="14" y="42" fill="#6e7681" font-size="11">Full High Def</text>
+        </g>
+
+        <!-- Card C: 720p (NO HD badge!) -->
+        <g transform="translate(14, 118)">
+          <rect width="155" height="48" rx="12" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <!-- Clean title, NO extra label -->
+          <text x="14" y="22" fill="#e6edf3" font-size="13" font-weight="600">720p</text>
+          <text x="14" y="38" fill="#6e7681" font-size="10.5">Fast download</text>
+        </g>
+
+        <!-- Card D: 480p (NO SD badge!) -->
+        <g transform="translate(181, 118)">
+          <rect width="155" height="48" rx="12" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <!-- Clean title, NO extra label -->
+          <text x="14" y="22" fill="#e6edf3" font-size="13" font-weight="600">480p</text>
+          <text x="14" y="38" fill="#6e7681" font-size="10.5">Data saver</text>
+        </g>
+
+        <!-- Card E (Full Width): Audio Only (NO MP3 badge!) -->
+        <g transform="translate(14, 172)">
+          <rect width="322" height="34" rx="10" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <text x="14" y="22" fill="#e6edf3" font-size="12.5" font-weight="600">Audio Only</text>
+          <text x="96" y="22" fill="#6e7681" font-size="11">· Soundtrack 320k</text>
+        </g>
+      </g>
+
+      <!-- Card 3: Clear History -->
+      <g transform="translate(0, 424)">
+        <rect width="350" height="76" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+        <text x="16" y="26" fill="#ffffff" font-size="14" font-weight="700">Clear History</text>
+        <text x="16" y="44" fill="#7d8590" font-size="11">Removes download logs (saved files stay on disk)</text>
+        <!-- Clear List Button -->
+        <g transform="translate(242, 22)">
+          <rect width="94" height="32" rx="10" fill="#1b1212" stroke="#4a1d1d" stroke-width="1"/>
+          <text x="47" y="20.5" fill="#f87171" font-size="11" font-weight="700" letter-spacing="0.5" text-anchor="middle">CLEAR LIST</text>
+        </g>
+      </g>
+
+      <!-- Card 4: App Releases -->
+      <g transform="translate(0, 510)">
+        <rect width="350" height="74" rx="16" fill="#0d0f12" stroke="#21262d" stroke-width="1"/>
+        <text x="16" y="26" fill="#ffffff" font-size="14" font-weight="700">App Releases</text>
+        <text x="16" y="44" fill="#7d8590" font-size="11">Orbit v1.0.5 — You are on latest version</text>
+        <!-- Check Now Button -->
+        <g transform="translate(242, 21)">
+          <rect width="94" height="32" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+          <text x="47" y="20.5" fill="#ffffff" font-size="11" font-weight="700" letter-spacing="0.5" text-anchor="middle">CHECK NOW</text>
+        </g>
+      </g>
+    </g>
+    <!-- Bottom Navigation Bar -->
+    <g transform="translate(0, 756)">
+      <!-- Nav Background -->
+      <rect width="390" height="88" fill="#090a0d" stroke="#191c22" stroke-width="1"/>
+      <!-- Home Indicator Bar -->
+      <rect x="130" y="76" width="130" height="4" rx="2" fill="#333333"/>
+    
+            <g transform="translate(65, 29)" text-anchor="middle">
+              <svg x="-11" y="-18" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#71767b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/>
+              </svg>
+              <text x="0" y="14" fill="#71767b" font-size="10.5" font-weight="600">Download</text>
+            </g>
+            <g transform="translate(195, 29)" text-anchor="middle">
+              <svg x="-11" y="-18" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#71767b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-7l-2-2H5a2 2 0 0 0-2 2z"/>
+              </svg>
+              <text x="0" y="14" fill="#71767b" font-size="10.5" font-weight="600">Library</text>
+            </g>
+            <g transform="translate(277, 10)">
+              <rect width="96" height="38" rx="19" fill="#ffffff"/>
+              <!-- Icon -->
+              <svg x="18" y="8" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 6h16M4 12h16M4 18h16M8 4v4m8 2v4m-4 4v4"/>
+              </svg>
+              <!-- Label -->
+              <text x="44" y="24" fill="#000000" font-size="11" font-weight="700">Settings</text>
+            </g></g>
+</svg>

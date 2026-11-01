@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import yt_dlp
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
-APP_VERSION = "1.0.5"
+APP_VERSION = "1.0.6"
 GITHUB_REPO = "damsarachethiyaa-dev/orbit"
 
 DESKTOP = os.environ.get("ORBIT_DESKTOP") == "1"
@@ -339,7 +339,7 @@ def run_job(jid: str, url: str, quality: str):
         try:
             import urllib.request, re
             save_path = out
-            title = re.sub(r'[\\/:*?"<>|]', "_", job.get("title") or "orbit_photo").strip()[:80] or f"orbit_{jid}"
+            title = re.sub(r'[\\/:*?"<>|]', "_", job.get("title") or "orbit_photo").strip().rstrip(". ")[:80] or f"orbit_{jid}"
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
             with urllib.request.urlopen(req, timeout=20) as resp:
                 ct = resp.headers.get_content_type()
@@ -390,7 +390,7 @@ def run_job(jid: str, url: str, quality: str):
             job["state"] = "processing"
 
     opts = {
-        "format": QUALITY[quality],
+        "format": QUALITY.get(quality, QUALITY["best"]),
         "outtmpl": str(out / "%(title).120B.%(ext)s"),
         "noplaylist": True,
         "quiet": True,
@@ -524,7 +524,8 @@ def reveal(jid):
 @app.post("/api/open/<hid>")
 def open_file(hid):
     desktop_only()
-    p = entry_path(hid)
+    j = jobs.get(hid)
+    p = Path(j["path"]) if j and j.get("path") else entry_path(hid)
     if not p.exists():
         abort(404)
     os.startfile(str(p))
@@ -541,7 +542,13 @@ def get_history():
 def del_history(hid):
     desktop_only()
     with lock:
-        _write(HISTORY_FILE, [e for e in history() if e["id"] != hid])
+        e = next((x for x in history() if x["id"] == hid), None)
+        if e and e.get("path"):
+            try:
+                Path(e["path"]).unlink(missing_ok=True)
+            except Exception:
+                pass
+        _write(HISTORY_FILE, [item for item in history() if item["id"] != hid])
     return jsonify(ok=True)
 
 
@@ -633,37 +640,47 @@ def check_for_updates(force_test: bool = False) -> dict:
     update_state["checking"] = True
     update_state["error"] = None
     try:
-        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-        req = urllib.request.Request(url, headers={"User-Agent": f"Orbit-App/{APP_VERSION}"})
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=15"
+        req = urllib.request.Request(url, headers={"User-Agent": f"Orbit-App/{APP_VERSION}", "Accept": "application/vnd.github+json"})
         with urllib.request.urlopen(req, timeout=10) as res:
-            data = json.loads(res.read().decode("utf-8"))
+            releases = json.loads(res.read().decode("utf-8"))
 
-        latest_tag = data.get("tag_name", "").lstrip("v")
-        latest_ver = parse_version(latest_tag)
-        curr_ver = parse_version(APP_VERSION)
+        if isinstance(releases, dict):
+            releases = [releases]
 
-        download_url = ""
-        exe_assets = [
-            a.get("browser_download_url")
-            for a in data.get("assets", [])
-            if a.get("name", "").lower().endswith(".exe") and trusted_update_url(a.get("browser_download_url"))
-        ]
-        for u in exe_assets:
-            if "setup" in u.lower() or "install" in u.lower():
-                download_url = u
+        target_rel = None
+        target_exe_url = None
+        for rel in releases:
+            exe_assets = [
+                a.get("browser_download_url")
+                for a in rel.get("assets", [])
+                if a.get("name", "").lower().endswith(".exe") and trusted_update_url(a.get("browser_download_url"))
+            ]
+            if exe_assets:
+                setup_exe = next((u for u in exe_assets if "setup" in u.lower() or "install" in u.lower()), exe_assets[0])
+                target_rel = rel
+                target_exe_url = setup_exe
                 break
-        if not download_url and exe_assets:
-            download_url = exe_assets[0]
 
-        has_update = (latest_ver > curr_ver and bool(download_url)) or (force_test and bool(download_url))
-        update_state.update(
-            has_update=has_update,
-            latest_version=data.get("tag_name", ""),
-            release_name=data.get("name") or data.get("tag_name", ""),
-            release_notes=data.get("body") or "",
-            download_url=download_url,
-            html_url=data.get("html_url") or f"https://github.com/{GITHUB_REPO}/releases/latest",
-        )
+        if target_rel and target_exe_url:
+            latest_tag = target_rel.get("tag_name", "").lstrip("v")
+            latest_ver = parse_version(latest_tag)
+            curr_ver = parse_version(APP_VERSION)
+            has_update = (latest_ver > curr_ver and bool(target_exe_url)) or (force_test and bool(target_exe_url))
+            update_state.update(
+                has_update=has_update,
+                latest_version=target_rel.get("tag_name", ""),
+                release_name=target_rel.get("name") or target_rel.get("tag_name", ""),
+                release_notes=target_rel.get("body") or "",
+                download_url=target_exe_url,
+                html_url=target_rel.get("html_url") or f"https://github.com/{GITHUB_REPO}/releases",
+            )
+        else:
+            update_state.update(
+                has_update=False,
+                latest_version=f"v{APP_VERSION}",
+                download_url="",
+            )
     except Exception as e:
         update_state["error"] = str(e)
     finally:

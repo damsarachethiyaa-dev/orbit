@@ -762,18 +762,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkForUpdates(): JSONObject {
         try {
-            val conn = (URL("https://api.github.com/repos/damsarachethiyaa-dev/orbit/releases/latest").openConnection() as HttpURLConnection).apply {
+            val conn = (URL("https://api.github.com/repos/damsarachethiyaa-dev/orbit/releases?per_page=15").openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000
                 readTimeout = 8000
                 setRequestProperty("Accept", "application/vnd.github+json")
                 setRequestProperty("User-Agent", "Orbit-Android/${BuildConfig.VERSION_NAME}")
             }
             if (conn.responseCode == 200) {
-                val data = JSONObject(conn.inputStream.bufferedReader().readText())
-                val tag = data.optString("tag_name", "").removePrefix("v")
-                if (tag.isNotBlank()) {
-                    latestVersion = "v$tag"
-                    releaseName = data.optString("name", "Orbit $latestVersion")
+                val releases = JSONArray(conn.inputStream.bufferedReader().readText())
+                for (rIdx in 0 until releases.length()) {
+                    val data = releases.optJSONObject(rIdx) ?: continue
+                    val tag = data.optString("tag_name", "").removePrefix("v")
                     val assets = data.optJSONArray("assets") ?: JSONArray()
                     var apkUrl = ""
                     for (i in 0 until assets.length()) {
@@ -784,8 +783,13 @@ class MainActivity : AppCompatActivity() {
                             break
                         }
                     }
-                    downloadUrl = apkUrl
-                    hasUpdate = isNewerVersion(tag, BuildConfig.VERSION_NAME) && apkUrl.isNotBlank()
+                    if (apkUrl.isNotBlank() && tag.isNotBlank()) {
+                        latestVersion = "v$tag"
+                        releaseName = data.optString("name", "Orbit $latestVersion")
+                        downloadUrl = apkUrl
+                        hasUpdate = isNewerVersion(tag, BuildConfig.VERSION_NAME)
+                        break
+                    }
                 }
             }
         } catch (_: Exception) {

@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 390 844" width="390" height="844">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap');
+      text { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+      .mono { font-family: 'JetBrains Mono', monospace; }
+    </style>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+    <linearGradient id="glow-selected" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.02" />
+    </linearGradient>
+  </defs>
+  <!-- Frame Background -->
+  <rect width="390" height="844" fill="#000000"/>
+  
+    <!-- Status Bar -->
+    <g transform="translate(0, 0)">
+      <text x="32" y="28" fill="#ffffff" font-size="14" font-weight="600">9:41</text>
+      <!-- Dynamic Island / Camera Notch -->
+      <rect x="135" y="11" width="120" height="28" rx="14" fill="#0a0a0a" stroke="#1f1f1f" stroke-width="0.8"/>
+      <circle cx="238" cy="25" r="4.5" fill="#151515"/>
+      <!-- Status Icons -->
+      <g transform="translate(322, 16)" fill="#ffffff">
+        <!-- Cellular -->
+        <rect x="0" y="8" width="2.5" height="4" rx="0.5"/>
+        <rect x="4" y="6" width="2.5" height="6" rx="0.5"/>
+        <rect x="8" y="3" width="2.5" height="9" rx="0.5"/>
+        <rect x="12" y="0" width="2.5" height="12" rx="0.5"/>
+        <!-- Wifi -->
+        <path d="M22 2a11.9 11.9 0 0 0-8 3.2l1.4 1.4a9.9 9.9 0 0 1 6.6-2.6 9.9 9.9 0 0 1 6.6 2.6l1.4-1.4A11.9 11.9 0 0 0 22 2zm0 4a7.9 7.9 0 0 0-5.2 2l1.4 1.4a5.9 5.9 0 0 1 3.8-1.4 5.9 5.9 0 0 1 3.8 1.4l1.4-1.4A7.9 7.9 0 0 0 22 6zm0 4a3.9 3.9 0 0 0-2.4.8l2.4 2.4 2.4-2.4a3.9 3.9 0 0 0-2.4-.8z"/>
+        <!-- Battery -->
+        <rect x="36" y="1" width="20" height="10" rx="2.5" fill="none" stroke="#ffffff" stroke-width="1.2"/>
+        <rect x="38" y="3" width="14" height="6" rx="1" fill="#ffffff"/>
+        <path d="M57 4v4" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round"/>
+      </g>
+    </g>
+    <!-- Top Header -->
+    <g transform="translate(0, 54)">
+      <!-- Orbit Brand Logo -->
+      <g transform="translate(20, 0)">
+        <!-- Logo Mark Icon -->
+        <circle cx="14" cy="14" r="9" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+        <circle cx="21" cy="4" r="3.2" fill="#0099ff"/>
+        <!-- Text -->
+        <text x="36" y="21" fill="#ffffff" font-size="20" font-weight="800" letter-spacing="-0.4">Orbit</text>
+      </g>
+      <!-- Green Badge: ENGINE READY -->
+      <g transform="translate(254, 3)">
+        <rect width="116" height="24" rx="12" fill="#002411" stroke="#006633" stroke-width="1"/>
+        <circle cx="14" cy="12" r="3.5" fill="#00e676"/>
+        <text x="62" y="15.5" fill="#00e676" font-size="10" font-weight="700" letter-spacing="0.8" text-anchor="middle">ENGINE READY</text>
+      </g>
+    </g><rect width="390" height="844" fill="#000000" fill-opacity="0.72"/>
+    <!-- Bottom Sheet Container -->
+    <g transform="translate(0, 240)">
+      <!-- Sheet Frame -->
+      <rect width="390" height="604" rx="28" fill="#0d0f12" stroke="#252a33" stroke-width="1.2" filter="url(#shadow)"/>
+      <!-- Sheet Drag Handle -->
+      <rect x="175" y="12" width="40" height="4" rx="2" fill="#30363d"/>
+      
+      <!-- Close Button -->
+      <circle cx="356" cy="36" r="14" fill="#161b22"/>
+      <path d="M351 31l10 10m0-10l-10 10" stroke="#8b949e" stroke-width="1.6" stroke-linecap="round"/>
+
+      <!-- Media Preview Header -->
+      <g transform="translate(20, 36)">
+        <!-- Video 16:9 Thumbnail -->
+        <rect width="112" height="63" rx="10" fill="#1c2128"/>
+        <!-- Duration tag -->
+        <rect x="74" y="44" width="32" height="15" rx="4" fill="#000000" fill-opacity="0.8"/>
+        <text x="90" y="55" fill="#ffffff" font-size="9" font-weight="700" text-anchor="middle">04:12</text>
+        
+        <!-- Video Info -->
+        <text x="124" y="20" fill="#ffffff" font-size="13" font-weight="700">Sony FX3 — Cinema Rig Setup</text>
+        <text x="124" y="38" fill="#7d8590" font-size="11.5" font-weight="400">Cinematography Lab</text>
+        <text x="124" y="54" fill="#565f6c" font-size="11">YouTube · 4K HDR Source</text>
+      </g>
+
+      <!-- Media Type Segment Toggle (Video vs Audio) -->
+      <g transform="translate(20, 118)">
+        <rect width="350" height="40" rx="12" fill="#161b22" stroke="#21262d" stroke-width="1"/>
+        <!-- Video Tab (Active: White Pill) -->
+        <rect x="4" y="4" width="169" height="32" rx="8" fill="#ffffff"/>
+        <text x="88" y="24" fill="#000000" font-size="12" font-weight="700" text-anchor="middle">Video (MP4)</text>
+        
+        <!-- Audio Tab -->
+        <text x="262" y="24" fill="#8b949e" font-size="12" font-weight="600" text-anchor="middle">Audio Only (MP3)</text>
+      </g>
+
+      <!-- Quality Resolution Options -->
+      <g transform="translate(20, 178)">
+        <text x="0" y="0" fill="#565f6c" font-size="11" font-weight="700" letter-spacing="1">SELECT RESOLUTION</text>
+
+        <!-- Option 1: 4K / Max (Selected: Crisp White Border, No Blue!) -->
+        <g transform="translate(0, 12)">
+          <rect width="350" height="56" rx="14" fill="#161b22" stroke="#ffffff" stroke-width="1.8"/>
+          <!-- Checkmark -->
+          <circle cx="28" cy="28" r="10" fill="#ffffff"/>
+          <path d="M24 28l3 3 5-6" stroke="#000000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          
+          <text x="50" y="27" fill="#ffffff" font-size="14" font-weight="700">4K / Max</text>
+          <text x="50" y="43" fill="#8b949e" font-size="11">Highest available · 2160p60 Ultra HD</text>
+          
+          <text x="326" y="33" fill="#ffffff" font-size="13" font-weight="700" text-anchor="end">~248 MB</text>
+        </g>
+
+        <!-- Option 2: 1080p FHD -->
+        <g transform="translate(0, 76)">
+          <rect width="350" height="52" rx="14" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <circle cx="28" cy="26" r="9" fill="none" stroke="#484f58" stroke-width="1.5"/>
+          <text x="50" y="25" fill="#e6edf3" font-size="13.5" font-weight="600">1080p</text>
+          <text x="50" y="40" fill="#6e7681" font-size="11">Full High Def · Standard crisp</text>
+          <text x="326" y="31" fill="#7d8590" font-size="12" font-weight="600" text-anchor="end">~78 MB</text>
+        </g>
+
+        <!-- Option 3: 720p HD -->
+        <g transform="translate(0, 136)">
+          <rect width="350" height="52" rx="14" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <circle cx="28" cy="26" r="9" fill="none" stroke="#484f58" stroke-width="1.5"/>
+          <text x="50" y="25" fill="#e6edf3" font-size="13.5" font-weight="600">720p</text>
+          <text x="50" y="40" fill="#6e7681" font-size="11">Fast download · Mobile friendly</text>
+          <text x="326" y="31" fill="#7d8590" font-size="12" font-weight="600" text-anchor="end">~34 MB</text>
+        </g>
+
+        <!-- Option 4: 480p SD -->
+        <g transform="translate(0, 196)">
+          <rect width="350" height="52" rx="14" fill="#0f1116" stroke="#21262d" stroke-width="1"/>
+          <circle cx="28" cy="26" r="9" fill="none" stroke="#484f58" stroke-width="1.5"/>
+          <text x="50" y="25" fill="#e6edf3" font-size="13.5" font-weight="600">480p</text>
+          <text x="50" y="40" fill="#6e7681" font-size="11">Data saver · Lightweight</text>
+          <text x="326" y="31" fill="#7d8590" font-size="12" font-weight="600" text-anchor="end">~18 MB</text>
+        </g>
+      </g>
+
+      <!-- Primary Action Button: DOWNLOAD NOW -->
+      <g transform="translate(20, 448)">
+        <rect width="350" height="54" rx="16" fill="#ffffff"/>
+        <!-- Download Arrow -->
+        <svg x="110" y="18" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/>
+        </svg>
+        <text x="140" y="33" fill="#000000" font-size="15" font-weight="800">Download 4K</text>
+      </g>
+
+      <!-- Destination Note -->
+      <text x="195" y="522" fill="#565f6c" font-size="11" text-anchor="middle">Saves directly to /storage/emulated/0/Download/Orbit</text>
+    </g>
+</svg>

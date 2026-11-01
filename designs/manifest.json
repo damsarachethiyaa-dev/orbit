@@ -1,0 +1,11 @@
+{
+  "name": "Orbit Design Importer",
+  "id": "orbit-design-importer-105",
+  "api": "1.0.0",
+  "main": "figma_plugin_code.js",
+  "capabilities": [],
+  "enableProposedApi": false,
+  "editorType": [
+    "figma"
+  ]
+}
