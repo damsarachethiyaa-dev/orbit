@@ -327,6 +327,19 @@ class MainActivity : AppCompatActivity() {
 
     inner class OrbitBridge {
         @JavascriptInterface
+        fun haptic() {
+            runOnUiThread {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        webView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+                    } else {
+                        webView.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        @JavascriptInterface
         fun callApi(cbId: String, path: String, method: String, bodyStr: String) {
             executor.execute {
                 val responseObj = try {

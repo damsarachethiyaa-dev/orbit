@@ -47,13 +47,39 @@ async function api(path, body, method) {
 }
 let toastT;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2600); }
-const showError = m => { $("#error").textContent = m || ""; $("#error").hidden = !m; };
+function triggerHaptic() {
+  try {
+    if (window.OrbitAndroid && typeof window.OrbitAndroid.haptic === "function") {
+      window.OrbitAndroid.haptic();
+    } else if (navigator.vibrate) {
+      navigator.vibrate(10);
+    }
+  } catch {}
+}
+
+const showError = m => {
+  const card = $("#error");
+  if (!m) { card.hidden = true; return; }
+  let clean = String(m || "").trim();
+  if (clean.includes("No video formats found") || clean.includes("No video stream found")) {
+    clean = "No downloadable stream found. This video or reel might be private, restricted, or DRM protected.";
+  } else if (clean.toLowerCase().includes("login") || clean.toLowerCase().includes("sign in")) {
+    clean = "This video is restricted or from a private account.";
+  } else if (clean.includes("; please report")) {
+    clean = clean.split("; please report")[0];
+  }
+  const t = $("#errorText");
+  if (t) t.textContent = clean;
+  else card.textContent = clean;
+  card.hidden = false;
+};
 const svg = d => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
 const I = { play: "M8 5l11 7-11 7z", folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", x: "M6 6l12 12M18 6L6 18", trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" };
 
 /* ---------------- views ---------------- */
 let cfg = { default_quality: "best", save_dir: "" };
 function show(view) {
+  triggerHaptic();
   $$(".nav-btn").forEach(b => b.classList.toggle("on", b.dataset.view === view));
   $$(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + view));
   if (view === "library") loadLib();
@@ -61,6 +87,9 @@ function show(view) {
 }
 $("#nav").addEventListener("click", e => { const b = e.target.closest(".nav-btn"); if (b) show(b.dataset.view); });
 addEventListener("keydown", e => { if (e.ctrlKey && "123".includes(e.key)) { e.preventDefault(); show(["download", "library", "settings"][+e.key - 1]); } });
+
+const pClose = $("#pClose");
+if (pClose) pClose.onclick = () => { triggerHaptic(); $("#preview").hidden = true; info = null; };
 
 /* ---------------- fetch link info ---------------- */
 const urlEl = $("#url");
@@ -155,10 +184,10 @@ $("#dl").onclick = async () => {
 /* ---------------- queue ---------------- */
 const rows = new Map(), prev = {};
 function actions(j) {
-  const b = (act, label, ic, cls = "") => `<button class="iconbtn ${cls}" data-act="${act}" title="${label}">${svg(ic)}${cls.includes("sq") ? "" : label}</button>`;
-  if (j.state === "downloading" || j.state === "processing") return b("cancel", "Cancel", I.x, "danger");
-  if (j.state === "done") return b("open", "Open", I.play) + b("show", "Show", I.folder) + b("dismiss", "Remove from queue", I.x, "sq");
-  return b("dismiss", "Dismiss", I.x, "sq");
+  const b = (act, label, ic, cls = "") => `<button class="iconbtn ${cls}" data-act="${act}" title="${label}">${svg(ic)}${label ? `<span>${label}</span>` : ""}</button>`;
+  if (j.state === "downloading" || j.state === "processing") return b("cancel", "Cancel", I.x, "danger sq");
+  if (j.state === "done") return b("open", "Play", I.play, "primary") + b("show", "Folder", I.folder) + b("dismiss", "", I.x, "sq");
+  return b("dismiss", "", I.x, "sq");
 }
 function renderQueue(list) {
   const ul = $("#queue"), ids = new Set(list.map(j => j.id));
@@ -200,6 +229,7 @@ setInterval(poll, 800); poll();
 
 $("#queue").addEventListener("click", async e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
+  triggerHaptic();
   const id = b.closest("li").dataset.id;
   try {
     if (b.dataset.act === "cancel") await api("/api/cancel/" + id, {});
@@ -210,6 +240,7 @@ $("#queue").addEventListener("click", async e => {
   poll();
 });
 $("#clearDone").onclick = async () => {
+  triggerHaptic();
   for (const [id, li] of rows) if (!li.classList.contains("downloading") && !li.classList.contains("processing")) await api("/api/dismiss/" + id, {});
   poll();
 };
@@ -218,19 +249,20 @@ $("#clearDone").onclick = async () => {
 async function loadLib() {
   let list = [];
   try { list = await api("/api/history"); } catch {}
-  $("#libCount").textContent = list.length ? `${list.length} download${list.length > 1 ? "s" : ""}` : "Everything you've downloaded";
+  $("#libCount").textContent = list.length ? `${list.length} download${list.length > 1 ? "s" : ""}` : "Saved on your device storage";
   $("#libEmpty").hidden = list.length > 0; $("#libClear").hidden = !list.length;
   $("#lib").innerHTML = list.map(e => `
     <li class="l${e.exists ? "" : " gone"}" data-id="${esc(e.id)}">
       ${e.thumb ? `<img class="thumb" src="${esc(e.thumb)}" alt="" onerror="this.style.visibility='hidden'">` : icoHtml(e.site)}
       <div class="q-main"><p class="q-title">${esc(e.title)}</p>
         <p class="q-sub mono">${esc([e.site, QLABEL[e.quality], fmtSize(e.size), new Date(e.t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" }), e.exists ? "" : "File moved or deleted"].filter(Boolean).join("  ·  "))}</p></div>
-      <div class="q-act">${e.exists ? `<button class="iconbtn" data-act="open">${svg(I.play)}Open</button><button class="iconbtn" data-act="show">${svg(I.folder)}Show</button>` : ""}
+      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="Play">${svg(I.play)}<span>Play</span></button><button class="iconbtn" data-act="show" title="Folder">${svg(I.folder)}<span>Show</span></button>` : ""}
         <button class="iconbtn sq danger" data-act="remove" title="Remove from list">${svg(I.trash)}</button></div>
     </li>`).join("");
 }
 $("#lib").addEventListener("click", async e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
+  triggerHaptic();
   const id = b.closest("li").dataset.id;
   try {
     if (b.dataset.act === "open") await api("/api/open/" + id, {});
@@ -239,7 +271,8 @@ $("#lib").addEventListener("click", async e => {
   } catch { toast("That file isn't there any more"); loadLib(); }
 });
 async function clearLib() {
-  if (!confirm("Clear the list of past downloads? The files stay on your PC.")) return;
+  triggerHaptic();
+  if (!confirm("Clear the list of past downloads? The files stay on your device.")) return;
   await api("/api/history", undefined, "DELETE"); loadLib(); toast("Library cleared");
 }
 $("#libClear").onclick = clearLib; $("#setClear").onclick = clearLib;

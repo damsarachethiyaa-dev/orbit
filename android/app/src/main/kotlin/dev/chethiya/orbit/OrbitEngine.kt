@@ -155,9 +155,22 @@ object OrbitEngine {
 
     fun cleanErrorMessage(raw: String?): String {
         if (raw.isNullOrBlank()) return "Couldn't fetch that link. Please check the URL and try again."
-        val errLine = raw.lines().lastOrNull { it.contains("ERROR:") } ?: raw.lines().lastOrNull { it.isNotBlank() } ?: raw
-        return errLine.replace(Regex("""^.*ERROR:\s*(\[[^\]]+\]\s*[^:]+:\s*)?"""), "").trim()
-            .ifBlank { "Couldn't process that link." }
+        var clean = raw.lines().lastOrNull { it.contains("ERROR:") } ?: raw.lines().lastOrNull { it.isNotBlank() } ?: raw
+        clean = clean.replace(Regex("""^.*ERROR:\s*(\[[^\]]+\]\s*[^:]+:\s*)?"""), "").trim()
+        if (clean.contains("No video formats found", ignoreCase = true)) {
+            return "No video stream found. The reel or post might be private, restricted, or requires an account."
+        }
+        if (clean.contains("login", ignoreCase = true) || clean.contains("sign in", ignoreCase = true)) {
+            return "This post requires signing in or is from a private account."
+        }
+        if (clean.contains("Unsupported URL", ignoreCase = true)) {
+            return "Unsupported link. Please paste a direct video or post link."
+        }
+        val semi = clean.indexOf("; please report")
+        if (semi != -1) {
+            clean = clean.substring(0, semi)
+        }
+        return clean.ifBlank { "Couldn't process that link. Please verify the URL." }
     }
 
     fun openMediaFile(context: Context, file: File): Boolean {
