@@ -179,6 +179,7 @@ object OrbitEngine {
         val mime = when (ext) {
             "mp3", "m4a", "opus", "wav" -> "audio/*"
             "mp4", "mkv", "webm" -> "video/*"
+            "jpg", "jpeg", "png", "webp", "gif" -> "image/*"
             else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
         }
         return try {
@@ -196,14 +197,120 @@ object OrbitEngine {
         }
     }
 
+    data class DownloadJob(
+        val id: String,
+        val url: String,
+        var title: String,
+        var site: String = "Video",
+        var thumb: String = "",
+        var quality: String = "best",
+        var state: String = "downloading",
+        var percent: Double = 0.0,
+        var speed: String = "",
+        var eta: String = "",
+        var file: String = "",
+        var size: Long = 0L,
+        var error: String = "",
+        var isImage: Boolean = false,
+        var directUrl: String = ""
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("id", id)
+            put("title", title)
+            put("site", site)
+            put("thumb", thumb)
+            put("quality", quality)
+            put("state", state)
+            put("percent", percent)
+            put("speed", speed)
+            put("eta", eta)
+            put("file", file)
+            put("size", size)
+            put("error", error)
+            put("isImage", isImage)
+        }
+    }
+
+    val activeJobs = java.util.concurrent.CopyOnWriteArrayList<DownloadJob>()
+    val jobsById = java.util.concurrent.ConcurrentHashMap<String, DownloadJob>()
+
     data class CustomMediaInfo(
         val title: String,
         val site: String,
         val uploader: String,
-        val duration: Int,
-        val thumbnail: String,
-        val directVideoUrl: String
+        val duration: Int = 0,
+        val thumbnail: String = "",
+        val directVideoUrl: String = "",
+        val imageUrls: List<String> = emptyList(),
+        val mediaType: String = "video"
     )
+
+    fun resolveDirectImage(rawUrl: String): CustomMediaInfo? {
+        val clean = extractUrl(rawUrl) ?: rawUrl
+        val path = try { Uri.parse(clean).path?.lowercase() ?: "" } catch (_: Exception) { "" }
+        val isImg = path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".png") ||
+                path.endsWith(".webp") || path.endsWith(".gif") || path.endsWith(".bmp")
+        if (!isImg) return null
+        val fileName = path.substringAfterLast("/").substringBefore(".").ifBlank { "Image" }
+        return CustomMediaInfo(
+            title = fileName,
+            site = "Image",
+            uploader = try { Uri.parse(clean).host ?: "" } catch (_: Exception) { "" },
+            duration = 0,
+            thumbnail = clean,
+            directVideoUrl = clean,
+            imageUrls = listOf(clean),
+            mediaType = "image"
+        )
+    }
+
+    fun resolvePinterest(rawUrl: String): CustomMediaInfo? {
+        if (!rawUrl.contains("pinterest.com", ignoreCase = true) && !rawUrl.contains("pin.it", ignoreCase = true)) {
+            return null
+        }
+        try {
+            var currentUrl = rawUrl
+            val ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            for (i in 0..5) {
+                val conn = (java.net.URL(currentUrl).openConnection() as java.net.HttpURLConnection).apply {
+                    instanceFollowRedirects = false
+                    connectTimeout = 10000
+                    readTimeout = 12000
+                    setRequestProperty("User-Agent", ua)
+                    setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                }
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val loc = conn.getHeaderField("Location")
+                    if (!loc.isNullOrBlank()) {
+                        currentUrl = loc
+                        continue
+                    }
+                }
+                val html = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val ogImgMatch = Regex("""property=["']og:image["']\s+content=["']([^"']+)""").find(html)
+                    ?: Regex("""content=["']([^"']+)["']\s+property=["']og:image""").find(html)
+                val ogTitleMatch = Regex("""property=["']og:title["']\s+content=["']([^"']+)""").find(html)
+                val title = ogTitleMatch?.groupValues?.getOrNull(1)?.ifBlank { "Pinterest Pin" } ?: "Pinterest Pin"
+                val imgUrl = ogImgMatch?.groupValues?.getOrNull(1)
+                if (!imgUrl.isNullOrBlank()) {
+                    val highRes = imgUrl.replace(Regex("""/\d+x/"""), "/originals/")
+                    return CustomMediaInfo(
+                        title = title,
+                        site = "Pinterest",
+                        uploader = "Pinterest",
+                        duration = 0,
+                        thumbnail = imgUrl,
+                        directVideoUrl = highRes,
+                        imageUrls = listOf(highRes),
+                        mediaType = "image"
+                    )
+                }
+                break
+            }
+        } catch (_: Exception) {}
+        return null
+    }
 
     fun resolveXiaohongshu(rawUrl: String): CustomMediaInfo? {
         if (!rawUrl.contains("xhslink.com", ignoreCase = true) && !rawUrl.contains("xiaohongshu.com", ignoreCase = true)) {
@@ -235,14 +342,22 @@ object OrbitEngine {
                 val root = JSONObject(jsonStr)
                 val note = root.optJSONObject("noteData")?.optJSONObject("data")?.optJSONObject("noteData") ?: return null
 
-                val title = note.optString("title").ifBlank { note.optString("desc").take(60) }.ifBlank { "Xiaohongshu Video" }
+                val title = note.optString("title").ifBlank { note.optString("desc").take(60) }.ifBlank { "Xiaohongshu Post" }
                 val uploader = note.optJSONObject("user")?.optString("nickname") ?: "Xiaohongshu"
                 val duration = note.optJSONObject("video")?.optInt("duration", 0) ?: 0
 
                 val imgList = note.optJSONArray("imageList")
-                val thumb = if (imgList != null && imgList.length() > 0) {
-                    imgList.optJSONObject(0)?.optString("url") ?: ""
-                } else ""
+                val imageUrls = mutableListOf<String>()
+                if (imgList != null) {
+                    for (j in 0 until imgList.length()) {
+                        val item = imgList.optJSONObject(j) ?: continue
+                        val u = item.optString("urlOriginal").ifBlank {
+                            item.optString("urlDefault").ifBlank { item.optString("url") }
+                        }
+                        if (u.isNotBlank()) imageUrls.add(u)
+                    }
+                }
+                val thumb = imageUrls.firstOrNull() ?: ""
 
                 val h264List = note.optJSONObject("video")?.optJSONObject("media")?.optJSONObject("stream")?.optJSONArray("h264")
                 var videoUrl = ""
@@ -262,7 +377,20 @@ object OrbitEngine {
                         uploader = uploader,
                         duration = duration,
                         thumbnail = thumb,
-                        directVideoUrl = videoUrl
+                        directVideoUrl = videoUrl,
+                        imageUrls = imageUrls,
+                        mediaType = "video"
+                    )
+                } else if (imageUrls.isNotEmpty()) {
+                    return CustomMediaInfo(
+                        title = title,
+                        site = "Xiaohongshu",
+                        uploader = uploader,
+                        duration = 0,
+                        thumbnail = thumb,
+                        directVideoUrl = imageUrls.first(),
+                        imageUrls = imageUrls,
+                        mediaType = "image"
                     )
                 }
                 break

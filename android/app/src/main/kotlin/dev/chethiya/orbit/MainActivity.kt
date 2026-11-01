@@ -2,6 +2,7 @@ package dev.chethiya.orbit
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -17,6 +18,7 @@ import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
 import android.webkit.JavascriptInterface
+import android.webkit.JsResult
 import android.webkit.MimeTypeMap
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -62,38 +64,8 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var ffmpegReady = false
 
-    data class DownloadJob(
-        val id: String,
-        var title: String,
-        val site: String,
-        val thumb: String,
-        val quality: String,
-        @Volatile var state: String = "downloading",
-        @Volatile var percent: Double = 0.0,
-        @Volatile var speed: String = "",
-        @Volatile var eta: String = "",
-        @Volatile var file: String = "",
-        @Volatile var size: Long = 0L,
-        @Volatile var error: String = ""
-    ) {
-        fun toJson(): JSONObject = JSONObject().apply {
-            put("id", id)
-            put("title", title)
-            put("site", site)
-            put("thumb", thumb)
-            put("quality", quality)
-            put("state", state)
-            put("percent", percent)
-            put("speed", speed)
-            put("eta", eta)
-            put("file", file)
-            put("size", size)
-            put("error", error)
-        }
-    }
+    // Jobs are stored globally in OrbitEngine to stay synchronized with DownloadService
 
-    private val jobs = CopyOnWriteArrayList<DownloadJob>()
-    private val jobsById = ConcurrentHashMap<String, DownloadJob>()
 
     // In-app update state
     @Volatile private var hasUpdate = false
@@ -137,7 +109,36 @@ class MainActivity : AppCompatActivity() {
                 textZoom = 100
             }
             addJavascriptInterface(OrbitBridge(), "OrbitAndroid")
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onJsConfirm(
+                    view: WebView?,
+                    url: String?,
+                    message: String?,
+                    result: JsResult?
+                ): Boolean {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setMessage(message ?: "Confirm action?")
+                        .setPositiveButton("Confirm") { _, _ -> result?.confirm() }
+                        .setNegativeButton("Cancel") { _, _ -> result?.cancel() }
+                        .setOnCancelListener { result?.cancel() }
+                        .show()
+                    return true
+                }
+
+                override fun onJsAlert(
+                    view: WebView?,
+                    url: String?,
+                    message: String?,
+                    result: JsResult?
+                ): Boolean {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setMessage(message ?: "")
+                        .setPositiveButton("OK") { _, _ -> result?.confirm() }
+                        .setOnCancelListener { result?.cancel() }
+                        .show()
+                    return true
+                }
+            }
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(
                     view: WebView?,
@@ -308,7 +309,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     @Synchronized
-    private fun addHistoryItem(job: DownloadJob) {
+    private fun addHistoryItem(job: OrbitEngine.DownloadJob) {
         val arr = readHistory()
         val next = JSONArray()
         val item = JSONObject().apply {
@@ -379,7 +380,7 @@ class MainActivity : AppCompatActivity() {
             path == "/api/download" -> startDownloadJob(body)
             path == "/api/jobs" -> {
                 val arr = JSONArray()
-                for (j in jobs) arr.put(j.toJson())
+                for (j in OrbitEngine.activeJobs) arr.put(j.toJson())
                 arr
             }
             path.startsWith("/api/cancel/") -> {
@@ -389,7 +390,7 @@ class MainActivity : AppCompatActivity() {
             }
             path.startsWith("/api/dismiss/") -> {
                 val id = path.removePrefix("/api/dismiss/")
-                jobsById.remove(id)?.let { jobs.remove(it) }
+                dismissJob(id)
                 JSONObject().put("ok", true)
             }
             path.startsWith("/api/open/") -> {
@@ -511,12 +512,43 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun fetchVideoInfo(url: String): JSONObject {
-        if (url.isBlank()) throw IllegalArgumentException("Please enter a valid video link.")
+        if (url.isBlank()) throw IllegalArgumentException("Please enter a valid link.")
         initLatch.await(30, TimeUnit.SECONDS)
+
+        val directImg = OrbitEngine.resolveDirectImage(url)
+        if (directImg != null) {
+            return JSONObject().apply {
+                put("title", directImg.title)
+                put("site", directImg.site)
+                put("uploader", directImg.uploader)
+                put("duration", 0)
+                put("thumbnail", directImg.thumbnail)
+                put("heights", JSONArray())
+                put("directUrl", directImg.directVideoUrl)
+                put("type", "image")
+                put("count", 1)
+            }
+        }
+
+        val pin = OrbitEngine.resolvePinterest(url)
+        if (pin != null) {
+            return JSONObject().apply {
+                put("title", pin.title)
+                put("site", pin.site)
+                put("uploader", pin.uploader)
+                put("duration", 0)
+                put("thumbnail", pin.thumbnail)
+                put("heights", JSONArray())
+                put("directUrl", pin.directVideoUrl)
+                put("type", "image")
+                put("count", 1)
+            }
+        }
 
         val xhs = OrbitEngine.resolveXiaohongshu(url)
         if (xhs != null) {
-            val heightsArr = JSONArray().put(1080).put(720).put(480)
+            val isImg = xhs.mediaType == "image"
+            val heightsArr = if (isImg) JSONArray() else JSONArray().put(1080).put(720).put(480)
             return JSONObject().apply {
                 put("title", xhs.title)
                 put("site", xhs.site)
@@ -525,17 +557,34 @@ class MainActivity : AppCompatActivity() {
                 put("thumbnail", xhs.thumbnail)
                 put("heights", heightsArr)
                 put("directUrl", xhs.directVideoUrl)
+                put("type", if (isImg) "image" else "video")
+                if (isImg) put("count", xhs.imageUrls.size)
             }
         }
 
         val req = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
             addOption("--socket-timeout", "20")
+            addOption("--ignore-no-formats-error")
         }
 
         val info = try {
             YoutubeDL.getInstance().getInfo(req)
         } catch (e: Exception) {
+            val msg = e.message ?: ""
+            if (msg.contains("No video formats found", ignoreCase = true) || msg.contains("No video could be found", ignoreCase = true)) {
+                return JSONObject().apply {
+                    put("title", "Photo Post")
+                    put("site", "Post")
+                    put("uploader", "")
+                    put("duration", 0)
+                    put("thumbnail", "")
+                    put("heights", JSONArray())
+                    put("directUrl", url)
+                    put("type", "image")
+                    put("count", 1)
+                }
+            }
             throw IllegalArgumentException(cleanErrorMessage(e.message))
         }
 
@@ -547,32 +596,38 @@ class MainActivity : AppCompatActivity() {
                 heightsSet.add(h)
             }
         }
-        if (heightsSet.isEmpty()) {
-            heightsSet.addAll(listOf(1080, 720, 480))
-        }
 
         val rawSite = info.extractorKey ?: info.extractor ?: try {
-            Uri.parse(url).host?.removePrefix("www.")?.substringBefore(".") ?: "Video"
+            Uri.parse(url).host?.removePrefix("www.")?.substringBefore(".") ?: "Media"
         } catch (_: Exception) {
-            "Video"
+            "Media"
         }
 
+        val isImage = heightsSet.isEmpty() && (!info.thumbnail.isNullOrBlank() || !info.thumbnails.isNullOrEmpty())
+        val thumb = info.thumbnail ?: info.thumbnails?.lastOrNull()?.url ?: ""
+
         val heightsArr = JSONArray()
-        heightsSet.forEach { heightsArr.put(it) }
+        if (!isImage) {
+            if (heightsSet.isEmpty()) heightsSet.addAll(listOf(1080, 720, 480))
+            heightsSet.forEach { heightsArr.put(it) }
+        }
 
         return JSONObject().apply {
-            put("title", info.title ?: "Untitled video")
+            put("title", info.title ?: (if (isImage) "Photo post" else "Untitled video"))
             put("site", rawSite)
             put("uploader", info.uploader ?: "")
-            put("duration", info.duration)
-            put("thumbnail", info.thumbnail ?: "")
+            put("duration", if (isImage) 0 else info.duration)
+            put("thumbnail", thumb)
             put("heights", heightsArr)
+            put("directUrl", if (isImage) thumb else "")
+            put("type", if (isImage) "image" else "video")
+            if (isImage) put("count", 1)
         }
     }
 
     private fun startDownloadJob(body: JSONObject): JSONObject {
         val rawUrl = body.optString("url")
-        if (rawUrl.isBlank()) throw IllegalArgumentException("Missing video URL.")
+        if (rawUrl.isBlank()) throw IllegalArgumentException("Missing URL.")
         val directUrl = body.optString("directUrl").ifBlank {
             OrbitEngine.resolveXiaohongshu(rawUrl)?.directVideoUrl ?: rawUrl
         }
@@ -580,124 +635,65 @@ class MainActivity : AppCompatActivity() {
         val title = body.optString("title", "Downloading…")
         val site = body.optString("site", "Video")
         val thumb = body.optString("thumb", "")
+        val isImage = body.optString("type") == "image" || quality == "image" || quality == "photo"
 
         val id = UUID.randomUUID().toString().substring(0, 8)
-        val job = DownloadJob(
+        val job = OrbitEngine.DownloadJob(
             id = id,
+            url = rawUrl,
             title = title,
             site = site,
             thumb = thumb,
-            quality = quality
+            quality = quality,
+            state = "downloading",
+            isImage = isImage,
+            directUrl = directUrl
         )
-        jobs.add(0, job)
-        jobsById[id] = job
+        OrbitEngine.activeJobs.add(0, job)
+        OrbitEngine.jobsById[id] = job
 
-        executor.execute {
-            runDownloadJob(job, directUrl)
+        val serviceIntent = Intent(this, DownloadService::class.java).apply {
+            action = DownloadService.ACTION_START_DOWNLOAD
+            putExtra(DownloadService.EXTRA_JOB_ID, id)
+            putExtra(DownloadService.EXTRA_URL, rawUrl)
+            putExtra(DownloadService.EXTRA_DIRECT_URL, directUrl)
+            putExtra(DownloadService.EXTRA_QUALITY, quality)
+            putExtra(DownloadService.EXTRA_TITLE, title)
+            putExtra(DownloadService.EXTRA_SITE, site)
+            putExtra(DownloadService.EXTRA_THUMB, thumb)
+            putExtra(DownloadService.EXTRA_IS_IMAGE, isImage)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(this, serviceIntent)
+        } else {
+            startService(serviceIntent)
         }
 
         return JSONObject().put("id", id)
     }
 
-    private fun runDownloadJob(job: DownloadJob, url: String) {
-        try {
-            initLatch.await(30, TimeUnit.SECONDS)
-            val saveDir = currentSaveDir()
-            saveDir.mkdirs()
-
-            val startStamp = System.currentTimeMillis() - 1500L
-            val safePrefix = job.title
-                .replace(Regex("""[\\/:*?"<>|]"""), "_")
-                .trim()
-                .take(80)
-                .ifBlank { "orbit_${job.id}" }
-
-            val outTemplate = File(saveDir, "$safePrefix [${job.id}].%(ext)s").absolutePath
-            val req = YoutubeDLRequest(url).apply {
-                addOption("--no-playlist")
-                addOption("--newline")
-                addOption("-o", outTemplate)
-                if (job.quality == "audio") {
-                    addOption("-x")
-                    addOption("--audio-format", "mp3")
-                    addOption("--audio-quality", "0")
-                } else {
-                    val h = job.quality.toIntOrNull()
-                    if (h != null) {
-                        addOption(
-                            "-f",
-                            "bestvideo[height<=$h][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=$h]+bestaudio/best[height<=$h]/best"
-                        )
-                    } else {
-                        addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best")
-                    }
-                    addOption("--merge-output-format", "mp4")
-                }
-            }
-
-            YoutubeDL.getInstance().execute(req, job.id) { progress, etaInSeconds, line ->
-                if (progress >= 0f) {
-                    job.percent = progress.toDouble().coerceIn(0.0, 100.0)
-                }
-                if (etaInSeconds >= 0) {
-                    val m = etaInSeconds / 60
-                    val s = etaInSeconds % 60
-                    job.eta = "$m:${s.toString().padStart(2, '0')}"
-                }
-                if (line.isNotBlank()) {
-                    speedRegex.find(line)?.groupValues?.getOrNull(1)?.let { spd ->
-                        job.speed = spd
-                    }
-                    if (line.contains("[Merger]") || line.contains("[ExtractAudio]") || line.contains("[Fixup")) {
-                        job.state = "processing"
-                    }
-                }
-            }
-
-            // Locate output file
-            val matchedFile = saveDir.listFiles()?.filter { f ->
-                f.isFile &&
-                    !f.name.endsWith(".part") &&
-                    !f.name.endsWith(".ytdl") &&
-                    (f.name.contains("[${job.id}]") || f.lastModified() >= startStamp)
-            }?.maxByOrNull { it.lastModified() }
-
-            if (matchedFile != null && matchedFile.exists()) {
-                job.file = matchedFile.absolutePath
-                job.size = matchedFile.length()
-                MediaScannerConnection.scanFile(
-                    applicationContext,
-                    arrayOf(matchedFile.absolutePath),
-                    null,
-                    null
-                )
-            }
-            job.percent = 100.0
-            job.state = "done"
-            addHistoryItem(job)
-        } catch (e: Exception) {
-            if (job.state == "cancelled" || e.javaClass.simpleName.contains("Canceled", ignoreCase = true)) {
-                job.state = "cancelled"
-            } else {
-                job.state = "error"
-                job.error = cleanErrorMessage(e.message)
-            }
-        }
-    }
-
     private fun cancelJob(id: String) {
-        val job = jobsById[id]
+        val job = OrbitEngine.jobsById[id]
         if (job != null) {
             job.state = "cancelled"
         }
-        try {
-            YoutubeDL.getInstance().destroyProcessById(id)
-        } catch (_: Exception) {
+        val cancelIntent = Intent(this, DownloadService::class.java).apply {
+            action = DownloadService.ACTION_CANCEL_DOWNLOAD
+            putExtra(DownloadService.EXTRA_JOB_ID, id)
+        }
+        startService(cancelIntent)
+    }
+
+    private fun dismissJob(id: String) {
+        val job = OrbitEngine.jobsById.remove(id)
+        if (job != null) {
+            OrbitEngine.activeJobs.remove(job)
         }
     }
 
     private fun findFileForId(id: String): File? {
-        jobsById[id]?.file?.takeIf { it.isNotBlank() }?.let { path ->
+        OrbitEngine.jobsById[id]?.file?.takeIf { it.isNotBlank() }?.let { path ->
             val f = File(path)
             if (f.exists()) return f
         }
@@ -718,6 +714,7 @@ class MainActivity : AppCompatActivity() {
         val mime = when (ext) {
             "mp3", "m4a", "opus", "wav" -> "audio/*"
             "mp4", "mkv", "webm" -> "video/*"
+            "jpg", "jpeg", "png", "webp", "gif" -> "image/*"
             else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
         }
         runOnUiThread {
@@ -954,9 +951,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun cleanErrorMessage(raw: String?): String {
-        if (raw.isNullOrBlank()) return "Couldn't fetch that link. Please check the URL and try again."
-        val errLine = raw.lines().lastOrNull { it.contains("ERROR:") } ?: raw.lines().lastOrNull { it.isNotBlank() } ?: raw
-        return errLine.replace(Regex("""^.*ERROR:\s*(\[[^\]]+\]\s*[^:]+:\s*)?"""), "").trim()
-            .ifBlank { "Couldn't process that link." }
+        return OrbitEngine.cleanErrorMessage(raw)
     }
 }
