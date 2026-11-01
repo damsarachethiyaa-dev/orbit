@@ -464,6 +464,7 @@ class MainActivity : AppCompatActivity() {
         return JSONObject().apply {
             put("save_dir", currentSaveDir().absolutePath)
             put("default_quality", currentDefaultQuality())
+            put("auto_download", prefs().getBoolean("auto_download", false))
             put("version", BuildConfig.VERSION_NAME)
             put("yt_dlp", ytDlpVersion)
             put("ffmpeg", ffmpegReady)
@@ -476,6 +477,9 @@ class MainActivity : AppCompatActivity() {
         val edit = prefs().edit()
         if (body.has("default_quality")) {
             edit.putString("default_quality", body.optString("default_quality", "best"))
+        }
+        if (body.has("auto_download")) {
+            edit.putBoolean("auto_download", body.optBoolean("auto_download", false))
         }
         if (body.has("save_dir")) {
             val rawDir = body.optString("save_dir").trim()
@@ -532,6 +536,8 @@ class MainActivity : AppCompatActivity() {
 
         val pin = OrbitEngine.resolvePinterest(url)
         if (pin != null) {
+            val imgArr = JSONArray()
+            pin.imageUrls.forEach { imgArr.put(it) }
             return JSONObject().apply {
                 put("title", pin.title)
                 put("site", pin.site)
@@ -540,8 +546,9 @@ class MainActivity : AppCompatActivity() {
                 put("thumbnail", pin.thumbnail)
                 put("heights", JSONArray())
                 put("directUrl", pin.directVideoUrl)
+                put("imageUrls", imgArr)
                 put("type", "image")
-                put("count", 1)
+                put("count", pin.imageUrls.size.coerceAtLeast(1))
             }
         }
 
@@ -549,6 +556,8 @@ class MainActivity : AppCompatActivity() {
         if (xhs != null) {
             val isImg = xhs.mediaType == "image"
             val heightsArr = if (isImg) JSONArray() else JSONArray().put(1080).put(720).put(480)
+            val imgArr = JSONArray()
+            xhs.imageUrls.forEach { imgArr.put(it) }
             return JSONObject().apply {
                 put("title", xhs.title)
                 put("site", xhs.site)
@@ -557,8 +566,9 @@ class MainActivity : AppCompatActivity() {
                 put("thumbnail", xhs.thumbnail)
                 put("heights", heightsArr)
                 put("directUrl", xhs.directVideoUrl)
+                put("imageUrls", imgArr)
                 put("type", if (isImg) "image" else "video")
-                if (isImg) put("count", xhs.imageUrls.size)
+                put("count", xhs.imageUrls.size)
             }
         }
 
@@ -637,6 +647,18 @@ class MainActivity : AppCompatActivity() {
         val thumb = body.optString("thumb", "")
         val isImage = body.optString("type") == "image" || quality == "image" || quality == "photo"
 
+        val imgList = ArrayList<String>()
+        val imgArr = body.optJSONArray("imageUrls")
+        if (imgArr != null) {
+            for (i in 0 until imgArr.length()) {
+                val u = imgArr.optString(i)
+                if (u.isNotBlank()) imgList.add(u)
+            }
+        }
+        if (imgList.isEmpty() && isImage && directUrl.isNotBlank()) {
+            imgList.add(directUrl)
+        }
+
         val id = UUID.randomUUID().toString().substring(0, 8)
         val job = OrbitEngine.DownloadJob(
             id = id,
@@ -647,7 +669,8 @@ class MainActivity : AppCompatActivity() {
             quality = quality,
             state = "downloading",
             isImage = isImage,
-            directUrl = directUrl
+            directUrl = directUrl,
+            imageUrls = imgList
         )
         OrbitEngine.activeJobs.add(0, job)
         OrbitEngine.jobsById[id] = job
@@ -662,6 +685,7 @@ class MainActivity : AppCompatActivity() {
             putExtra(DownloadService.EXTRA_SITE, site)
             putExtra(DownloadService.EXTRA_THUMB, thumb)
             putExtra(DownloadService.EXTRA_IS_IMAGE, isImage)
+            putStringArrayListExtra(DownloadService.EXTRA_IMAGE_URLS, imgList)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
