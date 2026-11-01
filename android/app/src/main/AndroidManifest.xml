@@ -24,7 +24,6 @@
 
     <application
         android:allowBackup="true"
-        android:extractNativeLibs="true"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -51,7 +50,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Main UI: App Launcher + Preview Option from Share Sheet -->
+        <!-- Main UI: shared links start the foreground download before the WebView loads -->
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"

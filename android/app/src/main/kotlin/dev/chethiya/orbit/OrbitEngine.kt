@@ -1,12 +1,19 @@
 package dev.chethiya.orbit
 
 import android.content.Context
+import android.content.ContentValues
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.Manifest
 import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
+import android.util.AtomicFile
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import org.json.JSONArray
@@ -68,23 +75,92 @@ object OrbitEngine {
     fun prefs(context: Context) = context.getSharedPreferences("orbit_prefs", Context.MODE_PRIVATE)
 
     fun defaultSaveDir(context: Context): File {
+        val fallback = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir, "Orbit")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            fallback.mkdirs()
+            return fallback
+        }
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            fallback.mkdirs()
+            return fallback
+        }
         val pubDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         val orbitDir = File(pubDownloads, "Orbit")
         if (orbitDir.exists() || orbitDir.mkdirs()) {
             return orbitDir
         }
-        val fallback = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir, "Orbit")
         fallback.mkdirs()
         return fallback
     }
 
     fun currentSaveDir(context: Context): File {
         val saved = prefs(context).getString("save_dir", null)
-        if (!saved.isNullOrBlank()) {
+        if (!saved.isNullOrBlank() && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             val f = File(saved)
-            if (f.exists() || f.mkdirs()) return f
+            if ((f.exists() || f.mkdirs()) && f.canWrite()) return f
         }
         return defaultSaveDir(context)
+    }
+
+    fun mediaUri(context: Context, path: String): Uri =
+        if (path.startsWith("content://")) Uri.parse(path)
+        else FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(path))
+
+    fun mediaExists(context: Context, path: String): Boolean {
+        if (path.isBlank()) return false
+        if (!path.startsWith("content://")) return File(path).exists()
+        return try {
+            context.contentResolver.openFileDescriptor(Uri.parse(path), "r")?.use { true } ?: false
+        } catch (_: Exception) { false }
+    }
+
+    fun publishMedia(context: Context, file: File): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), null, null)
+            return file.absolutePath
+        }
+        val ext = file.extension.lowercase()
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
+        val (collection, folder) = when {
+            mime.startsWith("image/") -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_PICTURES
+            mime.startsWith("video/") -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_MOVIES
+            mime.startsWith("audio/") -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_MUSIC
+            else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_DOWNLOADS
+        }
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mime)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "$folder/Orbit")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(collection, values)
+            ?: throw java.io.IOException("Could not create a media library entry.")
+        try {
+            file.inputStream().use { input ->
+                val output = resolver.openOutputStream(uri)
+                    ?: throw java.io.IOException("Could not open media library entry.")
+                output.use { input.copyTo(it) }
+            }
+            if (resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null) <= 0) {
+                throw java.io.IOException("Could not finish saving media to the library.")
+            }
+            file.delete()
+            return uri.toString()
+        } catch (e: Exception) {
+            resolver.delete(uri, null, null)
+            throw e
+        }
+    }
+
+    fun deleteStoredMedia(context: Context, path: String) {
+        if (path.startsWith("content://")) {
+            context.contentResolver.delete(Uri.parse(path), null, null)
+        } else {
+            val file = File(path)
+            if (file.exists() && !file.delete()) throw java.io.IOException("Could not delete ${file.name}.")
+            MediaScannerConnection.scanFile(context, arrayOf(path), null, null)
+        }
     }
 
     fun currentDefaultQuality(context: Context): String {
@@ -96,9 +172,8 @@ object OrbitEngine {
     @Synchronized
     fun readHistory(context: Context): JSONArray {
         val f = historyFile(context)
-        if (!f.exists()) return JSONArray()
         return try {
-            JSONArray(f.readText(Charsets.UTF_8))
+            JSONArray(AtomicFile(f).openRead().bufferedReader(Charsets.UTF_8).use { it.readText() })
         } catch (_: Exception) {
             JSONArray()
         }
@@ -106,10 +181,44 @@ object OrbitEngine {
 
     @Synchronized
     fun writeHistory(context: Context, arr: JSONArray) {
+        val atomicFile = AtomicFile(historyFile(context))
+        var stream: java.io.FileOutputStream? = null
         try {
-            historyFile(context).writeText(arr.toString(), Charsets.UTF_8)
+            stream = atomicFile.startWrite()
+            stream.write(arr.toString().toByteArray(Charsets.UTF_8))
+            atomicFile.finishWrite(stream)
         } catch (_: Exception) {
+            if (stream != null) atomicFile.failWrite(stream)
         }
+    }
+
+    @Synchronized
+    fun clearHistory(context: Context) = writeHistory(context, JSONArray())
+
+    @Synchronized
+    fun deleteHistoryItem(context: Context, id: String) {
+        val arr = readHistory(context)
+        val next = JSONArray()
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            if (item.optString("id") != id) {
+                next.put(item)
+                continue
+            }
+            val paths = item.optJSONArray("files")
+            if (paths != null && paths.length() > 0) {
+                for (j in 0 until paths.length()) deleteStoredMedia(context, paths.optString(j))
+            } else {
+                val path = item.optString("file")
+                if (path.isNotBlank()) {
+                    val legacyAlbum = if (path.startsWith("content://")) emptyList() else
+                        File(path).parentFile?.listFiles()?.filter { it.isFile && it.name.contains("[$id]") }
+                            ?.map { it.absolutePath }.orEmpty()
+                    (legacyAlbum.ifEmpty { listOf(path) }).forEach { deleteStoredMedia(context, it) }
+                }
+            }
+        }
+        writeHistory(context, next)
     }
 
     @Synchronized
@@ -121,7 +230,8 @@ object OrbitEngine {
         thumb: String,
         quality: String,
         file: String,
-        size: Long
+        size: Long,
+        files: List<String> = emptyList()
     ) {
         val arr = readHistory(context)
         val next = JSONArray()
@@ -133,6 +243,7 @@ object OrbitEngine {
             put("quality", quality)
             put("file", file)
             put("size", size)
+            if (files.isNotEmpty()) put("files", JSONArray(files))
             put("t", System.currentTimeMillis() / 1000L)
         }
         next.put(item)
@@ -149,7 +260,7 @@ object OrbitEngine {
         if (text.isNullOrBlank()) return null
         val regex = Regex("""https?://[^\s]+""", RegexOption.IGNORE_CASE)
         val match = regex.find(text)?.value ?: return null
-        return match.trimEnd('.', ',', ';', '!', '?', ')', ']', '}')
+        return match.trimEnd('.', ',', ';', '!', '?', ')', ']', '}', '"', '\'')
     }
 
     fun cleanErrorMessage(raw: String?): String {
@@ -703,6 +814,12 @@ object OrbitEngine {
 
             if (html.isBlank()) return null
             val siteName = try { Uri.parse(currentUrl).host?.removePrefix("www.")?.substringBefore(".")?.replaceFirstChar { it.uppercase() } ?: "Web" } catch (_: Exception) { "Web" }
+            // Video posts also expose og:image for their thumbnail. Never treat that as the download.
+            val videoMetadata = Regex(
+                """<meta\b[^>]*(?:og:video(?::(?:url|secure_url))?|twitter:player:stream|og:type["'][^>]*video|content=["']video[^"']*["'][^>]*og:type|twitter:card["'][^>]*player)[^>]*>""",
+                RegexOption.IGNORE_CASE
+            )
+            if (videoMetadata.containsMatchIn(html)) return null
 
             // 1. Reddit Galleries and Image Posts
             if (currentUrl.contains("reddit.com", ignoreCase = true) || currentUrl.contains("redd.it", ignoreCase = true)) {

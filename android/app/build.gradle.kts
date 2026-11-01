@@ -11,8 +11,8 @@ android {
     applicationId = "dev.chethiya.orbit"
     minSdk = 24
     targetSdk = 34
-    versionCode = 109
-    versionName = "1.0.9"
+    versionCode = 110
+    versionName = "1.0.10"
 
     ndk {
       abiFilters += listOf("arm64-v8a", "armeabi-v7a")
@@ -21,10 +21,13 @@ android {
 
   signingConfigs {
     create("release") {
-      storeFile = file("orbit-release.jks")
-      storePassword = "orbitrelease2026"
-      keyAlias = "orbit"
-      keyPassword = "orbitrelease2026"
+      val keystorePath = providers.environmentVariable("ORBIT_KEYSTORE").orNull
+      if (!keystorePath.isNullOrBlank()) {
+        storeFile = file(keystorePath)
+        storePassword = providers.environmentVariable("ORBIT_KEYSTORE_PASSWORD").orNull
+        keyAlias = providers.environmentVariable("ORBIT_KEY_ALIAS").orNull
+        keyPassword = providers.environmentVariable("ORBIT_KEY_PASSWORD").orNull
+      }
       enableV1Signing = true
       enableV2Signing = true
       enableV3Signing = true
@@ -33,11 +36,15 @@ android {
 
   buildTypes {
     debug {
-      signingConfig = signingConfigs.getByName("release")
+      // Use the Android debug key so a source checkout builds without release secrets.
+      applicationIdSuffix = ".review"
+      versionNameSuffix = "-review"
     }
     release {
       isMinifyEnabled = false
-      signingConfig = signingConfigs.getByName("release")
+      if (!providers.environmentVariable("ORBIT_KEYSTORE").orNull.isNullOrBlank()) {
+        signingConfig = signingConfigs.getByName("release")
+      }
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
   }

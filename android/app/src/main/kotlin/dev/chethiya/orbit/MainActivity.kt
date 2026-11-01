@@ -10,11 +10,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
-import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
 import android.webkit.JavascriptInterface
@@ -43,6 +41,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.UUID
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -81,6 +80,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Start a shared download before initializing the engine or creating the WebView.
+        val sharedLink = extractSharedUrl(intent)
+        val sharedDownloadStarted = savedInstanceState == null && sharedLink != null &&
+            startSharedDownload(sharedLink)
+
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = Color.BLACK
 
@@ -100,7 +104,9 @@ class MainActivity : AppCompatActivity() {
                 mediaPlaybackRequiresUserGesture = false
                 allowFileAccess = true
                 allowContentAccess = true
-                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                allowFileAccessFromFileURLs = false
+                allowUniversalAccessFromFileURLs = false
                 cacheMode = WebSettings.LOAD_DEFAULT
                 textZoom = 100
             }
@@ -136,12 +142,23 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean {
+                    return handleNavigation(request.url, request.isForMainFrame)
+                }
+
+                @Deprecated("Used by Android versions without WebResourceRequest navigation")
+                override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                    return handleNavigation(Uri.parse(url ?: ""), true)
+                }
+
                 override fun shouldInterceptRequest(
                     view: WebView?,
                     request: WebResourceRequest?
                 ): WebResourceResponse? {
                     val uri = request?.url ?: return null
-                    if (uri.host != "orbit.local") return super.shouldInterceptRequest(view, request)
+                    if (uri.scheme != "https" || uri.host != "orbit.local") {
+                        return super.shouldInterceptRequest(view, request)
+                    }
 
                     var path = (uri.path ?: "/").removePrefix("/")
                     if (path.isEmpty() || path == "index.html") {
@@ -150,12 +167,23 @@ class MainActivity : AppCompatActivity() {
                     return try {
                         val stream = assets.open(path)
                         val mime = guessMime(path)
+                        val headers = mutableMapOf(
+                            "Access-Control-Allow-Origin" to "https://orbit.local",
+                            "Cache-Control" to "no-cache",
+                            "X-Content-Type-Options" to "nosniff"
+                        )
+                        if (path == "desktop/index.html") {
+                            headers["Content-Security-Policy"] =
+                                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+                                "img-src 'self' https: data:; font-src 'self'; connect-src 'none'; " +
+                                "frame-src 'none'; object-src 'none'; base-uri 'none'"
+                        }
                         WebResourceResponse(
                             mime,
                             "UTF-8",
                             200,
                             "OK",
-                            mapOf("Access-Control-Allow-Origin" to "*", "Cache-Control" to "no-cache"),
+                            headers,
                             stream
                         )
                     } catch (e: Exception) {
@@ -164,7 +192,7 @@ class MainActivity : AppCompatActivity() {
                             "UTF-8",
                             404,
                             "Not Found",
-                            mapOf("Access-Control-Allow-Origin" to "*"),
+                            mapOf("Access-Control-Allow-Origin" to "https://orbit.local"),
                             ByteArrayInputStream("Not found: $path".toByteArray())
                         )
                     }
@@ -184,8 +212,9 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        val sharedLink = extractSharedUrl(intent)
-        val startUrl = if (!sharedLink.isNullOrBlank()) {
+        val startUrl = if (sharedDownloadStarted) {
+            "https://orbit.local/desktop/index.html?shared=1"
+        } else if (!sharedLink.isNullOrBlank() && savedInstanceState == null) {
             "https://orbit.local/desktop/index.html?url=" + URLEncoder.encode(sharedLink, "UTF-8")
         } else {
             "https://orbit.local/desktop/index.html"
@@ -193,24 +222,60 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(startUrl)
     }
 
+    private fun handleNavigation(uri: Uri, isForMainFrame: Boolean): Boolean {
+        if (isForMainFrame && uri.scheme == "https" && uri.host == "orbit.local" &&
+            (uri.path == "/desktop/index.html" || uri.path == "/")) return false
+        if (isForMainFrame && (uri.scheme == "https" || uri.scheme == "http")) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+            } catch (_: Exception) {
+                Toast.makeText(this, "No browser available to open link.", Toast.LENGTH_SHORT).show()
+            }
+        }
+        return true
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         val sharedLink = extractSharedUrl(intent)
-        if (!sharedLink.isNullOrBlank() && ::webView.isInitialized) {
+        if (!sharedLink.isNullOrBlank()) {
+            val started = startSharedDownload(sharedLink)
+            if (!::webView.isInitialized) return
             val quoted = JSONObject.quote(sharedLink)
             webView.post {
-                webView.evaluateJavascript("window.onOrbitShareLink && window.onOrbitShareLink($quoted);", null)
+                if (started) {
+                    webView.evaluateJavascript("if (window.show && window.poll) { show('download'); poll(); toast('Download started in background'); }", null)
+                } else {
+                    webView.evaluateJavascript("window.onOrbitShareLink && window.onOrbitShareLink($quoted);", null)
+                }
             }
+        }
+    }
+
+    private fun startSharedDownload(url: String): Boolean {
+        val serviceIntent = Intent(this, DownloadService::class.java).apply {
+            action = DownloadService.ACTION_START_DOWNLOAD
+            putExtra(DownloadService.EXTRA_URL, url)
+        }
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(this, serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            true
+        } catch (e: Exception) {
+            Toast.makeText(this, "Could not start background download: ${e.message}", Toast.LENGTH_LONG).show()
+            false
         }
     }
 
     private fun extractSharedUrl(intent: Intent?): String? {
         if (intent == null) return null
         if (Intent.ACTION_SEND == intent.action && intent.type?.startsWith("text/") == true) {
-            val raw = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return null
-            val urlRegex = Regex("""https?://\S+""", RegexOption.IGNORE_CASE)
-            return urlRegex.find(raw)?.value ?: raw.trim()
+            val raw = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString() ?: return null
+            return OrbitEngine.extractUrl(raw)
         }
         return null
     }
@@ -259,74 +324,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun prefs() = getSharedPreferences("orbit_prefs", Context.MODE_PRIVATE)
 
-    private fun defaultSaveDir(): File {
-        val pubDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val orbitDir = File(pubDownloads, "Orbit")
-        if (orbitDir.exists() || orbitDir.mkdirs()) {
-            return orbitDir
-        }
-        val fallback = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir, "Orbit")
-        fallback.mkdirs()
-        return fallback
-    }
-
-    private fun currentSaveDir(): File {
-        val saved = prefs().getString("save_dir", null)
-        if (!saved.isNullOrBlank()) {
-            val f = File(saved)
-            if (f.exists() || f.mkdirs()) return f
-        }
-        return defaultSaveDir()
-    }
+    private fun currentSaveDir(): File = OrbitEngine.currentSaveDir(this)
 
     private fun currentDefaultQuality(): String {
         return prefs().getString("default_quality", "best") ?: "best"
     }
 
-    private fun historyFile(): File = File(filesDir, "history.json")
-
-    @Synchronized
-    private fun readHistory(): JSONArray {
-        val f = historyFile()
-        if (!f.exists()) return JSONArray()
-        return try {
-            JSONArray(f.readText(Charsets.UTF_8))
-        } catch (_: Exception) {
-            JSONArray()
-        }
-    }
-
-    @Synchronized
-    private fun writeHistory(arr: JSONArray) {
-        try {
-            historyFile().writeText(arr.toString(), Charsets.UTF_8)
-        } catch (_: Exception) {
-        }
-    }
-
-    @Synchronized
-    private fun addHistoryItem(job: OrbitEngine.DownloadJob) {
-        val arr = readHistory()
-        val next = JSONArray()
-        val item = JSONObject().apply {
-            put("id", job.id)
-            put("title", job.title)
-            put("site", job.site)
-            put("thumb", job.thumb)
-            put("quality", job.quality)
-            put("file", job.file)
-            put("size", job.size)
-            put("t", System.currentTimeMillis() / 1000L)
-        }
-        next.put(item)
-        for (i in 0 until minOf(arr.length(), 199)) {
-            val old = arr.optJSONObject(i) ?: continue
-            if (old.optString("id") != job.id) {
-                next.put(old)
-            }
-        }
-        writeHistory(next)
-    }
+    private fun readHistory(): JSONArray = OrbitEngine.readHistory(applicationContext)
 
     inner class OrbitBridge {
         @JavascriptInterface
@@ -408,7 +412,7 @@ class MainActivity : AppCompatActivity() {
                 for (i in 0 until arr.length()) {
                     val item = arr.optJSONObject(i) ?: continue
                     val filePath = item.optString("file")
-                    val exists = filePath.isNotBlank() && File(filePath).exists()
+                    val exists = OrbitEngine.mediaExists(this, filePath)
                     val copy = JSONObject(item.toString())
                     copy.put("exists", exists)
                     out.put(copy)
@@ -416,49 +420,26 @@ class MainActivity : AppCompatActivity() {
                 out
             }
             path == "/api/history" && method == "DELETE" -> {
-                writeHistory(JSONArray())
+                OrbitEngine.clearHistory(applicationContext)
                 JSONObject().put("ok", true)
             }
             path.startsWith("/api/history/") && method == "DELETE" -> {
                 val id = path.removePrefix("/api/history/")
-                val arr = readHistory()
-                val next = JSONArray()
-                for (i in 0 until arr.length()) {
-                    val item = arr.optJSONObject(i) ?: continue
-                    if (item.optString("id") == id) {
-                        val filePath = item.optString("file")
-                        if (filePath.isNotBlank()) {
-                            try {
-                                val f = File(filePath)
-                                if (f.exists()) {
-                                    f.delete()
-                                }
-                                MediaScannerConnection.scanFile(
-                                    applicationContext,
-                                    arrayOf(filePath),
-                                    null,
-                                    null
-                                )
-                            } catch (_: Exception) {}
-                        }
-                    } else {
-                        next.put(item)
-                    }
-                }
-                writeHistory(next)
+                OrbitEngine.deleteHistoryItem(applicationContext, id)
                 JSONObject().put("ok", true)
             }
             path == "/api/update/check" -> checkForUpdates()
             path == "/api/update/download" || path == "/api/update/start" -> startUpdateDownload()
             path == "/api/update/status" -> getUpdateStatus()
             path == "/api/update/apply" -> applyApkUpdate()
-            else -> JSONObject().put("ok", true)
+            else -> throw IllegalArgumentException("Unsupported app action: $path")
         }
     }
 
     private fun getSettingsJson(): JSONObject {
         return JSONObject().apply {
-            put("save_dir", currentSaveDir().absolutePath)
+            put("save_dir", if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                "Pictures/Orbit · Movies/Orbit · Music/Orbit" else currentSaveDir().absolutePath)
             put("default_quality", currentDefaultQuality())
             put("auto_download", prefs().getBoolean("auto_download", false))
             put("version", BuildConfig.VERSION_NAME)
@@ -478,6 +459,9 @@ class MainActivity : AppCompatActivity() {
             edit.putBoolean("auto_download", body.optBoolean("auto_download", false))
         }
         if (body.has("save_dir")) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                throw IllegalArgumentException("Android saves media in Pictures, Movies and Music folders.")
+            }
             val rawDir = body.optString("save_dir").trim()
             if (rawDir.isNotEmpty()) {
                 val target = File(rawDir)
@@ -692,25 +676,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun findFileForId(id: String): File? {
+    private fun findFileForId(id: String): String? {
         OrbitEngine.jobsById[id]?.file?.takeIf { it.isNotBlank() }?.let { path ->
-            val f = File(path)
-            if (f.exists()) return f
+            if (OrbitEngine.mediaExists(this, path)) return path
         }
         val arr = readHistory()
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
             if (item.optString("id") == id) {
-                val f = File(item.optString("file"))
-                if (f.exists()) return f
+                val path = item.optString("file")
+                if (OrbitEngine.mediaExists(this, path)) return path
             }
         }
         return null
     }
 
     private fun openMediaById(id: String) {
-        val file = findFileForId(id) ?: throw IllegalArgumentException("File not found on device.")
-        val ext = file.extension.lowercase()
+        val path = findFileForId(id) ?: throw IllegalArgumentException("File not found on device.")
+        val ext = if (path.startsWith("content://")) "" else File(path).extension.lowercase()
         val mime = when (ext) {
             "mp3", "m4a", "opus", "wav" -> "audio/*"
             "mp4", "mkv", "webm" -> "video/*"
@@ -719,12 +702,12 @@ class MainActivity : AppCompatActivity() {
         }
         runOnUiThread {
             try {
-                val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+                val uri = OrbitEngine.mediaUri(this, path)
                 val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, mime)
+                    setDataAndType(uri, contentResolver.getType(uri) ?: mime)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                startActivity(Intent.createChooser(intent, file.name))
+                startActivity(Intent.createChooser(intent, "Open media"))
             } catch (_: Exception) {
                 openDownloadsFolder()
             }
@@ -761,6 +744,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkForUpdates(): JSONObject {
+        if (BuildConfig.DEBUG) return JSONObject().apply {
+            put("has_update", false)
+            put("current_version", BuildConfig.VERSION_NAME)
+            put("latest_version", BuildConfig.VERSION_NAME)
+        }
         try {
             val conn = (URL("https://api.github.com/repos/damsarachethiyaa-dev/orbit/releases?per_page=15").openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000
@@ -803,6 +791,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @Synchronized
     private fun startUpdateDownload(): JSONObject {
         if (downloadUrl.isBlank()) throw IllegalArgumentException("No APK update URL available.")
         if (updateDownloading) return JSONObject().put("ok", true)
@@ -862,7 +851,7 @@ class MainActivity : AppCompatActivity() {
                             }
                             val elapsedSec = ((System.currentTimeMillis() - startTime) / 1000.0).coerceAtLeast(0.2)
                             val mbps = (downloaded / (1024.0 * 1024.0)) / elapsedSec
-                            updateSpeed = String.format("%.1f MB/s", mbps)
+                            updateSpeed = String.format(Locale.US, "%.1f MB/s", mbps)
                         }
                     }
                 }
@@ -870,8 +859,12 @@ class MainActivity : AppCompatActivity() {
                 if (!outApk.exists() || outApk.length() < 1000000) {
                     throw java.io.IOException("Downloaded update package is incomplete.")
                 }
+                val archive = packageManager.getPackageArchiveInfo(outApk.absolutePath, 0)
+                if (archive?.packageName != packageName ||
+                    !isNewerVersion(archive?.versionName ?: "", BuildConfig.VERSION_NAME)) {
+                    throw java.io.IOException("Downloaded package is not a newer Orbit update.")
+                }
 
-                outApk.setReadable(true, false)
                 downloadedApkPath = outApk.absolutePath
                 updatePercent = 100
                 readyToInstall = true
@@ -899,8 +892,6 @@ class MainActivity : AppCompatActivity() {
         if (!apkFile.exists()) throw IllegalArgumentException("Downloaded update package not found.")
         runOnUiThread {
             try {
-                apkFile.setReadable(true, false)
-
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     if (!packageManager.canRequestPackageInstalls()) {
                         Toast.makeText(

@@ -34,7 +34,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check for Windows installer
+        id: windows_asset
+        run: |
+          COUNT=$(gh release view "${{ steps.resolve_tag.outputs.tag }}" --repo "${{ github.repository }}" --json assets --jq '[.assets[].name | select(endswith(".exe"))] | length')
+          echo "present=$([ "$COUNT" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Update Version in Website Files
+        if: steps.windows_asset.outputs.present == 'true'
         run: |
           TAG="${{ steps.resolve_tag.outputs.tag }}"
           echo "Updating website files to version: $TAG"
@@ -47,6 +56,7 @@ jobs:
           done
 
       - name: Commit and Push
+        if: steps.windows_asset.outputs.present == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

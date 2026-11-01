@@ -8,18 +8,17 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.webkit.MimeTypeMap
 import androidx.core.app.NotificationCompat
-import androidx.core.content.FileProvider
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -426,7 +425,8 @@ class DownloadService : Service() {
         val cleanUrls = rawImageUrls.map { it.replace("&amp;", "&").trim() }.filter { it.isNotBlank() }
         val totalPhotos = cleanUrls.size
         var totalBytesAll = 0L
-        var firstSavedFile: File? = null
+        val savedPaths = mutableListOf<String>()
+        var firstSavedName = ""
 
         val safePrefix = job.title
             .replace(Regex("""[\\/:*?"<>|]"""), "_")
@@ -437,6 +437,7 @@ class DownloadService : Service() {
         try {
             for ((index, imgUrl) in cleanUrls.withIndex()) {
                 if (!activeJobIds.contains(job.id)) {
+                    savedPaths.forEach { runCatching { OrbitEngine.deleteStoredMedia(this, it) } }
                     job.state = "cancelled"
                     nm.cancel(notifId)
                     return
@@ -459,6 +460,11 @@ class DownloadService : Service() {
                 val conn = openConnectionWithRedirects(imgUrl, isVideo = false)
 
                 val contentType = conn.contentType ?: ""
+                if (contentType.startsWith("text/", true) || contentType.startsWith("video/", true) ||
+                    contentType.contains("json", true)) {
+                    conn.disconnect()
+                    throw java.io.IOException("The link did not return a photo.")
+                }
                 val ext = when {
                     contentType.contains("png", true) || imgUrl.contains(".png", true) -> "png"
                     contentType.contains("webp", true) || imgUrl.contains(".webp", true) -> "webp"
@@ -476,43 +482,41 @@ class DownloadService : Service() {
                 val targetFile = File(saveDir, fileName)
                 val buffer = ByteArray(16384)
 
-                conn.inputStream.use { input ->
-                    targetFile.outputStream().use { output ->
-                        var bytesRead: Int
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            if (!activeJobIds.contains(job.id)) {
-                                targetFile.delete()
-                                job.state = "cancelled"
-                                nm.cancel(notifId)
-                                return
+                try {
+                    conn.inputStream.use { input ->
+                        targetFile.outputStream().use { output ->
+                            var bytesRead: Int
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
+                                if (!activeJobIds.contains(job.id)) {
+                                    targetFile.delete()
+                                    savedPaths.forEach { runCatching { OrbitEngine.deleteStoredMedia(this, it) } }
+                                    job.state = "cancelled"
+                                    nm.cancel(notifId)
+                                    return
+                                }
+                                output.write(buffer, 0, bytesRead)
                             }
-                            output.write(buffer, 0, bytesRead)
                         }
                     }
+
+                    val bytes = targetFile.length()
+                    val savedPath = OrbitEngine.publishMedia(applicationContext, targetFile)
+                    if (savedPaths.isEmpty()) firstSavedName = targetFile.name
+                    savedPaths.add(savedPath)
+                    totalBytesAll += bytes
+
+                    job.percent = (((index + 1).toDouble() / totalPhotos) * 100.0).coerceIn(0.0, 100.0)
+                } catch (e: Exception) {
+                    targetFile.delete()
+                    throw e
+                } finally {
+                    conn.disconnect()
                 }
-
-                if (firstSavedFile == null) firstSavedFile = targetFile
-                totalBytesAll += targetFile.length()
-
-                MediaScannerConnection.scanFile(
-                    applicationContext,
-                    arrayOf(targetFile.absolutePath),
-                    arrayOf("image/$ext"),
-                    null
-                )
-                try {
-                    val scanIntent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE).apply {
-                        data = Uri.fromFile(targetFile)
-                    }
-                    applicationContext.sendBroadcast(scanIntent)
-                } catch (_: Exception) {}
-
-                job.percent = (((index + 1).toDouble() / totalPhotos) * 100.0).coerceIn(0.0, 100.0)
             }
 
-            if (firstSavedFile == null) throw java.io.IOException("No photo could be downloaded.")
+            if (savedPaths.isEmpty()) throw java.io.IOException("No photo could be downloaded.")
 
-            job.file = firstSavedFile.absolutePath
+            job.file = savedPaths.first()
             job.size = totalBytesAll
             job.percent = 100.0
             job.state = "done"
@@ -524,16 +528,21 @@ class DownloadService : Service() {
                 site = job.site,
                 thumb = job.thumb,
                 quality = "photo",
-                file = firstSavedFile.absolutePath,
-                size = totalBytesAll
+                file = savedPaths.first(),
+                size = totalBytesAll,
+                files = savedPaths
             )
 
-            showCompletedNotification(
-                notifId,
-                if (totalPhotos > 1) "$totalPhotos photos saved to Gallery" else job.title,
-                firstSavedFile
-            )
+            runCatching {
+                showCompletedNotification(
+                    notifId,
+                    if (totalPhotos > 1) "$totalPhotos photos saved to Gallery" else job.title,
+                    savedPaths.first(),
+                    firstSavedName
+                )
+            }
         } catch (e: Exception) {
+            savedPaths.forEach { runCatching { OrbitEngine.deleteStoredMedia(this, it) } }
             val isCancelled = !activeJobIds.contains(job.id) || e.javaClass.simpleName.contains("Cancel", ignoreCase = true)
             if (isCancelled) {
                 job.state = "cancelled"
@@ -566,7 +575,8 @@ class DownloadService : Service() {
             .take(80)
             .ifBlank { "orbit_${job.id}" }
 
-        val targetFile = File(saveDir, "$safePrefix [${job.id}].mp4")
+        var targetFile: File? = null
+        var publishedPath: String? = null
 
         try {
             nm.notify(
@@ -583,6 +593,23 @@ class DownloadService : Service() {
             )
 
             val conn = openConnectionWithRedirects(downloadUrl, isVideo = true)
+            val contentType = conn.contentType.orEmpty().lowercase(Locale.ROOT)
+            if (contentType.startsWith("text/") || contentType.contains("json")) {
+                conn.disconnect()
+                throw java.io.IOException("The link did not return a video stream.")
+            }
+            val extension = when {
+                contentType.contains("webm") -> "webm"
+                contentType.contains("quicktime") -> "mov"
+                else -> when (Uri.parse(downloadUrl).path?.substringAfterLast('.')?.lowercase(Locale.ROOT)) {
+                    "webm" -> "webm"
+                    "mov" -> "mov"
+                    "m4v" -> "m4v"
+                    else -> "mp4"
+                }
+            }
+            val outputFile = File(saveDir, "$safePrefix [${job.id}].$extension")
+            targetFile = outputFile
 
             val totalBytes = conn.contentLengthLong.coerceAtLeast(1L)
             var downloaded = 0L
@@ -592,11 +619,11 @@ class DownloadService : Service() {
             val startTime = System.currentTimeMillis()
 
             conn.inputStream.use { input ->
-                targetFile.outputStream().use { output ->
+                outputFile.outputStream().use { output ->
                     var bytesRead: Int
                     while (input.read(buffer).also { bytesRead = it } != -1) {
                         if (!activeJobIds.contains(job.id)) {
-                            targetFile.delete()
+                            outputFile.delete()
                             job.state = "cancelled"
                             nm.cancel(notifId)
                             return
@@ -614,9 +641,9 @@ class DownloadService : Service() {
                             val elapsedSec = ((now - startTime) / 1000.0).coerceAtLeast(0.1)
                             val spdBytesPerSec = downloaded / elapsedSec
                             val spdStr = if (spdBytesPerSec > 1024 * 1024) {
-                                String.format("%.1f MB/s", spdBytesPerSec / (1024.0 * 1024.0))
+                                String.format(Locale.US, "%.1f MB/s", spdBytesPerSec / (1024.0 * 1024.0))
                             } else {
-                                String.format("%d KB/s", (spdBytesPerSec / 1024.0).toLong())
+                                String.format(Locale.US, "%d KB/s", (spdBytesPerSec / 1024.0).toLong())
                             }
                             job.speed = spdStr
 
@@ -637,24 +664,25 @@ class DownloadService : Service() {
                 }
             }
 
+            if (conn.contentLengthLong > 0 && downloaded != conn.contentLengthLong) {
+                throw java.io.IOException("Video download ended before all bytes were received.")
+            }
+
             if (!activeJobIds.contains(job.id)) {
-                targetFile.delete()
+                outputFile.delete()
                 job.state = "cancelled"
                 nm.cancel(notifId)
                 return
             }
 
-            job.file = targetFile.absolutePath
-            job.size = targetFile.length()
+            val size = outputFile.length()
+            val savedPath = OrbitEngine.publishMedia(applicationContext, outputFile)
+            publishedPath = savedPath
+            job.file = savedPath
+            job.size = size
             job.percent = 100.0
             job.state = "done"
 
-            MediaScannerConnection.scanFile(
-                applicationContext,
-                arrayOf(targetFile.absolutePath),
-                null,
-                null
-            )
             OrbitEngine.addHistoryItem(
                 context = applicationContext,
                 id = job.id,
@@ -662,12 +690,14 @@ class DownloadService : Service() {
                 site = job.site,
                 thumb = job.thumb,
                 quality = job.quality,
-                file = targetFile.absolutePath,
-                size = targetFile.length()
+                file = savedPath,
+                size = size
             )
 
-            showCompletedNotification(notifId, job.title, targetFile)
+            runCatching { showCompletedNotification(notifId, job.title, savedPath, outputFile.name) }
         } catch (e: Exception) {
+            targetFile?.delete()
+            publishedPath?.let { runCatching { OrbitEngine.deleteStoredMedia(this, it) } }
             val isCancelled = !activeJobIds.contains(job.id) || e.javaClass.simpleName.contains("Cancel", ignoreCase = true)
             if (isCancelled) {
                 job.state = "cancelled"
@@ -709,7 +739,6 @@ class DownloadService : Service() {
             )
         )
 
-        val startStamp = System.currentTimeMillis() - 1500L
         val safePrefix = job.title
             .replace(Regex("""[\\/:*?"<>|]"""), "_")
             .trim()
@@ -797,16 +826,12 @@ class DownloadService : Service() {
             f.isFile &&
                 !f.name.endsWith(".part") &&
                 !f.name.endsWith(".ytdl") &&
-                (f.name.contains("[${job.id}]") || f.lastModified() >= startStamp)
+                f.name.contains("[${job.id}]")
         }?.maxByOrNull { it.lastModified() }
 
         if (matchedFile != null && matchedFile.exists()) {
-            MediaScannerConnection.scanFile(
-                applicationContext,
-                arrayOf(matchedFile.absolutePath),
-                null,
-                null
-            )
+            val size = matchedFile.length()
+            val savedPath = OrbitEngine.publishMedia(applicationContext, matchedFile)
             OrbitEngine.addHistoryItem(
                 context = applicationContext,
                 id = job.id,
@@ -814,42 +839,38 @@ class DownloadService : Service() {
                 site = job.site,
                 thumb = job.thumb,
                 quality = job.quality,
-                file = matchedFile.absolutePath,
-                size = matchedFile.length()
+                file = savedPath,
+                size = size
             )
 
-            job.file = matchedFile.absolutePath
-            job.size = matchedFile.length()
+            job.file = savedPath
+            job.size = size
             job.percent = 100.0
             job.state = "done"
 
-            showCompletedNotification(notifId, job.title, matchedFile)
+            runCatching { showCompletedNotification(notifId, job.title, savedPath, matchedFile.name) }
         } else {
-            nm.cancel(notifId)
+            throw java.io.IOException("Download finished, but the output file could not be found.")
         }
     }
 
-    private fun showCompletedNotification(notifId: Int, title: String, file: File) {
-        val ext = file.extension.lowercase()
+    private fun showCompletedNotification(notifId: Int, title: String, path: String, fileName: String) {
+        val ext = fileName.substringAfterLast('.', "").lowercase()
         val mime = when (ext) {
             "mp3", "m4a", "opus", "wav" -> "audio/*"
             "mp4", "mkv", "webm" -> "video/*"
             "jpg", "jpeg", "png", "webp", "gif" -> "image/*"
             else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
         }
-        val contentUri = FileProvider.getUriForFile(
-            this,
-            "${packageName}.fileprovider",
-            file
-        )
+        val contentUri = OrbitEngine.mediaUri(this, path)
         val openIntent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(contentUri, mime)
+            setDataAndType(contentUri, contentResolver.getType(contentUri) ?: mime)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         val pOpen = PendingIntent.getActivity(
             this,
             notifId + 1,
-            Intent.createChooser(openIntent, file.name),
+            Intent.createChooser(openIntent, fileName),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -857,7 +878,7 @@ class DownloadService : Service() {
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Download complete")
             .setContentText(title)
-            .setSubText("Saved to Downloads/Orbit")
+            .setSubText("Saved to your media library")
             .setOngoing(false)
             .setAutoCancel(true)
             .setContentIntent(pOpen)

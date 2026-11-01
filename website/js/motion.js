@@ -735,6 +735,11 @@
 
     function applyRelease(data) {
       if (!data || !data.tag_name) return;
+      // The website downloads Windows builds; Android-only releases have no installer.
+      const exeAsset = Array.isArray(data.assets)
+        ? data.assets.find(a => a.name && a.name.toLowerCase().endsWith('.exe'))
+        : null;
+      if (!exeAsset || !exeAsset.browser_download_url) return;
       const rawTag = String(data.tag_name).trim();
       const version = /^v/i.test(rawTag) ? rawTag : ('v' + rawTag);
 
@@ -761,15 +766,10 @@
       });
 
       // 3. Update download URLs if assets are present
-      if (Array.isArray(data.assets)) {
-        const exeAsset = data.assets.find(a => a.name && a.name.toLowerCase().endsWith('.exe'));
-        if (exeAsset && exeAsset.browser_download_url) {
-          $$('a[download*="Orbit-Setup"], a[download="Orbit-Setup.exe"]').forEach(a => {
-            a.href = exeAsset.browser_download_url;
-            a.setAttribute('download', exeAsset.name);
-          });
-        }
-      }
+      $$('a[download*="Orbit-Setup"], a[download="Orbit-Setup.exe"]').forEach(a => {
+        a.href = exeAsset.browser_download_url;
+        a.setAttribute('download', exeAsset.name);
+      });
     }
 
     try {

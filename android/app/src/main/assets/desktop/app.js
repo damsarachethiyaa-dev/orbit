@@ -304,14 +304,20 @@ async function loadLib() {
   $("#lib").innerHTML = list.map(e => `
     <li class="l${e.exists ? "" : " gone"}" data-id="${esc(e.id)}">
       <div class="thumb-wrap">
-        ${e.thumb ? `<img class="thumb" src="${esc(e.thumb)}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">` : ""}
+        ${e.thumb ? `<img class="thumb" src="${esc(e.thumb)}" alt="">` : ""}
         <span class="ico" style="${icoStyle(e.site)}; ${e.thumb ? 'display:none;' : ''}"></span>
       </div>
       <div class="q-main"><p class="q-title">${esc(e.title)}</p>
         <p class="q-sub mono">${esc([e.site, fmtSize(e.size), new Date(e.t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" }), e.exists ? "" : "File moved or deleted"].filter(Boolean).join("  ·  "))}</p></div>
-      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="Open">${svg(I.play)}<span>${(e.quality === "image" || e.quality === "photo") ? "Open" : "Play"}</span></button><button class="iconbtn" data-act="show" title="Folder">${svg(I.folder)}<span>Show</span></button>` : ""}
+      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="Open">${svg(I.play)}<span>${(e.quality === "image" || e.quality === "photo") ? "Open" : "Play"}</span></button>${window.OrbitAndroid ? "" : `<button class="iconbtn" data-act="show" title="Folder">${svg(I.folder)}<span>Show</span></button>`}` : ""}
         <button class="iconbtn sq danger" data-act="remove" title="Remove from list">${svg(I.trash)}</button></div>
     </li>`).join("");
+  $("#lib").querySelectorAll("img.thumb").forEach(img => {
+    img.addEventListener("error", () => {
+      img.style.display = "none";
+      if (img.nextElementSibling) img.nextElementSibling.style.display = "inline-block";
+    });
+  });
 }
 $("#lib").addEventListener("click", async e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
@@ -340,6 +346,10 @@ function applySettings(s) {
   cfg = s;
   $("#setPath").textContent = s.save_dir;
   $("#folderName").textContent = baseName(s.save_dir) || s.save_dir;
+  if (window.OrbitAndroid) {
+    $("#setChange").hidden = true;
+    $("#setOpen").hidden = true;
+  }
   const q = s.default_quality || "best";
   $("#setQuality").value = q;
   $$("#setQualityGrid .q-chip").forEach(c => {
@@ -399,7 +409,9 @@ $("#setChange").onclick = async () => {
   if (!dir) return;
   try { applySettings(await api("/api/settings", { save_dir: dir })); toast("Save folder updated"); } catch (err) { toast(err.message); }
 };
-const openFolder = () => api("/api/open-folder", {}).catch(() => toast("Couldn't open the folder"));
+const openFolder = () => window.OrbitAndroid
+  ? toast("Find Orbit media in your phone's Pictures, Movies or Music folders")
+  : api("/api/open-folder", {}).catch(() => toast("Couldn't open the folder"));
 $("#setOpen").onclick = openFolder; $("#openFolder").onclick = openFolder;
 
 /* ---------------- in-app auto updater ---------------- */
@@ -548,8 +560,9 @@ const params = new URLSearchParams(location.search);
 if (params.has("shot")) removeEventListener("focus", checkClip);
 if (["#library", "#settings"].includes(location.hash)) show(location.hash.slice(1));
 loadSettings();
-urlEl.focus();
+if (!params.has("shared")) urlEl.focus();
 if (params.get("url")) { urlEl.value = params.get("url"); fetchInfo(); }
+else if (params.has("shared")) { show("download"); toast("Download started in background"); }
 else if (!params.has("shot")) checkClip();
 
 window.onOrbitShareLink = sharedUrl => {
