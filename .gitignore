@@ -10,3 +10,11 @@ downloads/
 __pycache__/
 *.pyc
 *.log
+
+# Android build intermediates
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties
+android/app/*.jks

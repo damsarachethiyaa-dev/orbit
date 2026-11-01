@@ -26,6 +26,18 @@ const fmtSize = b => !b ? "" : b > 1e9 ? (b / 1e9).toFixed(2) + " GB" : b > 1e6 
 const QLABEL = { best: "Best", 2160: "4K", 1440: "1440p", 1080: "1080p", 720: "720p", 480: "480p", audio: "MP3" };
 const baseName = p => String(p || "").split(/[\\/]/).filter(Boolean).pop() || "";
 async function api(path, body, method) {
+  if (window.OrbitAndroid && typeof window.OrbitAndroid.callApi === "function") {
+    const m = method || (body !== undefined ? "POST" : "GET");
+    const b = body !== undefined ? JSON.stringify(body) : "";
+    const raw = await new Promise(resolve => {
+      const cb = "__orbit_cb_" + Math.random().toString(36).slice(2) + "_" + Date.now();
+      window[cb] = resJson => { delete window[cb]; resolve(resJson); };
+      window.OrbitAndroid.callApi(cb, path, m, b);
+    });
+    const data = JSON.parse(raw || "{}");
+    if (data && data.__error) throw new Error(data.__error);
+    return data;
+  }
   const r = await fetch(path, body !== undefined || method
     ? { method: method || "POST", headers: { "Content-Type": "application/json", "X-Orbit": "1" }, body: body !== undefined ? JSON.stringify(body) : undefined }
     : { headers: { "X-Orbit": "1" } });
@@ -387,6 +399,15 @@ loadSettings();
 urlEl.focus();
 if (params.get("url")) { urlEl.value = params.get("url"); fetchInfo(); }
 else if (!params.has("shot")) checkClip();
+
+window.onOrbitShareLink = sharedUrl => {
+  const u = normalizeUrl(String(sharedUrl || ""));
+  if (u) {
+    show("download");
+    urlEl.value = u;
+    fetchInfo();
+  }
+};
 
 // Background check for updates 2.5s after launch
 setTimeout(() => checkUpdate(false), 2500);
