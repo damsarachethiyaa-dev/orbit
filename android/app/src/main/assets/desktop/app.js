@@ -267,7 +267,12 @@ $("#lib").addEventListener("click", async e => {
   try {
     if (b.dataset.act === "open") await api("/api/open/" + id, {});
     if (b.dataset.act === "show") await api("/api/reveal/" + id, {});
-    if (b.dataset.act === "remove") { await api("/api/history/" + id, undefined, "DELETE"); loadLib(); }
+    if (b.dataset.act === "remove") {
+      if (!confirm("Permanently delete this video from your device storage?")) return;
+      await api("/api/history/" + id, undefined, "DELETE");
+      toast("Video deleted from device");
+      loadLib();
+    }
   } catch { toast("That file isn't there any more"); loadLib(); }
 });
 async function clearLib() {
@@ -282,7 +287,11 @@ function applySettings(s) {
   cfg = s;
   $("#setPath").textContent = s.save_dir;
   $("#folderName").textContent = baseName(s.save_dir) || s.save_dir;
-  $("#setQuality").value = s.default_quality;
+  const q = s.default_quality || "best";
+  $("#setQuality").value = q;
+  $$("#setQualityGrid .q-chip").forEach(c => {
+    c.classList.toggle("on", c.dataset.val === q || (q === "2160" && c.dataset.val === "best"));
+  });
 }
 async function loadSettings() {
   try {
@@ -300,6 +309,23 @@ async function loadSettings() {
   } catch {}
 }
 $("#setQuality").onchange = async e => { try { applySettings(await api("/api/settings", { default_quality: e.target.value })); toast("Default quality saved"); } catch {} };
+
+const qGrid = $("#setQualityGrid");
+if (qGrid) {
+  qGrid.addEventListener("click", async e => {
+    const chip = e.target.closest(".q-chip");
+    if (!chip) return;
+    triggerHaptic();
+    const val = chip.dataset.val;
+    try {
+      applySettings(await api("/api/settings", { default_quality: val }));
+      const label = chip.querySelector(".q-res")?.textContent || val;
+      toast(`Default quality set to ${label}`);
+    } catch (err) {
+      toast("Couldn't update quality: " + err.message);
+    }
+  });
+}
 $("#setChange").onclick = async () => {
   let dir = null;
   if (window.pywebview && pywebview.api && pywebview.api.choose_folder) dir = await pywebview.api.choose_folder(cfg.save_dir);

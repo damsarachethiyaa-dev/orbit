@@ -119,6 +119,10 @@ class MainActivity : AppCompatActivity() {
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.BLACK)
+            isVerticalScrollBarEnabled = false
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = WebView.OVER_SCROLL_NEVER
+            scrollBarStyle = WebView.SCROLLBARS_INSIDE_OVERLAY
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -422,7 +426,25 @@ class MainActivity : AppCompatActivity() {
                 val next = JSONArray()
                 for (i in 0 until arr.length()) {
                     val item = arr.optJSONObject(i) ?: continue
-                    if (item.optString("id") != id) next.put(item)
+                    if (item.optString("id") == id) {
+                        val filePath = item.optString("file")
+                        if (filePath.isNotBlank()) {
+                            try {
+                                val f = File(filePath)
+                                if (f.exists()) {
+                                    f.delete()
+                                }
+                                MediaScannerConnection.scanFile(
+                                    applicationContext,
+                                    arrayOf(filePath),
+                                    null,
+                                    null
+                                )
+                            } catch (_: Exception) {}
+                        }
+                    } else {
+                        next.put(item)
+                    }
                 }
                 writeHistory(next)
                 JSONObject().put("ok", true)

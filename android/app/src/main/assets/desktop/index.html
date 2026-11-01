@@ -250,26 +250,47 @@
           </div>
         </div>
 
-        <div class="set-card">
-          <div class="set-card-icon">
-            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        <div class="set-card quality-setting-card">
+          <div class="set-card-header">
+            <div class="set-card-icon">
+              <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </div>
+            <div class="set-card-body">
+              <h4>Default Download Quality</h4>
+              <p class="dim">One-tap downloads automatically use this format</p>
+            </div>
           </div>
-          <div class="set-card-body">
-            <h4>Default Video Quality</h4>
-            <p class="dim">Preferred resolution for one-tap downloads</p>
+          <div class="quality-chip-grid" id="setQualityGrid">
+            <button type="button" class="q-chip on" data-val="best">
+              <div class="q-chip-top"><span class="q-badge">BEST</span><span class="q-res">4K / Max</span></div>
+              <span class="q-desc">Highest available</span>
+            </button>
+            <button type="button" class="q-chip" data-val="1080">
+              <div class="q-chip-top"><span class="q-badge">FHD</span><span class="q-res">1080p</span></div>
+              <span class="q-desc">Full High Def</span>
+            </button>
+            <button type="button" class="q-chip" data-val="720">
+              <div class="q-chip-top"><span class="q-badge">HD</span><span class="q-res">720p</span></div>
+              <span class="q-desc">Fast download</span>
+            </button>
+            <button type="button" class="q-chip" data-val="480">
+              <div class="q-chip-top"><span class="q-badge">SD</span><span class="q-res">480p</span></div>
+              <span class="q-desc">Data saver</span>
+            </button>
+            <button type="button" class="q-chip" data-val="audio">
+              <div class="q-chip-top"><span class="q-badge audio">MP3</span><span class="q-res">Audio Only</span></div>
+              <span class="q-desc">Soundtrack 320k</span>
+            </button>
           </div>
-          <div class="custom-select-wrap set-select">
-            <select id="setQuality">
-              <option value="best">Best Available (4K / 1080p)</option>
-              <option value="2160">4K Ultra HD (2160p)</option>
-              <option value="1440">Quad HD (1440p)</option>
-              <option value="1080">Full HD (1080p)</option>
-              <option value="720">HD (720p)</option>
-              <option value="480">Standard (480p)</option>
-              <option value="audio">Audio Only (MP3 320k)</option>
-            </select>
-            <svg class="select-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
-          </div>
+          <select id="setQuality" hidden>
+            <option value="best">Best available</option>
+            <option value="2160">4K (2160p)</option>
+            <option value="1440">1440p</option>
+            <option value="1080">1080p</option>
+            <option value="720">720p</option>
+            <option value="480">480p</option>
+            <option value="audio">Audio only (MP3)</option>
+          </select>
         </div>
 
         <div class="set-card">

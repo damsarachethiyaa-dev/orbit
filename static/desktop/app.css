@@ -48,9 +48,16 @@ input, select, code { user-select: text; }
 svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; outline: none; }
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 99px; }
-::-webkit-scrollbar-track { background: transparent; }
+/* Complete scrollbar elimination for native APK appearance */
+::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+* {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
 
 /* Desktop App Container */
 .app {
@@ -745,6 +752,87 @@ h1 { font-size: 2.2rem; font-weight: 900; letter-spacing: -0.02em; line-height: 
 .set-card-actions { display: flex; gap: 8px; flex: none; }
 .set-select select { min-width: 200px; }
 
+/* Quality Setting Card & Chip Grid */
+.quality-setting-card {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 16px !important;
+}
+.set-card-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.quality-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+.q-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  color: var(--dim);
+  text-align: left;
+  transition: all 0.25s var(--spring);
+}
+.q-chip:hover {
+  background: var(--surface-active);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+  transform: translateY(-1px);
+}
+.q-chip.on {
+  background: rgba(0, 153, 255, 0.16);
+  border-color: var(--blue);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(0, 153, 255, 0.3);
+  transform: scale(1.02);
+}
+.q-chip:active {
+  transform: scale(0.96);
+}
+.q-chip-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.q-badge {
+  font: 800 0.62rem var(--mono);
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--dim);
+  letter-spacing: 0.06em;
+}
+.q-badge.audio {
+  background: rgba(0, 230, 118, 0.15);
+  color: var(--green);
+}
+.q-chip.on .q-badge {
+  background: var(--blue);
+  color: #fff;
+}
+.q-res {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #fff;
+}
+.q-desc {
+  font-size: 0.72rem;
+  color: var(--dim);
+}
+.q-chip.on .q-desc {
+  color: rgba(255, 255, 255, 0.85);
+}
+
 /* About & Diagnostics Section */
 .about-section { margin-top: 32px; }
 .about-label { font-size: 0.92rem; font-weight: 700; margin-bottom: 12px; color: #fff; }
@@ -1053,6 +1141,14 @@ h1 { font-size: 2.2rem; font-weight: 900; letter-spacing: -0.02em; line-height: 
   .set-card-actions { width: 100%; }
   .set-card-actions button { flex: 1; }
   .set-select, .set-select select { width: 100%; }
+
+  .quality-chip-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .q-chip {
+    padding: 10px 12px;
+  }
 
   .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .stat-card { border-radius: 16px; padding: 12px 14px; }
