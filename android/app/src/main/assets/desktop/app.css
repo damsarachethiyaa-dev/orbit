@@ -1,8 +1,8 @@
 :root {
   --bg: #000000;
-  --surface: #0e121b;
-  --surface-raised: #141926;
-  --surface-active: #1b2234;
+  --surface: #101010;
+  --surface-raised: #161616;
+  --surface-active: #202020;
   --fg: #ffffff;
   --dim: rgba(255, 255, 255, 0.6);
   --faint: rgba(255, 255, 255, 0.32);
@@ -546,7 +546,7 @@ h1 { font-size: 2.2rem; font-weight: 900; letter-spacing: -0.02em; line-height: 
   border-color: #ffffff;
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15);
 }
-.custom-select-wrap select option { background: #0c0f18; color: #fff; }
+.custom-select-wrap select option { background: #141414; color: #fff; }
 .select-chevron {
   position: absolute;
   right: 14px;
@@ -988,7 +988,7 @@ h1 { font-size: 2.2rem; font-weight: 900; letter-spacing: -0.02em; line-height: 
     padding: 6px 12px max(8px, env(safe-area-inset-bottom, 0px));
     border-right: 0;
     border-top: 1px solid var(--line);
-    background: rgba(8, 10, 16, 0.94);
+    background: rgba(12, 12, 12, 0.95);
     backdrop-filter: blur(28px);
     z-index: 50;
     flex: none;
