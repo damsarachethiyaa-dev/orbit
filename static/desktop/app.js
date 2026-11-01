@@ -10,6 +10,8 @@ const BRANDS = {
   tumblr: ["tumblr", "#5a7fa8"], linkedin: ["linkedin", "#0a66c2"], snapchat: ["snapchat", "#fffc00"], vk: ["vk", "#0077ff"], telegram: ["telegram", "#2aabee"],
   imgur: ["imgur", "#1bb76e"], rumble: ["rumble", "#85c742"], odysee: ["odysee", "#ef1970"], kick: ["kick", "#53fc18"], bandcamp: ["bandcamp", "#1da0c3"],
   mixcloud: ["mixcloud", "#5000ff"], threads: ["threads", "#e7e9ea"], bluesky: ["bluesky", "#1185fe"], loom: ["loom", "#625df5"], ted: ["ted", "#e62b1e"],
+  xiaohongshu: ["xiaohongshu", "#ff2442"], xhs: ["xiaohongshu", "#ff2442"], red: ["xiaohongshu", "#ff2442"],
+  douyin: ["douyin", "#010101"], kuaishou: ["kuaishou", "#ff4400"], kwai: ["kuaishou", "#ff4400"],
 };
 const BRAND_KEYS = Object.keys(BRANDS).sort((a, b) => b.length - a.length);
 function brand(site) {
@@ -17,7 +19,7 @@ function brand(site) {
   const hit = BRAND_KEYS.find(b => b.length <= 2 ? k === b : k.startsWith(b));   // short keys must match exactly ("x" is not "xvideos")
   return hit ? BRANDS[hit] : null;
 }
-const icoStyle = site => { const b = brand(site); return b ? `--i:url(/icons/${b[0]}.svg);--c:${b[1]}` : "--i:url(/desktop/video.svg);--c:#9aa0a6"; };
+const icoStyle = site => { const b = brand(site); return b ? `--i:url(/icons/${b[0]}.svg);` : "--i:url(/desktop/video.svg);"; };
 const icoHtml = site => `<span class="ico" style="${icoStyle(site)}"></span>`;
 
 /* ---------------- helpers ---------------- */
@@ -124,19 +126,33 @@ async function fetchInfo(e) {
 
     if (isImage) {
       $("#seg").hidden = true;
+      const count = d.count || (d.imageUrls ? d.imageUrls.length : 1);
       $("#quality").innerHTML = `<option value="image">Original Resolution</option>`;
       $("#quality").disabled = false;
-      $("#dl").innerHTML = `<span>Download Photo</span>${svg(I.dl)}`;
+      $("#dl").innerHTML = `<span>${count > 1 ? `Download All Photos (${count})` : "Download Photo"}</span>${svg(I.dl)}`;
     } else {
       $("#seg").hidden = false;
       $("#dl").innerHTML = `<span>Download</span>${svg(I.dl)}`;
       const hs = d.heights || [], opts = [["best", "Best available"]];
       [2160, 1440, 1080, 720, 480].forEach(h => { if (hs.some(x => x >= h)) opts.push([String(h), h === 2160 ? "4K (2160p)" : h + "p"]); });
+      if (d.imageUrls && d.imageUrls.length > 0) {
+        opts.push(["photo", `Photos only (${d.imageUrls.length})`]);
+      }
       $("#quality").innerHTML = opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join("");
       const dq = cfg.default_quality;
       if (dq === "audio") setKind("audio"); else { setKind("video"); if (opts.some(o => o[0] === dq)) $("#quality").value = dq; }
     }
     $("#preview").hidden = false;
+
+    // Automatic download if enabled in Settings
+    if (cfg && cfg.auto_download && !isImage) {
+      toast("Auto-downloading video...");
+      setTimeout(() => {
+        if ($("#dl") && !$("#dl").disabled) {
+          $("#dl").click();
+        }
+      }, 400);
+    }
   } catch (err) { showError(err.message); }
   finally { fetching = false; $("#skeleton").hidden = true; $("#fetch").disabled = false; }
 }
@@ -191,7 +207,7 @@ addEventListener("drop", e => {
 /* ---------------- start a download ---------------- */
 $("#dl").onclick = async () => {
   if (!info) return;
-  const isImage = info.isImage || info.type === "image";
+  const isImage = info.isImage || info.type === "image" || $("#quality").value === "photo" || $("#quality").value === "image";
   const kind = $("#seg .on") ? $("#seg .on").dataset.kind : "video";
   const quality = isImage ? "image" : (kind === "audio" ? "audio" : $("#quality").value);
   $("#dl").disabled = true;
@@ -199,6 +215,7 @@ $("#dl").onclick = async () => {
     await api("/api/download", {
       url: info.url,
       directUrl: info.directUrl,
+      imageUrls: info.imageUrls || [],
       quality,
       type: isImage ? "image" : "video",
       title: info.title,
@@ -236,9 +253,9 @@ function renderQueue(list) {
     const isImg = j.isImage || j.quality === "image" || j.quality === "photo";
     const q = isImg ? "Photo" : (QLABEL[j.quality] || "");
     li.querySelector(".q-sub").textContent =
-      j.state === "downloading" ? `${Math.round(j.percent)}%  ·  ${j.speed || (isImg ? "saving" : "starting")}${j.eta ? "  ·  ETA " + j.eta : ""}  ·  ${q}` :
+      j.state === "downloading" ? `${Math.round(j.percent)}%  ·  ${j.speed || (isImg ? "saving" : "starting")}${j.eta ? "  ·  ETA " + j.eta : ""}` :
       j.state === "processing" ? "Merging and finishing…" :
-      j.state === "done" ? `Saved  ·  ${fmtSize(j.size)}  ·  ${q}` :
+      j.state === "done" ? `Saved  ·  ${fmtSize(j.size)}` :
       j.state === "cancelled" ? "Cancelled" : (j.error || "Failed");
     li.querySelector(".bar i").style.width = j.percent + "%";
     const act = li.querySelector(".q-act");
@@ -286,9 +303,12 @@ async function loadLib() {
   $("#libEmpty").hidden = list.length > 0; $("#libClear").hidden = !list.length;
   $("#lib").innerHTML = list.map(e => `
     <li class="l${e.exists ? "" : " gone"}" data-id="${esc(e.id)}">
-      ${e.thumb ? `<img class="thumb" src="${esc(e.thumb)}" alt="" onerror="this.style.visibility='hidden'">` : icoHtml(e.site)}
+      <div class="thumb-wrap">
+        ${e.thumb ? `<img class="thumb" src="${esc(e.thumb)}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">` : ""}
+        <span class="ico" style="${icoStyle(e.site)}; ${e.thumb ? 'display:none;' : ''}"></span>
+      </div>
       <div class="q-main"><p class="q-title">${esc(e.title)}</p>
-        <p class="q-sub mono">${esc([e.site, (e.quality === "image" || e.quality === "photo") ? "Photo" : QLABEL[e.quality], fmtSize(e.size), new Date(e.t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" }), e.exists ? "" : "File moved or deleted"].filter(Boolean).join("  ·  "))}</p></div>
+        <p class="q-sub mono">${esc([e.site, fmtSize(e.size), new Date(e.t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" }), e.exists ? "" : "File moved or deleted"].filter(Boolean).join("  ·  "))}</p></div>
       <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="Open">${svg(I.play)}<span>${(e.quality === "image" || e.quality === "photo") ? "Open" : "Play"}</span></button><button class="iconbtn" data-act="show" title="Folder">${svg(I.folder)}<span>Show</span></button>` : ""}
         <button class="iconbtn sq danger" data-act="remove" title="Remove from list">${svg(I.trash)}</button></div>
     </li>`).join("");
@@ -325,6 +345,9 @@ function applySettings(s) {
   $$("#setQualityGrid .q-chip").forEach(c => {
     c.classList.toggle("on", c.dataset.val === q || (q === "2160" && c.dataset.val === "best"));
   });
+  if ($("#setAutoDownload")) {
+    $("#setAutoDownload").checked = Boolean(s.auto_download);
+  }
 }
 async function loadSettings() {
   try {
@@ -340,6 +363,16 @@ async function loadSettings() {
       if ($("#setUpdateNow")) $("#setUpdateNow").hidden = true;
     }
   } catch {}
+}
+if ($("#setAutoDownload")) {
+  $("#setAutoDownload").onchange = async e => {
+    try {
+      applySettings(await api("/api/settings", { auto_download: e.target.checked }));
+      toast(e.target.checked ? "Automatic download enabled" : "Automatic download disabled");
+    } catch (err) {
+      toast("Couldn't update setting: " + err.message);
+    }
+  };
 }
 $("#setQuality").onchange = async e => { try { applySettings(await api("/api/settings", { default_quality: e.target.value })); toast("Default quality saved"); } catch {} };
 
