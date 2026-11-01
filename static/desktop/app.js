@@ -306,7 +306,7 @@ async function loadSettings() {
   try {
     const s = await api("/api/settings");
     applySettings(s);
-    if ($("#aAppVer")) $("#aAppVer").textContent = "v" + (s.version || "1.0.3");
+    if ($("#aAppVer")) $("#aAppVer").textContent = "v" + (s.version || "1.0.4");
     $("#aVer").textContent = s.yt_dlp; $("#aFf").textContent = s.ffmpeg ? "Ready" : "Missing";
     if (s.has_update) {
       if ($("#setUpdateInfo")) $("#setUpdateInfo").textContent = `Update available: ${s.latest_version} (Current: v${s.version})`;
