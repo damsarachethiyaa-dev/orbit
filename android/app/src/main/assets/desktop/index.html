@@ -21,12 +21,6 @@
       </svg>
       <span class="topbar-title">Orbit</span>
     </div>
-    <div class="topbar-right">
-      <div class="status-chip" id="topStatusChip">
-        <span class="pulse-dot"></span>
-        <span class="status-label" id="topStatusText">Engine Ready</span>
-      </div>
-    </div>
   </header>
 
   <!-- Sidebar (Desktop) / Bottom Navigation Dock (Mobile) -->
@@ -73,7 +67,6 @@
     <!-- UPDATE BANNER -->
     <div class="update-banner" id="updateBanner" hidden>
       <div class="ub-left">
-        <span class="ub-badge">UPDATE</span>
         <div class="ub-copy">
           <b id="ubTitle">Orbit update available!</b>
           <span class="mono dim" id="ubMeta">A new release is ready to download.</span>
@@ -92,7 +85,6 @@
     <!-- DOWNLOAD VIEW -->
     <section class="view on" id="v-download">
       <header class="head">
-        <div class="head-tag">Instant Media Downloader</div>
         <h1>Download</h1>
         <p class="head-sub">Paste any video or audio link to save offline</p>
       </header>
@@ -118,7 +110,6 @@
           <svg viewBox="0 0 24 24"><path d="M9 4h6v3H9zM7 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1"/></svg>
         </div>
         <div class="clip-info">
-          <span class="clip-tag">Link in clipboard</span>
           <code id="clipUrl"></code>
         </div>
         <button type="button" class="chip clip-btn" id="clipUse">Use link</button>
@@ -207,7 +198,6 @@
     <section class="view" id="v-library">
       <header class="head row-head">
         <div>
-          <div class="head-tag">Downloaded Media</div>
           <h1>Library</h1>
           <p class="head-sub" id="libCount">Saved on your device storage</p>
         </div>
@@ -230,7 +220,6 @@
     <!-- SETTINGS VIEW -->
     <section class="view" id="v-settings">
       <header class="head">
-        <div class="head-tag">App Preferences</div>
         <h1>Settings</h1>
         <p class="head-sub">Storage paths, default quality, and engine diagnostics</p>
       </header>
@@ -262,23 +251,23 @@
           </div>
           <div class="quality-chip-grid" id="setQualityGrid">
             <button type="button" class="q-chip on" data-val="best">
-              <div class="q-chip-top"><span class="q-badge">BEST</span><span class="q-res">4K / Max</span></div>
+              <div class="q-chip-top"><span class="q-res">4K / Max</span></div>
               <span class="q-desc">Highest available</span>
             </button>
             <button type="button" class="q-chip" data-val="1080">
-              <div class="q-chip-top"><span class="q-badge">FHD</span><span class="q-res">1080p</span></div>
+              <div class="q-chip-top"><span class="q-res">1080p FHD</span></div>
               <span class="q-desc">Full High Def</span>
             </button>
             <button type="button" class="q-chip" data-val="720">
-              <div class="q-chip-top"><span class="q-badge">HD</span><span class="q-res">720p</span></div>
+              <div class="q-chip-top"><span class="q-res">720p HD</span></div>
               <span class="q-desc">Fast download</span>
             </button>
             <button type="button" class="q-chip" data-val="480">
-              <div class="q-chip-top"><span class="q-badge">SD</span><span class="q-res">480p</span></div>
+              <div class="q-chip-top"><span class="q-res">480p SD</span></div>
               <span class="q-desc">Data saver</span>
             </button>
             <button type="button" class="q-chip" data-val="audio">
-              <div class="q-chip-top"><span class="q-badge audio">MP3</span><span class="q-res">Audio Only</span></div>
+              <div class="q-chip-top"><span class="q-res">Audio Only (MP3)</span></div>
               <span class="q-desc">Soundtrack 320k</span>
             </button>
           </div>
