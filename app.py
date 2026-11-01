@@ -148,11 +148,76 @@ def index():
     return send_from_directory(app.static_folder, "desktop/index.html" if DESKTOP else "index.html")
 
 
+def resolve_xiaohongshu(url: str):
+    if not ("xhslink.com" in url.lower() or "xiaohongshu.com" in url.lower()):
+        return None
+    try:
+        import urllib.request, json, re
+        current = url
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        }
+        for _ in range(6):
+            req = urllib.request.Request(current, headers=headers)
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                final_url = resp.geturl()
+                html = resp.read().decode("utf-8", "ignore")
+            m = re.search(r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\});?</script>", html, re.DOTALL)
+            if not m:
+                continue
+            data = json.loads(m.group(1).replace("undefined", "null"))
+            note = data.get("noteData", {}).get("data", {}).get("noteData")
+            if not note:
+                continue
+            title = note.get("title") or (note.get("desc") or "")[:60] or "Xiaohongshu Video"
+            uploader = note.get("user", {}).get("nickname", "Xiaohongshu")
+            img_list = note.get("imageList") or []
+            thumb = img_list[0].get("url", "") if img_list else ""
+            v = note.get("video") or {}
+            duration = v.get("duration", 0)
+            h264 = v.get("media", {}).get("stream", {}).get("h264") or []
+            vurl = ""
+            if h264:
+                vurl = h264[0].get("masterUrl", "")
+            if not vurl:
+                h265 = v.get("media", {}).get("stream", {}).get("h265") or []
+                if h265:
+                    vurl = h265[0].get("masterUrl", "")
+            if vurl:
+                return {
+                    "title": title,
+                    "uploader": uploader,
+                    "thumbnail": thumb,
+                    "duration": duration,
+                    "directUrl": vurl,
+                    "site": "Xiaohongshu",
+                    "heights": [1080, 720, 480]
+                }
+            break
+    except Exception:
+        pass
+    return None
+
+
 @app.post("/api/info")
 def info():
     url = str((request.get_json(silent=True) or {}).get("url") or "").strip()
     if not valid_url(url):
         return jsonify(error="That doesn't look like a valid link."), 400
+
+    xhs = resolve_xiaohongshu(url)
+    if xhs:
+        return jsonify(
+            title=xhs["title"],
+            thumbnail=xhs["thumbnail"],
+            duration=xhs["duration"],
+            uploader=xhs["uploader"],
+            site=xhs["site"],
+            heights=xhs["heights"],
+            directUrl=xhs["directUrl"]
+        )
+
     try:
         with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True,
                                "skip_download": True}) as ydl:
@@ -237,7 +302,13 @@ def run_job(jid: str, url: str, quality: str):
 def download():
     body = request.get_json(silent=True) or {}
     url, quality = str(body.get("url") or "").strip(), body.get("quality", "best")
-    if not valid_url(url) or not isinstance(quality, str) or quality not in QUALITY:
+    direct_url = str(body.get("directUrl") or "").strip()
+    if not direct_url:
+        xhs = resolve_xiaohongshu(url)
+        direct_url = xhs["directUrl"] if xhs else url
+    if not valid_url(direct_url) and not valid_url(url):
+        return jsonify(error="Invalid request."), 400
+    if not isinstance(quality, str) or quality not in QUALITY:
         return jsonify(error="Invalid request."), 400
     cleanup()
     jid = uuid.uuid4().hex[:12]
@@ -245,7 +316,7 @@ def download():
                  "error": None, "created": time.time(), "cancel": False, "size": None, "quality": quality,
                  "title": str(body.get("title") or "")[:200], "site": str(body.get("site") or "")[:40],
                  "thumb": str(body.get("thumb") or "")[:500], "url": url}
-    threading.Thread(target=run_job, args=(jid, url, quality), daemon=True).start()
+    threading.Thread(target=run_job, args=(jid, direct_url, quality), daemon=True).start()
     return jsonify(id=jid)
 
 

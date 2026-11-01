@@ -195,4 +195,79 @@ object OrbitEngine {
             false
         }
     }
+
+    data class CustomMediaInfo(
+        val title: String,
+        val site: String,
+        val uploader: String,
+        val duration: Int,
+        val thumbnail: String,
+        val directVideoUrl: String
+    )
+
+    fun resolveXiaohongshu(rawUrl: String): CustomMediaInfo? {
+        if (!rawUrl.contains("xhslink.com", ignoreCase = true) && !rawUrl.contains("xiaohongshu.com", ignoreCase = true)) {
+            return null
+        }
+        try {
+            var currentUrl = rawUrl
+            val mobileUa = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            for (i in 0..5) {
+                val c = (java.net.URL(currentUrl).openConnection() as java.net.HttpURLConnection).apply {
+                    instanceFollowRedirects = false
+                    connectTimeout = 12000
+                    readTimeout = 15000
+                    setRequestProperty("User-Agent", mobileUa)
+                    setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                }
+                val code = c.responseCode
+                if (code in 300..399) {
+                    val loc = c.getHeaderField("Location")
+                    if (!loc.isNullOrBlank()) {
+                        currentUrl = loc
+                        continue
+                    }
+                }
+                val html = c.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val regex = Regex("""window\.__INITIAL_STATE__\s*=\s*(\{.*?\});?</script>""", RegexOption.DOT_MATCHES_ALL)
+                val match = regex.find(html) ?: return null
+                val jsonStr = match.groupValues[1].replace("undefined", "null")
+                val root = JSONObject(jsonStr)
+                val note = root.optJSONObject("noteData")?.optJSONObject("data")?.optJSONObject("noteData") ?: return null
+
+                val title = note.optString("title").ifBlank { note.optString("desc").take(60) }.ifBlank { "Xiaohongshu Video" }
+                val uploader = note.optJSONObject("user")?.optString("nickname") ?: "Xiaohongshu"
+                val duration = note.optJSONObject("video")?.optInt("duration", 0) ?: 0
+
+                val imgList = note.optJSONArray("imageList")
+                val thumb = if (imgList != null && imgList.length() > 0) {
+                    imgList.optJSONObject(0)?.optString("url") ?: ""
+                } else ""
+
+                val h264List = note.optJSONObject("video")?.optJSONObject("media")?.optJSONObject("stream")?.optJSONArray("h264")
+                var videoUrl = ""
+                if (h264List != null && h264List.length() > 0) {
+                    videoUrl = h264List.optJSONObject(0)?.optString("masterUrl") ?: ""
+                }
+                if (videoUrl.isBlank()) {
+                    val h265List = note.optJSONObject("video")?.optJSONObject("media")?.optJSONObject("stream")?.optJSONArray("h265")
+                    if (h265List != null && h265List.length() > 0) {
+                        videoUrl = h265List.optJSONObject(0)?.optString("masterUrl") ?: ""
+                    }
+                }
+                if (videoUrl.isNotBlank()) {
+                    return CustomMediaInfo(
+                        title = title,
+                        site = "Xiaohongshu",
+                        uploader = uploader,
+                        duration = duration,
+                        thumbnail = thumb,
+                        directVideoUrl = videoUrl
+                    )
+                }
+                break
+            }
+        } catch (_: Exception) {}
+        return null
+    }
 }

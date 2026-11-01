@@ -514,6 +514,20 @@ class MainActivity : AppCompatActivity() {
         if (url.isBlank()) throw IllegalArgumentException("Please enter a valid video link.")
         initLatch.await(30, TimeUnit.SECONDS)
 
+        val xhs = OrbitEngine.resolveXiaohongshu(url)
+        if (xhs != null) {
+            val heightsArr = JSONArray().put(1080).put(720).put(480)
+            return JSONObject().apply {
+                put("title", xhs.title)
+                put("site", xhs.site)
+                put("uploader", xhs.uploader)
+                put("duration", xhs.duration)
+                put("thumbnail", xhs.thumbnail)
+                put("heights", heightsArr)
+                put("directUrl", xhs.directVideoUrl)
+            }
+        }
+
         val req = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
             addOption("--socket-timeout", "20")
@@ -557,8 +571,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startDownloadJob(body: JSONObject): JSONObject {
-        val url = body.optString("url")
-        if (url.isBlank()) throw IllegalArgumentException("Missing video URL.")
+        val rawUrl = body.optString("url")
+        if (rawUrl.isBlank()) throw IllegalArgumentException("Missing video URL.")
+        val directUrl = body.optString("directUrl").ifBlank {
+            OrbitEngine.resolveXiaohongshu(rawUrl)?.directVideoUrl ?: rawUrl
+        }
         val quality = body.optString("quality", "best")
         val title = body.optString("title", "Downloading…")
         val site = body.optString("site", "Video")
@@ -576,7 +593,7 @@ class MainActivity : AppCompatActivity() {
         jobsById[id] = job
 
         executor.execute {
-            runDownloadJob(job, url)
+            runDownloadJob(job, directUrl)
         }
 
         return JSONObject().put("id", id)

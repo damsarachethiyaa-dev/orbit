@@ -173,21 +173,30 @@ class DownloadService : Service() {
             OrbitEngine.initLatch.await(30, java.util.concurrent.TimeUnit.SECONDS)
             saveDir.mkdirs()
 
-            // 1. Fetch info
-            val infoReq = YoutubeDLRequest(url).apply {
-                addOption("--no-playlist")
-                addOption("--socket-timeout", "20")
-            }
-            val info = try {
-                YoutubeDL.getInstance().getInfo(infoReq)
-            } catch (e: Exception) {
-                null
-            }
+            // 1. Fetch info or resolve special short links (Xiaohongshu, etc.)
+            val xhs = OrbitEngine.resolveXiaohongshu(url)
+            val downloadUrl = xhs?.directVideoUrl ?: url
 
-            if (info != null) {
-                videoTitle = info.title ?: "Video"
-                site = info.extractorKey ?: info.extractor ?: "Video"
-                thumb = info.thumbnail ?: ""
+            if (xhs != null) {
+                videoTitle = xhs.title
+                site = xhs.site
+                thumb = xhs.thumbnail
+            } else {
+                val infoReq = YoutubeDLRequest(url).apply {
+                    addOption("--no-playlist")
+                    addOption("--socket-timeout", "20")
+                }
+                val info = try {
+                    YoutubeDL.getInstance().getInfo(infoReq)
+                } catch (e: Exception) {
+                    null
+                }
+
+                if (info != null) {
+                    videoTitle = info.title ?: "Video"
+                    site = info.extractorKey ?: info.extractor ?: "Video"
+                    thumb = info.thumbnail ?: ""
+                }
             }
 
             if (!activeJobIds.contains(jobId)) return
@@ -214,7 +223,7 @@ class DownloadService : Service() {
                 .ifBlank { "orbit_$jobId" }
 
             val outTemplate = File(saveDir, "$safePrefix [$jobId].%(ext)s").absolutePath
-            val req = YoutubeDLRequest(url).apply {
+            val req = YoutubeDLRequest(downloadUrl).apply {
                 addOption("--no-playlist")
                 addOption("--newline")
                 addOption("-o", outTemplate)

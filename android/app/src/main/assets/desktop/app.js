@@ -96,6 +96,9 @@ const urlEl = $("#url");
 let info = null, fetching = false;
 
 function normalizeUrl(v) {
+  if (!v) return "";
+  const match = String(v).match(/https?:\/\/[^\s]+/i);
+  if (match) return match[0].replace(/[.,;!?\]\)>]+$/, "");
   v = v.trim().split(/\s+/)[0] || "";
   if (v && !/^https?:\/\//i.test(v) && /^[\w-]+(\.[\w-]+)+/.test(v)) v = "https://" + v;
   return v;
@@ -135,7 +138,13 @@ $("#seg").addEventListener("click", e => { const b = e.target.closest("button");
 
 /* ---------------- clipboard, paste and drop ---------------- */
 let lastClip = "";
-const asUrl = t => { const w = String(t || "").trim().split(/\s+/)[0]; return /^https?:\/\/\S+$/i.test(w) ? w : ""; };
+const asUrl = t => {
+  if (!t) return "";
+  const m = String(t).match(/https?:\/\/[^\s]+/i);
+  if (m) return m[0].replace(/[.,;!?\]\)>]+$/, "");
+  const w = String(t).trim().split(/\s+/)[0];
+  return /^https?:\/\/\S+$/i.test(w) ? w : "";
+};
 async function checkClip() {
   try {
     const u = asUrl((await api("/api/clipboard")).text);
@@ -173,7 +182,7 @@ $("#dl").onclick = async () => {
   const kind = $("#seg .on").dataset.kind, quality = kind === "audio" ? "audio" : $("#quality").value;
   $("#dl").disabled = true;
   try {
-    await api("/api/download", { url: info.url, quality, title: info.title, site: info.site, thumb: info.thumbnail });
+    await api("/api/download", { url: info.url, directUrl: info.directUrl, quality, title: info.title, site: info.site, thumb: info.thumbnail });
     toast("Added to queue");
     info = null; $("#preview").hidden = true; urlEl.value = ""; urlEl.focus();
     poll();
