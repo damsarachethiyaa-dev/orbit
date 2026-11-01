@@ -115,7 +115,7 @@ async function fetchInfo(e) {
   try {
     const d = await api("/api/info", { url });
     info = { ...d, url };
-    const isImage = d.type === "image" || (d.heights && d.heights.length === 0 && Boolean(d.thumbnail));
+    const isImage = d.type === "image";
     info.isImage = isImage;
     $("#pThumb").src = d.thumbnail || "";
     $("#pTitle").textContent = d.title || (isImage ? "Photo" : "Untitled video");
@@ -145,8 +145,8 @@ async function fetchInfo(e) {
     $("#preview").hidden = false;
 
     // Automatic download if enabled in Settings
-    if (cfg && cfg.auto_download && !isImage) {
-      toast("Auto-downloading video...");
+    if (cfg && cfg.auto_download) {
+      toast(isImage ? "Auto-downloading photo..." : "Auto-downloading video...");
       setTimeout(() => {
         if ($("#dl") && !$("#dl").disabled) {
           $("#dl").click();
@@ -214,8 +214,8 @@ $("#dl").onclick = async () => {
   try {
     await api("/api/download", {
       url: info.url,
-      directUrl: info.directUrl,
-      imageUrls: info.imageUrls || [],
+      directUrl: isImage ? (info.directUrl || info.thumbnail || "") : (info.directUrl || ""),
+      imageUrls: isImage ? (info.imageUrls || []) : [],
       quality,
       type: isImage ? "image" : "video",
       title: info.title,

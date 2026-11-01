@@ -64,10 +64,6 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var ffmpegReady = false
 
-    // Jobs are stored globally in OrbitEngine to stay synchronized with DownloadService
-
-
-    // In-app update state
     @Volatile private var hasUpdate = false
     @Volatile private var latestVersion = BuildConfig.VERSION_NAME
     @Volatile private var releaseName = ""
@@ -515,88 +511,65 @@ class MainActivity : AppCompatActivity() {
         return JSONObject().put("text", text)
     }
 
+    private fun customInfoToJson(c: OrbitEngine.CustomMediaInfo): JSONObject {
+        val isImg = c.mediaType == "image"
+        val heightsArr = if (isImg) JSONArray() else JSONArray().put(1080).put(720).put(480)
+        val imgArr = JSONArray()
+        if (isImg) {
+            c.imageUrls.forEach { imgArr.put(it) }
+        }
+        return JSONObject().apply {
+            put("title", c.title)
+            put("site", c.site)
+            put("uploader", c.uploader)
+            put("duration", if (isImg) 0 else c.duration)
+            put("thumbnail", c.thumbnail)
+            put("heights", heightsArr)
+            put("directUrl", c.directVideoUrl)
+            put("imageUrls", imgArr)
+            put("type", if (isImg) "image" else "video")
+            if (isImg) put("count", c.imageUrls.size.coerceAtLeast(1))
+        }
+    }
+
     private fun fetchVideoInfo(url: String): JSONObject {
         if (url.isBlank()) throw IllegalArgumentException("Please enter a valid link.")
         initLatch.await(30, TimeUnit.SECONDS)
 
-        val directImg = OrbitEngine.resolveDirectImage(url)
-        if (directImg != null) {
-            return JSONObject().apply {
-                put("title", directImg.title)
-                put("site", directImg.site)
-                put("uploader", directImg.uploader)
-                put("duration", 0)
-                put("thumbnail", directImg.thumbnail)
-                put("heights", JSONArray())
-                put("directUrl", directImg.directVideoUrl)
-                put("type", "image")
-                put("count", 1)
-            }
-        }
+        OrbitEngine.resolveDirectImage(url)?.let { return customInfoToJson(it) }
+        OrbitEngine.resolvePinterest(url)?.let { return customInfoToJson(it) }
+        OrbitEngine.resolveXiaohongshu(url)?.let { return customInfoToJson(it) }
 
-        val pin = OrbitEngine.resolvePinterest(url)
-        if (pin != null) {
-            val imgArr = JSONArray()
-            pin.imageUrls.forEach { imgArr.put(it) }
-            return JSONObject().apply {
-                put("title", pin.title)
-                put("site", pin.site)
-                put("uploader", pin.uploader)
-                put("duration", 0)
-                put("thumbnail", pin.thumbnail)
-                put("heights", JSONArray())
-                put("directUrl", pin.directVideoUrl)
-                put("imageUrls", imgArr)
-                put("type", "image")
-                put("count", pin.imageUrls.size.coerceAtLeast(1))
-            }
+        val ttInfo = OrbitEngine.resolveTikTok(url)
+        if (ttInfo != null && ttInfo.mediaType == "image") {
+            return customInfoToJson(ttInfo)
         }
-
-        val xhs = OrbitEngine.resolveXiaohongshu(url)
-        if (xhs != null) {
-            val isImg = xhs.mediaType == "image"
-            val heightsArr = if (isImg) JSONArray() else JSONArray().put(1080).put(720).put(480)
-            val imgArr = JSONArray()
-            xhs.imageUrls.forEach { imgArr.put(it) }
-            return JSONObject().apply {
-                put("title", xhs.title)
-                put("site", xhs.site)
-                put("uploader", xhs.uploader)
-                put("duration", xhs.duration)
-                put("thumbnail", xhs.thumbnail)
-                put("heights", heightsArr)
-                put("directUrl", xhs.directVideoUrl)
-                put("imageUrls", imgArr)
-                put("type", if (isImg) "image" else "video")
-                put("count", xhs.imageUrls.size)
-            }
+        val igInfo = OrbitEngine.resolveInstagram(url)
+        if (igInfo != null && igInfo.mediaType == "image") {
+            return customInfoToJson(igInfo)
+        }
+        val twInfo = OrbitEngine.resolveTwitter(url)
+        if (twInfo != null && twInfo.mediaType == "image") {
+            return customInfoToJson(twInfo)
         }
 
         val req = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
             addOption("--socket-timeout", "20")
-            addOption("--ignore-no-formats-error")
         }
 
         val info = try {
             YoutubeDL.getInstance().getInfo(req)
         } catch (e: Exception) {
+            val videoFallback = listOfNotNull(igInfo, ttInfo, twInfo).firstOrNull {
+                it.mediaType == "video" && it.directVideoUrl.isNotBlank()
+            }
+            if (videoFallback != null) {
+                return customInfoToJson(videoFallback)
+            }
             val fallbackImg = OrbitEngine.resolveSocialAndWebImage(url)
             if (fallbackImg != null && fallbackImg.imageUrls.isNotEmpty()) {
-                val imgArr = JSONArray()
-                fallbackImg.imageUrls.forEach { imgArr.put(it) }
-                return JSONObject().apply {
-                    put("title", fallbackImg.title)
-                    put("site", fallbackImg.site)
-                    put("uploader", fallbackImg.uploader)
-                    put("duration", 0)
-                    put("thumbnail", fallbackImg.thumbnail)
-                    put("heights", JSONArray())
-                    put("directUrl", fallbackImg.directVideoUrl)
-                    put("imageUrls", imgArr)
-                    put("type", "image")
-                    put("count", fallbackImg.imageUrls.size)
-                }
+                return customInfoToJson(fallbackImg)
             }
             throw IllegalArgumentException(cleanErrorMessage(e.message))
         }
@@ -605,9 +578,12 @@ class MainActivity : AppCompatActivity() {
         info.formats?.forEach { fmt ->
             val h = fmt.height
             val vcodec = fmt.vcodec ?: ""
-            if (h >= 360 && vcodec != "none") {
+            if (h >= 240 && vcodec != "none") {
                 heightsSet.add(h)
             }
+        }
+        if (heightsSet.isEmpty()) {
+            heightsSet.addAll(listOf(1080, 720, 480))
         }
 
         val rawSite = info.extractorKey ?: info.extractor ?: try {
@@ -616,64 +592,47 @@ class MainActivity : AppCompatActivity() {
             "Media"
         }
 
-        val isImage = heightsSet.isEmpty()
-        var thumb = info.thumbnail ?: info.thumbnails?.lastOrNull()?.url ?: ""
-
+        val thumb = info.thumbnail ?: info.thumbnails?.lastOrNull()?.url ?: ""
         val heightsArr = JSONArray()
-        if (!isImage) {
-            if (heightsSet.isEmpty()) heightsSet.addAll(listOf(1080, 720, 480))
-            heightsSet.forEach { heightsArr.put(it) }
-        }
-
-        val imgArr = JSONArray()
-        if (isImage) {
-            val socialAlbum = OrbitEngine.resolveSocialAndWebImage(url)
-            if (socialAlbum != null && socialAlbum.imageUrls.isNotEmpty()) {
-                socialAlbum.imageUrls.forEach { imgArr.put(it) }
-                if (thumb.isBlank()) thumb = socialAlbum.thumbnail
-            } else if (thumb.isNotBlank()) {
-                imgArr.put(thumb)
-            }
-        } else if (thumb.isNotBlank()) {
-            imgArr.put(thumb)
-        }
+        heightsSet.forEach { heightsArr.put(it) }
 
         return JSONObject().apply {
-            put("title", info.title ?: (if (isImage) "Photo post" else "Untitled video"))
+            put("title", info.title ?: "Untitled video")
             put("site", rawSite)
             put("uploader", info.uploader ?: "")
-            put("duration", if (isImage) 0 else info.duration)
+            put("duration", info.duration)
             put("thumbnail", thumb)
             put("heights", heightsArr)
-            put("directUrl", if (isImage) thumb else "")
-            put("imageUrls", imgArr)
-            put("type", if (isImage) "image" else "video")
-            if (isImage) put("count", imgArr.length().coerceAtLeast(1))
+            put("directUrl", "")
+            put("imageUrls", JSONArray())
+            put("type", "video")
         }
     }
 
     private fun startDownloadJob(body: JSONObject): JSONObject {
         val rawUrl = body.optString("url")
         if (rawUrl.isBlank()) throw IllegalArgumentException("Missing URL.")
-        val directUrl = body.optString("directUrl").ifBlank {
-            OrbitEngine.resolveXiaohongshu(rawUrl)?.directVideoUrl ?: rawUrl
-        }
         val quality = body.optString("quality", "best")
         val title = body.optString("title", "Downloading…")
         val site = body.optString("site", "Video")
         val thumb = body.optString("thumb", "")
         val isImage = body.optString("type") == "image" || quality == "image" || quality == "photo"
+        val directUrl = body.optString("directUrl").ifBlank {
+            if (!isImage) OrbitEngine.resolveXiaohongshu(rawUrl)?.directVideoUrl ?: rawUrl else rawUrl
+        }
 
         val imgList = ArrayList<String>()
-        val imgArr = body.optJSONArray("imageUrls")
-        if (imgArr != null) {
-            for (i in 0 until imgArr.length()) {
-                val u = imgArr.optString(i)
-                if (u.isNotBlank()) imgList.add(u)
+        if (isImage) {
+            val imgArr = body.optJSONArray("imageUrls")
+            if (imgArr != null) {
+                for (i in 0 until imgArr.length()) {
+                    val u = imgArr.optString(i)
+                    if (u.isNotBlank()) imgList.add(u)
+                }
             }
-        }
-        if (imgList.isEmpty() && isImage && directUrl.isNotBlank()) {
-            imgList.add(directUrl)
+            if (imgList.isEmpty() && directUrl.isNotBlank()) {
+                imgList.add(directUrl)
+            }
         }
 
         val id = UUID.randomUUID().toString().substring(0, 8)

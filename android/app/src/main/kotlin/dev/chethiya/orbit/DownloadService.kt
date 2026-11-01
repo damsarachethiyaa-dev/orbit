@@ -95,13 +95,13 @@ class DownloadService : Service() {
                     thumb = passedThumb,
                     quality = passedQuality,
                     state = "downloading",
-                    isImage = passedIsImage || passedImageUrls.isNotEmpty(),
+                    isImage = passedIsImage,
                     directUrl = passedDirect ?: "",
-                    imageUrls = passedImageUrls
+                    imageUrls = if (passedIsImage) passedImageUrls else emptyList()
                 )
                 OrbitEngine.activeJobs.add(0, job)
                 OrbitEngine.jobsById[jobId] = job
-            } else if (job.imageUrls.isEmpty() && passedImageUrls.isNotEmpty()) {
+            } else if (job.isImage && job.imageUrls.isEmpty() && passedImageUrls.isNotEmpty()) {
                 job.imageUrls = passedImageUrls
             }
 
@@ -125,7 +125,7 @@ class DownloadService : Service() {
             }
 
             OrbitEngine.executor.execute {
-                runDownload(notifId, job, cleanUrl, passedDirect, passedImageUrls)
+                runDownload(notifId, job, cleanUrl, passedDirect, if (job.isImage) passedImageUrls else emptyList())
             }
         }
 
@@ -219,78 +219,120 @@ class DownloadService : Service() {
         try {
             OrbitEngine.initLatch.await(30, java.util.concurrent.TimeUnit.SECONDS)
 
-            // Step 1: Check if already marked as image or if url/directUrl is image
-            val directImg = OrbitEngine.resolveDirectImage(url)
-            val pin = OrbitEngine.resolvePinterest(url)
-            val xhs = OrbitEngine.resolveXiaohongshu(url)
-
-            val resolvedImages = when {
-                imageUrls.isNotEmpty() -> imageUrls
-                job.imageUrls.isNotEmpty() -> job.imageUrls
-                xhs != null && xhs.mediaType == "image" -> xhs.imageUrls
-                pin != null -> pin.imageUrls
-                directImg != null -> directImg.imageUrls
-                passedDirectUrl?.matches(Regex(""".*\.(jpg|jpeg|png|webp|gif)($|\?.*)""", RegexOption.IGNORE_CASE)) == true -> listOf(passedDirectUrl)
-                else -> emptyList()
-            }
-
-            if (job.isImage || resolvedImages.isNotEmpty() ||
-                passedDirectUrl?.matches(Regex(""".*\.(jpg|jpeg|png|webp|gif)($|\?.*)""", RegexOption.IGNORE_CASE)) == true
-            ) {
-                job.isImage = true
-                if (job.title.isBlank() || job.title == "Downloading…") {
-                    job.title = directImg?.title ?: pin?.title ?: xhs?.title ?: "Photo"
+            // Case 1: Explicitly marked as image job from inside the app
+            if (job.isImage) {
+                val resolved = when {
+                    imageUrls.isNotEmpty() -> imageUrls
+                    job.imageUrls.isNotEmpty() -> job.imageUrls
+                    else -> {
+                        val social = OrbitEngine.resolveSocialAndWebImage(url)
+                        if (social != null && social.imageUrls.isNotEmpty()) {
+                            if (job.title.isBlank() || job.title == "Downloading…") job.title = social.title
+                            if (job.site.isBlank() || job.site == "Video") job.site = social.site
+                            social.imageUrls
+                        } else {
+                            listOf(passedDirectUrl?.takeIf { it.isNotBlank() } ?: url)
+                        }
+                    }
                 }
-                if (job.site.isBlank() || job.site == "Video") {
-                    job.site = directImg?.site ?: pin?.site ?: xhs?.site ?: "Photo"
-                }
-                val targets = if (resolvedImages.isNotEmpty()) {
-                    resolvedImages
-                } else {
-                    listOf(passedDirectUrl?.takeIf { it.isNotBlank() } ?: directImg?.directVideoUrl ?: pin?.directVideoUrl ?: xhs?.directVideoUrl ?: url)
-                }
-
-                runImageBatchDownload(notifId, job, targets)
+                runImageBatchDownload(notifId, job, resolved)
                 return
             }
 
-            // Step 2: Handle Video Download
-            val downloadUrl = passedDirectUrl?.takeIf { it.isNotBlank() } ?: xhs?.directVideoUrl ?: url
-            if (xhs != null) {
-                if (job.title.isBlank() || job.title == "Downloading…") job.title = xhs.title
-                if (job.site.isBlank() || job.site == "Video") job.site = xhs.site
-                if (job.thumb.isBlank()) job.thumb = xhs.thumbnail
-            } else if (job.title.isBlank() || job.title == "Downloading…") {
+            // Case 2: QuickDownload (Share to Orbit) where job metadata hasn't been fetched yet
+            val isQuickShare = job.title.isBlank() || job.title == "Downloading…"
+            if (isQuickShare) {
+                val directImg = OrbitEngine.resolveDirectImage(url)
+                val pin = if (directImg == null) OrbitEngine.resolvePinterest(url) else null
+                val xhs = if (directImg == null && pin == null) OrbitEngine.resolveXiaohongshu(url) else null
+                val tt = if (directImg == null && pin == null && xhs == null) OrbitEngine.resolveTikTok(url) else null
+                val ig = if (directImg == null && pin == null && xhs == null && tt == null) OrbitEngine.resolveInstagram(url) else null
+                val tw = if (directImg == null && pin == null && xhs == null && tt == null && ig == null) OrbitEngine.resolveTwitter(url) else null
+
+                val preResolved = listOfNotNull(directImg, pin, xhs, tt, ig, tw).firstOrNull()
+                if (preResolved != null && preResolved.mediaType == "image" && preResolved.imageUrls.isNotEmpty()) {
+                    job.isImage = true
+                    job.title = preResolved.title
+                    job.site = preResolved.site
+                    job.thumb = preResolved.thumbnail
+                    job.imageUrls = preResolved.imageUrls
+                    runImageBatchDownload(notifId, job, preResolved.imageUrls)
+                    return
+                }
+
+                if ((xhs != null && xhs.mediaType == "video" && xhs.directVideoUrl.isNotBlank()) ||
+                    (pin != null && pin.mediaType == "video" && pin.directVideoUrl.isNotBlank())
+                ) {
+                    val vMatch = xhs ?: pin!!
+                    job.title = vMatch.title
+                    job.site = vMatch.site
+                    job.thumb = vMatch.thumbnail
+                    runDirectStreamDownload(notifId, job, vMatch.directVideoUrl)
+                    return
+                }
+
                 val infoReq = YoutubeDLRequest(url).apply {
                     addOption("--no-playlist")
                     addOption("--socket-timeout", "20")
-                    addOption("--ignore-no-formats-error")
                 }
                 val info = try {
                     YoutubeDL.getInstance().getInfo(infoReq)
                 } catch (_: Exception) {
                     null
                 }
+
                 if (info != null) {
                     job.title = info.title ?: "Video"
                     job.site = info.extractorKey ?: info.extractor ?: "Video"
                     job.thumb = info.thumbnail ?: ""
-                    // If no video format found, check if it's an image
-                    val isVideo = info.formats?.any { it.vcodec != "none" && it.height >= 240 } == true
-                    if (!isVideo && !info.thumbnail.isNullOrBlank()) {
+                    runVideoDownload(notifId, job, url)
+                    return
+                } else {
+                    val videoFallback = listOfNotNull(ig, tt, tw).firstOrNull {
+                        it.mediaType == "video" && it.directVideoUrl.isNotBlank()
+                    }
+                    if (videoFallback != null) {
+                        job.title = videoFallback.title
+                        job.site = videoFallback.site
+                        job.thumb = videoFallback.thumbnail
+                        runDirectStreamDownload(notifId, job, videoFallback.directVideoUrl)
+                        return
+                    }
+
+                    val fallbackImg = OrbitEngine.resolveSocialAndWebImage(url)
+                    if (fallbackImg != null && fallbackImg.imageUrls.isNotEmpty()) {
                         job.isImage = true
-                        runImageBatchDownload(notifId, job, listOf(info.thumbnail!!))
+                        job.title = fallbackImg.title
+                        job.site = fallbackImg.site
+                        job.thumb = fallbackImg.thumbnail
+                        job.imageUrls = fallbackImg.imageUrls
+                        runImageBatchDownload(notifId, job, fallbackImg.imageUrls)
                         return
                     }
                 }
             }
 
-            if (isDirectStream(downloadUrl)) {
+            // Case 3: Known Video Job from inside the app
+            val downloadUrl = passedDirectUrl?.takeIf { it.isNotBlank() } ?: url
+            if ((passedDirectUrl != null && passedDirectUrl.isNotBlank() && passedDirectUrl != url) || isDirectStream(downloadUrl)) {
                 runDirectStreamDownload(notifId, job, downloadUrl)
                 return
             }
 
-            runVideoDownload(notifId, job, downloadUrl)
+            try {
+                runVideoDownload(notifId, job, downloadUrl)
+            } catch (videoErr: Exception) {
+                val videoFallback = listOfNotNull(
+                    OrbitEngine.resolveInstagram(url),
+                    OrbitEngine.resolveTikTok(url),
+                    OrbitEngine.resolveTwitter(url)
+                ).firstOrNull { it.mediaType == "video" && it.directVideoUrl.isNotBlank() }
+                if (videoFallback != null) {
+                    runDirectStreamDownload(notifId, job, videoFallback.directVideoUrl)
+                } else {
+                    throw videoErr
+                }
+            }
         } catch (e: Exception) {
             val isCancelled = !activeJobIds.contains(job.id) || e.javaClass.simpleName.contains("Cancel", ignoreCase = true)
             if (isCancelled) {
@@ -322,146 +364,151 @@ class DownloadService : Service() {
     private fun isDirectStream(url: String): Boolean {
         val clean = url.substringBefore("?").lowercase()
         return clean.endsWith(".mp4") || clean.endsWith(".mov") || clean.endsWith(".webm") ||
-               clean.endsWith(".m4v") || url.contains("sns-video") || url.contains("xhscdn.com")
+               clean.endsWith(".m4v") || url.contains("sns-video") || url.contains("xhscdn.com") ||
+               url.contains("pinimg.com/videos/")
     }
 
-    private fun openConnectionWithRedirects(initialUrl: String, isVideo: Boolean = false): HttpURLConnection {
-        var currentUrl = initialUrl.replace("&amp;", "&").trim()
-        val host = try { Uri.parse(currentUrl).host?.lowercase() ?: "" } catch (_: Exception) { "" }
-        val referer = when {
-            host.contains("xhscdn.com") || host.contains("xiaohongshu") -> "https://www.xiaohongshu.com/"
-            host.contains("tiktok") || host.contains("byteoversea") -> "https://www.tiktok.com/"
-            host.contains("pinimg.com") || host.contains("pinterest") -> "https://www.pinterest.com/"
-            host.contains("cdninstagram") || host.contains("fbcdn") || host.contains("instagram") -> "https://www.instagram.com/"
-            host.contains("twimg.com") || host.contains("twitter") || host.contains("x.com") -> "https://twitter.com/"
-            host.contains("redd.it") || host.contains("reddit") -> "https://www.reddit.com/"
-            else -> try { "https://${Uri.parse(currentUrl).host}/" } catch (_: Exception) { "" }
-        }
-
-        for (i in 0..5) {
-            val u = URL(currentUrl)
-            val conn = (u.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15000
-                readTimeout = 30000
-                instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                setRequestProperty("Accept", if (isVideo) "*/*" else "image/*,*/*;q=0.8")
-                if (referer.isNotBlank()) setRequestProperty("Referer", referer)
-            }
-            val code = conn.responseCode
-            if (code in 300..399) {
-                val loc = conn.getHeaderField("Location")
-                conn.disconnect()
-                if (!loc.isNullOrBlank()) {
-                    currentUrl = if (loc.startsWith("http")) loc else URL(u, loc).toString()
-                    continue
-                }
-            } else if (code == 403 && referer.isNotBlank()) {
-                conn.disconnect()
-                return (URL(currentUrl).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 30000
-                    instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    setRequestProperty("Accept", if (isVideo) "*/*" else "image/*,*/*;q=0.8")
-                }
-            }
-            return conn
-        }
-        return (URL(currentUrl).openConnection() as HttpURLConnection)
-    }
-
-    private fun runImageBatchDownload(notifId: Int, job: OrbitEngine.DownloadJob, rawImageUrls: List<String>) {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val saveDir = OrbitEngine.currentSaveDir(this)
-        saveDir.mkdirs()
-
-        val cleanUrls = rawImageUrls.map { it.replace("&amp;", "&").trim() }.filter { it.isNotBlank() }
-        val totalPhotos = cleanUrls.size
-        var totalBytesAll = 0L
-        var firstSavedFile: File? = null
-
-        val safePrefix = job.title
-            .replace(Regex("""[\/:*?"<>|]"""), "_")
-            .trim()
-            .take(80)
-            .ifBlank { "orbit_${job.id}" }
-
-        try {
-            for ((index, imgUrl) in cleanUrls.withIndex()) {
-                if (!activeJobIds.contains(job.id)) {
-                    job.state = "cancelled"
-                    nm.cancel(notifId)
-                    return
-                }
-
-                val currentPhotoNum = index + 1
-                nm.notify(
-                    notifId,
-                    buildNotification(
-                        notifId = notifId,
-                        jobId = job.id,
-                        title = job.title,
-                        text = if (totalPhotos > 1) "Downloading photo $currentPhotoNum of $totalPhotos..." else "Downloading photo...",
-                        progress = ((index.toDouble() / totalPhotos) * 100).toInt(),
-                        indeterminate = false,
-                        ongoing = true
-                    )
-                )
-
-                val conn = openConnectionWithRedirects(imgUrl, isVideo = false)
-
-                val contentType = conn.contentType ?: ""
-                val ext = when {
-                    contentType.contains("png", true) || imgUrl.contains(".png", true) -> "png"
-                    contentType.contains("webp", true) || imgUrl.contains(".webp", true) -> "webp"
-                    contentType.contains("gif", true) || imgUrl.contains(".gif", true) -> "gif"
-                    contentType.contains("avif", true) || imgUrl.contains(".avif", true) -> "avif"
-                    else -> "jpg"
-                }
-
-                val fileName = if (totalPhotos > 1) {
-                    "$safePrefix (${currentPhotoNum} of ${totalPhotos}) [${job.id}].$ext"
-                } else {
-                    "$safePrefix [${job.id}].$ext"
-                }
-
-                val targetFile = File(saveDir, fileName)
-                val buffer = ByteArray(16384)
-
-                conn.inputStream.use { input ->
-                    targetFile.outputStream().use { output ->
-                        var bytesRead: Int
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            if (!activeJobIds.contains(job.id)) {
-                                targetFile.delete()
-                                job.state = "cancelled"
-                                nm.cancel(notifId)
-                                return
-                            }
-                            output.write(buffer, 0, bytesRead)
-                        }
-                    }
-                }
-
-                if (firstSavedFile == null) firstSavedFile = targetFile
-                totalBytesAll += targetFile.length()
-
-                MediaScannerConnection.scanFile(
-                    applicationContext,
-                    arrayOf(targetFile.absolutePath),
-                    arrayOf("image/$ext"),
-                    null
-                )
-                try {
-                    val scanIntent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE).apply {
-                        data = Uri.fromFile(targetFile)
-                    }
-                    applicationContext.sendBroadcast(scanIntent)
-                } catch (_: Exception) {}
-
-                job.percent = (((index + 1).toDouble() / totalPhotos) * 100.0).coerceIn(0.0, 100.0)
-            }
+    private fun openConnectionWithRedirects(initialUrl: String, isVideo: Boolean = false): HttpURLConnection {
+        var currentUrl = initialUrl.replace("&amp;", "&").trim()
+        val host = try { Uri.parse(currentUrl).host?.lowercase() ?: "" } catch (_: Exception) { "" }
+        val referer = when {
+            host.contains("xhscdn.com") || host.contains("xiaohongshu") -> "https://www.xiaohongshu.com/"
+            host.contains("tiktok") || host.contains("byteoversea") -> "https://www.tiktok.com/"
+            host.contains("pinimg.com") || host.contains("pinterest") -> "https://www.pinterest.com/"
+            host.contains("cdninstagram") || host.contains("fbcdn") || host.contains("instagram") -> "https://www.instagram.com/"
+            host.contains("twimg.com") || host.contains("twitter") || host.contains("x.com") -> "https://twitter.com/"
+            host.contains("redd.it") || host.contains("reddit") -> "https://www.reddit.com/"
+            else -> try { "https://${Uri.parse(currentUrl).host}/" } catch (_: Exception) { "" }
+        }
+
+        for (i in 0..5) {
+            val u = URL(currentUrl)
+            val conn = (u.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15000
+                readTimeout = 30000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                setRequestProperty("Accept", if (isVideo) "*/*" else "image/*,*/*;q=0.8")
+                if (referer.isNotBlank()) setRequestProperty("Referer", referer)
+            }
+            val code = conn.responseCode
+            if (code in 300..399) {
+                val loc = conn.getHeaderField("Location")
+                conn.disconnect()
+                if (!loc.isNullOrBlank()) {
+                    currentUrl = if (loc.startsWith("http")) loc else URL(u, loc).toString()
+                    continue
+                }
+            } else if (code == 403 && referer.isNotBlank()) {
+                conn.disconnect()
+                return (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    setRequestProperty("Accept", if (isVideo) "*/*" else "image/*,*/*;q=0.8")
+                }
+            } else if (code >= 400 && currentUrl.contains("i.pinimg.com/originals/")) {
+                conn.disconnect()
+                currentUrl = currentUrl.replace("/originals/", "/736x/")
+                continue
+            }
+            return conn
+        }
+        return (URL(currentUrl).openConnection() as HttpURLConnection)
+    }
+
+    private fun runImageBatchDownload(notifId: Int, job: OrbitEngine.DownloadJob, rawImageUrls: List<String>) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val saveDir = OrbitEngine.currentSaveDir(this)
+        saveDir.mkdirs()
+
+        val cleanUrls = rawImageUrls.map { it.replace("&amp;", "&").trim() }.filter { it.isNotBlank() }
+        val totalPhotos = cleanUrls.size
+        var totalBytesAll = 0L
+        var firstSavedFile: File? = null
+
+        val safePrefix = job.title
+            .replace(Regex("""[\\/:*?"<>|]"""), "_")
+            .trim()
+            .take(80)
+            .ifBlank { "orbit_${job.id}" }
+
+        try {
+            for ((index, imgUrl) in cleanUrls.withIndex()) {
+                if (!activeJobIds.contains(job.id)) {
+                    job.state = "cancelled"
+                    nm.cancel(notifId)
+                    return
+                }
+
+                val currentPhotoNum = index + 1
+                nm.notify(
+                    notifId,
+                    buildNotification(
+                        notifId = notifId,
+                        jobId = job.id,
+                        title = job.title,
+                        text = if (totalPhotos > 1) "Downloading photo $currentPhotoNum of $totalPhotos..." else "Downloading photo...",
+                        progress = ((index.toDouble() / totalPhotos) * 100).toInt(),
+                        indeterminate = false,
+                        ongoing = true
+                    )
+                )
+
+                val conn = openConnectionWithRedirects(imgUrl, isVideo = false)
+
+                val contentType = conn.contentType ?: ""
+                val ext = when {
+                    contentType.contains("png", true) || imgUrl.contains(".png", true) -> "png"
+                    contentType.contains("webp", true) || imgUrl.contains(".webp", true) -> "webp"
+                    contentType.contains("gif", true) || imgUrl.contains(".gif", true) -> "gif"
+                    contentType.contains("avif", true) || imgUrl.contains(".avif", true) -> "avif"
+                    else -> "jpg"
+                }
+
+                val fileName = if (totalPhotos > 1) {
+                    "$safePrefix (${currentPhotoNum} of ${totalPhotos}) [${job.id}].$ext"
+                } else {
+                    "$safePrefix [${job.id}].$ext"
+                }
+
+                val targetFile = File(saveDir, fileName)
+                val buffer = ByteArray(16384)
+
+                conn.inputStream.use { input ->
+                    targetFile.outputStream().use { output ->
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            if (!activeJobIds.contains(job.id)) {
+                                targetFile.delete()
+                                job.state = "cancelled"
+                                nm.cancel(notifId)
+                                return
+                            }
+                            output.write(buffer, 0, bytesRead)
+                        }
+                    }
+                }
+
+                if (firstSavedFile == null) firstSavedFile = targetFile
+                totalBytesAll += targetFile.length()
+
+                MediaScannerConnection.scanFile(
+                    applicationContext,
+                    arrayOf(targetFile.absolutePath),
+                    arrayOf("image/$ext"),
+                    null
+                )
+                try {
+                    val scanIntent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE).apply {
+                        data = Uri.fromFile(targetFile)
+                    }
+                    applicationContext.sendBroadcast(scanIntent)
+                } catch (_: Exception) {}
+
+                job.percent = (((index + 1).toDouble() / totalPhotos) * 100.0).coerceIn(0.0, 100.0)
+            }
 
             if (firstSavedFile == null) throw java.io.IOException("No photo could be downloaded.")
 
