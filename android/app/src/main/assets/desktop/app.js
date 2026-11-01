@@ -113,17 +113,29 @@ async function fetchInfo(e) {
   try {
     const d = await api("/api/info", { url });
     info = { ...d, url };
+    const isImage = d.type === "image" || (d.heights && d.heights.length === 0 && Boolean(d.thumbnail));
+    info.isImage = isImage;
     $("#pThumb").src = d.thumbnail || "";
-    $("#pTitle").textContent = d.title || "Untitled video";
-    $("#pSite").textContent = d.site || "Video";
+    $("#pTitle").textContent = d.title || (isImage ? "Photo" : "Untitled video");
+    $("#pSite").textContent = d.site || (isImage ? "Photo" : "Video");
     $("#pIco").style.cssText = icoStyle(d.site);
-    $("#pDur").textContent = fmtTime(d.duration);
-    $("#pSub").textContent = [d.uploader, d.heights && d.heights[0] ? "up to " + d.heights[0] + "p" : ""].filter(Boolean).join("  /  ");
-    const hs = d.heights || [], opts = [["best", "Best available"]];
-    [2160, 1440, 1080, 720, 480].forEach(h => { if (hs.some(x => x >= h)) opts.push([String(h), h === 2160 ? "4K (2160p)" : h + "p"]); });
-    $("#quality").innerHTML = opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join("");
-    const dq = cfg.default_quality;
-    if (dq === "audio") setKind("audio"); else { setKind("video"); if (opts.some(o => o[0] === dq)) $("#quality").value = dq; }
+    $("#pDur").textContent = isImage ? (d.count ? `${d.count} photo${d.count > 1 ? "s" : ""}` : "Photo") : fmtTime(d.duration);
+    $("#pSub").textContent = [d.uploader, isImage ? "Original High-Res" : (d.heights && d.heights[0] ? "up to " + d.heights[0] + "p" : "")].filter(Boolean).join("  /  ");
+
+    if (isImage) {
+      $("#seg").hidden = true;
+      $("#quality").innerHTML = `<option value="image">Original Resolution</option>`;
+      $("#quality").disabled = false;
+      $("#dl").innerHTML = `<span>Download Photo</span>${svg(I.dl)}`;
+    } else {
+      $("#seg").hidden = false;
+      $("#dl").innerHTML = `<span>Download</span>${svg(I.dl)}`;
+      const hs = d.heights || [], opts = [["best", "Best available"]];
+      [2160, 1440, 1080, 720, 480].forEach(h => { if (hs.some(x => x >= h)) opts.push([String(h), h === 2160 ? "4K (2160p)" : h + "p"]); });
+      $("#quality").innerHTML = opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join("");
+      const dq = cfg.default_quality;
+      if (dq === "audio") setKind("audio"); else { setKind("video"); if (opts.some(o => o[0] === dq)) $("#quality").value = dq; }
+    }
     $("#preview").hidden = false;
   } catch (err) { showError(err.message); }
   finally { fetching = false; $("#skeleton").hidden = true; $("#fetch").disabled = false; }
@@ -179,10 +191,20 @@ addEventListener("drop", e => {
 /* ---------------- start a download ---------------- */
 $("#dl").onclick = async () => {
   if (!info) return;
-  const kind = $("#seg .on").dataset.kind, quality = kind === "audio" ? "audio" : $("#quality").value;
+  const isImage = info.isImage || info.type === "image";
+  const kind = $("#seg .on") ? $("#seg .on").dataset.kind : "video";
+  const quality = isImage ? "image" : (kind === "audio" ? "audio" : $("#quality").value);
   $("#dl").disabled = true;
   try {
-    await api("/api/download", { url: info.url, directUrl: info.directUrl, quality, title: info.title, site: info.site, thumb: info.thumbnail });
+    await api("/api/download", {
+      url: info.url,
+      directUrl: info.directUrl,
+      quality,
+      type: isImage ? "image" : "video",
+      title: info.title,
+      site: info.site,
+      thumb: info.thumbnail
+    });
     toast("Added to queue");
     info = null; $("#preview").hidden = true; urlEl.value = ""; urlEl.focus();
     poll();
@@ -195,7 +217,8 @@ const rows = new Map(), prev = {};
 function actions(j) {
   const b = (act, label, ic, cls = "") => `<button class="iconbtn ${cls}" data-act="${act}" title="${label}">${svg(ic)}${label ? `<span>${label}</span>` : ""}</button>`;
   if (j.state === "downloading" || j.state === "processing") return b("cancel", "Cancel", I.x, "danger sq");
-  if (j.state === "done") return b("open", "Play", I.play, "primary") + b("show", "Folder", I.folder) + b("dismiss", "", I.x, "sq");
+  const isImg = j.isImage || j.quality === "image" || j.quality === "photo";
+  if (j.state === "done") return b("open", isImg ? "Open" : "Play", I.play, "primary") + b("show", "Folder", I.folder) + b("dismiss", "", I.x, "sq");
   return b("dismiss", "", I.x, "sq");
 }
 function renderQueue(list) {
@@ -210,9 +233,10 @@ function renderQueue(list) {
     }
     li.className = "q " + j.state;
     li.querySelector(".q-title").textContent = j.title || "Downloading…";
-    const q = QLABEL[j.quality] || "";
+    const isImg = j.isImage || j.quality === "image" || j.quality === "photo";
+    const q = isImg ? "Photo" : (QLABEL[j.quality] || "");
     li.querySelector(".q-sub").textContent =
-      j.state === "downloading" ? `${Math.round(j.percent)}%  ·  ${j.speed || "starting"}${j.eta ? "  ·  ETA " + j.eta : ""}  ·  ${q}` :
+      j.state === "downloading" ? `${Math.round(j.percent)}%  ·  ${j.speed || (isImg ? "saving" : "starting")}${j.eta ? "  ·  ETA " + j.eta : ""}  ·  ${q}` :
       j.state === "processing" ? "Merging and finishing…" :
       j.state === "done" ? `Saved  ·  ${fmtSize(j.size)}  ·  ${q}` :
       j.state === "cancelled" ? "Cancelled" : (j.error || "Failed");
@@ -264,8 +288,8 @@ async function loadLib() {
     <li class="l${e.exists ? "" : " gone"}" data-id="${esc(e.id)}">
       ${e.thumb ? `<img class="thumb" src="${esc(e.thumb)}" alt="" onerror="this.style.visibility='hidden'">` : icoHtml(e.site)}
       <div class="q-main"><p class="q-title">${esc(e.title)}</p>
-        <p class="q-sub mono">${esc([e.site, QLABEL[e.quality], fmtSize(e.size), new Date(e.t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" }), e.exists ? "" : "File moved or deleted"].filter(Boolean).join("  ·  "))}</p></div>
-      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="Play">${svg(I.play)}<span>Play</span></button><button class="iconbtn" data-act="show" title="Folder">${svg(I.folder)}<span>Show</span></button>` : ""}
+        <p class="q-sub mono">${esc([e.site, (e.quality === "image" || e.quality === "photo") ? "Photo" : QLABEL[e.quality], fmtSize(e.size), new Date(e.t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" }), e.exists ? "" : "File moved or deleted"].filter(Boolean).join("  ·  "))}</p></div>
+      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="Open">${svg(I.play)}<span>${(e.quality === "image" || e.quality === "photo") ? "Open" : "Play"}</span></button><button class="iconbtn" data-act="show" title="Folder">${svg(I.folder)}<span>Show</span></button>` : ""}
         <button class="iconbtn sq danger" data-act="remove" title="Remove from list">${svg(I.trash)}</button></div>
     </li>`).join("");
 }

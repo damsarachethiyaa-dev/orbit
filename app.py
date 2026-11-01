@@ -50,6 +50,8 @@ QUALITY = {
     "720": "bestvideo*[height<=720]+bestaudio/best[height<=720]",
     "480": "bestvideo*[height<=480]+bestaudio/best[height<=480]",
     "audio": "bestaudio/best",
+    "image": "image",
+    "photo": "photo",
 }
 
 # ---------------------------------------------------------------- settings + library (desktop)
@@ -148,6 +150,57 @@ def index():
     return send_from_directory(app.static_folder, "desktop/index.html" if DESKTOP else "index.html")
 
 
+def resolve_direct_image(url: str):
+    clean = url.split("?")[0].lower()
+    if any(clean.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"]):
+        import urllib.parse
+        name = os.path.basename(clean).rsplit(".", 1)[0] or "Image"
+        return {
+            "title": name,
+            "uploader": urllib.parse.urlparse(url).netloc,
+            "thumbnail": url,
+            "duration": 0,
+            "directUrl": url,
+            "site": "Image",
+            "type": "image",
+            "count": 1,
+            "heights": []
+        }
+    return None
+
+
+def resolve_pinterest(url: str):
+    if not ("pinterest.com" in url.lower() or "pin.it" in url.lower()):
+        return None
+    try:
+        import urllib.request, re
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8", "ignore")
+        m_img = re.search(r'property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html) or \
+                re.search(r'content=["\']([^"\']+)["\']\s+property=["\']og:image["\']', html)
+        m_title = re.search(r'property=["\']og:title["\']\s+content=["\']([^"\']+)["\']', html)
+        title = m_title.group(1) if m_title else "Pinterest Pin"
+        if m_img:
+            thumb = m_img.group(1)
+            high_res = re.sub(r'/\d+x/', '/originals/', thumb)
+            return {
+                "title": title,
+                "uploader": "Pinterest",
+                "thumbnail": thumb,
+                "duration": 0,
+                "directUrl": high_res,
+                "site": "Pinterest",
+                "type": "image",
+                "count": 1,
+                "heights": []
+            }
+    except Exception:
+        pass
+    return None
+
+
 def resolve_xiaohongshu(url: str):
     if not ("xhslink.com" in url.lower() or "xiaohongshu.com" in url.lower()):
         return None
@@ -170,10 +223,17 @@ def resolve_xiaohongshu(url: str):
             note = data.get("noteData", {}).get("data", {}).get("noteData")
             if not note:
                 continue
-            title = note.get("title") or (note.get("desc") or "")[:60] or "Xiaohongshu Video"
+            title = note.get("title") or (note.get("desc") or "")[:60] or "Xiaohongshu Post"
             uploader = note.get("user", {}).get("nickname", "Xiaohongshu")
             img_list = note.get("imageList") or []
-            thumb = img_list[0].get("url", "") if img_list else ""
+            image_urls = []
+            for item in img_list:
+                if not item:
+                    continue
+                u = item.get("urlOriginal") or item.get("urlDefault") or item.get("url") or ""
+                if u:
+                    image_urls.append(u)
+            thumb = image_urls[0] if image_urls else (img_list[0].get("url", "") if img_list else "")
             v = note.get("video") or {}
             duration = v.get("duration", 0)
             h264 = v.get("media", {}).get("stream", {}).get("h264") or []
@@ -192,7 +252,21 @@ def resolve_xiaohongshu(url: str):
                     "duration": duration,
                     "directUrl": vurl,
                     "site": "Xiaohongshu",
+                    "type": "video",
                     "heights": [1080, 720, 480]
+                }
+            elif image_urls:
+                return {
+                    "title": title,
+                    "uploader": uploader,
+                    "thumbnail": thumb,
+                    "duration": 0,
+                    "directUrl": image_urls[0],
+                    "imageUrls": image_urls,
+                    "site": "Xiaohongshu",
+                    "type": "image",
+                    "count": len(image_urls),
+                    "heights": []
                 }
             break
     except Exception:
@@ -206,32 +280,49 @@ def info():
     if not valid_url(url):
         return jsonify(error="That doesn't look like a valid link."), 400
 
+    direct_img = resolve_direct_image(url)
+    if direct_img:
+        return jsonify(direct_img)
+
+    pin = resolve_pinterest(url)
+    if pin:
+        return jsonify(pin)
+
     xhs = resolve_xiaohongshu(url)
     if xhs:
-        return jsonify(
-            title=xhs["title"],
-            thumbnail=xhs["thumbnail"],
-            duration=xhs["duration"],
-            uploader=xhs["uploader"],
-            site=xhs["site"],
-            heights=xhs["heights"],
-            directUrl=xhs["directUrl"]
-        )
+        return jsonify(xhs)
 
     try:
         with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True,
-                               "skip_download": True}) as ydl:
+                               "skip_download": True, "ignore_no_formats_error": True}) as ydl:
             d = ydl.extract_info(url, download=False)
     except Exception as e:
         msg = str(e).replace("ERROR: ", "")
+        if "No video formats found" in msg or "No video could be found" in msg:
+            return jsonify(
+                title="Photo Post",
+                thumbnail="",
+                duration=0,
+                uploader="",
+                site="Post",
+                type="image",
+                count=1,
+                heights=[]
+            )
         return jsonify(error=msg[:300] or "Couldn't read that link."), 422
+
     heights = sorted({f["height"] for f in d.get("formats", []) if f.get("height")}, reverse=True)
+    is_image = not heights and bool(d.get("thumbnail") or d.get("thumbnails"))
+
     return jsonify(
-        title=d.get("title"),
+        title=d.get("title") or ("Photo post" if is_image else "Untitled video"),
         thumbnail=d.get("thumbnail"),
-        duration=d.get("duration"),
+        duration=0 if is_image else d.get("duration"),
         uploader=d.get("uploader") or d.get("channel"),
-        site=d.get("extractor_key"),
+        site=d.get("extractor_key") or "Media",
+        type="image" if is_image else "video",
+        directUrl=d.get("thumbnail") if is_image else "",
+        count=len(d.get("entries") or []) if is_image and d.get("entries") else 1,
         heights=heights,
     )
 
@@ -243,6 +334,46 @@ def run_job(jid: str, url: str, quality: str):
         out = save_dir()
     out.mkdir(parents=True, exist_ok=True)
     touched = set()   # every file this job writes, so cancel only cleans up its own files
+
+    if quality in ("image", "photo") or job.get("type") == "image":
+        try:
+            import urllib.request, re
+            save_path = out
+            title = re.sub(r'[\\/:*?"<>|]', "_", job.get("title") or "orbit_photo").strip()[:80] or f"orbit_{jid}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                ct = resp.headers.get_content_type()
+                ext = "png" if "png" in ct else ("webp" if "webp" in ct else ("gif" if "gif" in ct else "jpg"))
+                target = save_path / f"{title} [{jid}].{ext}"
+                total = int(resp.headers.get("content-length") or 0)
+                downloaded = 0
+                with open(target, "wb") as f:
+                    while True:
+                        if job.get("cancel"):
+                            try: target.unlink(missing_ok=True)
+                            except: pass
+                            job["state"] = "cancelled"
+                            return
+                        chunk = resp.read(16384)
+                        if not chunk: break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total > 0:
+                            job["percent"] = min(99.0, round((downloaded / total) * 100.0, 1))
+
+            sz = target.stat().st_size
+            job.update({"state": "done", "percent": 100, "file": target.name, "path": str(target) if DESKTOP else None, "size": sz, "error": None})
+            if DESKTOP:
+                add_history({"id": jid, "title": job["title"] or target.stem, "site": job["site"], "path": str(target),
+                             "size": sz, "quality": "image", "thumb": job["thumb"], "t": int(time.time())})
+            return
+        except Exception as e:
+            if job.get("cancel"):
+                job["state"] = "cancelled"
+                return
+            job["state"] = "error"
+            job["error"] = str(e).replace("ERROR: ", "")[:300]
+            return
 
     def hook(d):
         for k in ("filename", "tmpfilename"):
@@ -315,7 +446,8 @@ def download():
     jobs[jid] = {"state": "downloading", "percent": 0, "speed": "", "eta": "", "file": None, "path": None,
                  "error": None, "created": time.time(), "cancel": False, "size": None, "quality": quality,
                  "title": str(body.get("title") or "")[:200], "site": str(body.get("site") or "")[:40],
-                 "thumb": str(body.get("thumb") or "")[:500], "url": url}
+                 "thumb": str(body.get("thumb") or "")[:500], "url": url,
+                 "type": str(body.get("type") or ("image" if quality in ("image", "photo") else "video"))}
     threading.Thread(target=run_job, args=(jid, direct_url, quality), daemon=True).start()
     return jsonify(id=jid)
 
