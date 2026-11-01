@@ -56,7 +56,7 @@ QUALITY = {
 
 # ---------------------------------------------------------------- settings + library (desktop)
 SETTINGS_FILE, HISTORY_FILE = DATA / "settings.json", DATA / "history.json"
-DEFAULTS = {"save_dir": str(Path.home() / "Downloads" / "Orbit Videos"), "default_quality": "best"}
+DEFAULTS = {"save_dir": str(Path.home() / "Downloads" / "Orbit Videos"), "default_quality": "best", "auto_download": False}
 
 
 def _read(path, fallback):
@@ -208,18 +208,19 @@ def resolve_xiaohongshu(url: str):
         import urllib.request, json, re
         current = url
         headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"
         }
         for _ in range(6):
             req = urllib.request.Request(current, headers=headers)
             with urllib.request.urlopen(req, timeout=12) as resp:
                 final_url = resp.geturl()
                 html = resp.read().decode("utf-8", "ignore")
-            m = re.search(r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\});?</script>", html, re.DOTALL)
+            m = re.search(r"window\.__INITIAL_STATE__\s*=\s*(.*?)</script>", html, re.DOTALL)
             if not m:
                 continue
-            data = json.loads(m.group(1).replace("undefined", "null"))
+            data = json.loads(m.group(1).strip().rstrip(";").replace("undefined", "null"))
             note = data.get("noteData", {}).get("data", {}).get("noteData")
             if not note:
                 continue
@@ -231,6 +232,11 @@ def resolve_xiaohongshu(url: str):
                 if not item:
                     continue
                 u = item.get("urlOriginal") or item.get("urlDefault") or item.get("url") or ""
+                info_list = item.get("infoList") or []
+                if info_list:
+                    best = info_list[-1].get("url")
+                    if best:
+                        u = best
                 if u:
                     image_urls.append(u)
             thumb = image_urls[0] if image_urls else (img_list[0].get("url", "") if img_list else "")
@@ -251,6 +257,7 @@ def resolve_xiaohongshu(url: str):
                     "thumbnail": thumb,
                     "duration": duration,
                     "directUrl": vurl,
+                    "imageUrls": image_urls,
                     "site": "Xiaohongshu",
                     "type": "video",
                     "heights": [1080, 720, 480]
@@ -340,12 +347,52 @@ def run_job(jid: str, url: str, quality: str):
             import urllib.request, re
             save_path = out
             title = re.sub(r'[\\/:*?"<>|]', "_", job.get("title") or "orbit_photo").strip().rstrip(". ")[:80] or f"orbit_{jid}"
+            image_urls = job.get("imageUrls") or [url]
+            saved_files = []
+            total = len(image_urls)
+            for idx, img_url in enumerate(image_urls):
+                if job.get("cancel"):
+                    for sf in saved_files:
+                        try: sf.unlink(missing_ok=True)
+                        except: pass
+                    job["state"] = "cancelled"
+                    return
+                req = urllib.request.Request(img_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    ct = resp.headers.get_content_type()
+                    ext = "png" if "png" in ct else ("webp" if "webp" in ct else ("gif" if "gif" in ct else "jpg"))
+                    suffix = f" ({idx + 1} of {total})" if total > 1 else ""
+                    target = save_path / f"{title}{suffix} [{jid}].{ext}"
+                    with open(target, "wb") as f:
+                        f.write(resp.read())
+                    saved_files.append(target)
+                job["percent"] = min(99.0, round(((idx + 1) / total) * 100.0, 1))
+
+            first_file = saved_files[0] if saved_files else None
+            sz = sum(f.stat().st_size for f in saved_files)
+            job.update({"state": "done", "percent": 100, "file": first_file.name if first_file else "", "path": str(first_file) if (DESKTOP and first_file) else None, "size": sz, "error": None})
+            if DESKTOP and first_file:
+                add_history({"id": jid, "title": f"{job['title']} ({total} Photos)" if total > 1 else (job["title"] or first_file.stem),
+                             "site": job["site"], "path": str(first_file), "size": sz, "quality": "photo", "thumb": job["thumb"], "t": int(time.time())})
+            return
+        except Exception as e:
+            if job.get("cancel"):
+                job["state"] = "cancelled"
+                return
+            job["state"] = "error"
+            job["error"] = str(e).replace("ERROR: ", "")[:300]
+            return
+
+    # Check if direct stream (mp4 / xhscdn / etc.)
+    clean_stream_url = url.split("?")[0].lower()
+    if clean_stream_url.endswith(".mp4") or clean_stream_url.endswith(".webm") or "sns-video" in url or "xhscdn.com" in url:
+        try:
+            import urllib.request, re
+            title = re.sub(r'[\\/:*?"<>|]', "_", job.get("title") or "orbit_video").strip().rstrip(". ")[:80] or f"orbit_{jid}"
+            target = out / f"{title} [{jid}].mp4"
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                ct = resp.headers.get_content_type()
-                ext = "png" if "png" in ct else ("webp" if "webp" in ct else ("gif" if "gif" in ct else "jpg"))
-                target = save_path / f"{title} [{jid}].{ext}"
-                total = int(resp.headers.get("content-length") or 0)
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                total_len = int(resp.headers.get("content-length") or 0)
                 downloaded = 0
                 with open(target, "wb") as f:
                     while True:
@@ -354,18 +401,17 @@ def run_job(jid: str, url: str, quality: str):
                             except: pass
                             job["state"] = "cancelled"
                             return
-                        chunk = resp.read(16384)
+                        chunk = resp.read(32768)
                         if not chunk: break
                         f.write(chunk)
                         downloaded += len(chunk)
-                        if total > 0:
-                            job["percent"] = min(99.0, round((downloaded / total) * 100.0, 1))
-
+                        if total_len > 0:
+                            job["percent"] = min(99.0, round((downloaded / total_len) * 100.0, 1))
             sz = target.stat().st_size
             job.update({"state": "done", "percent": 100, "file": target.name, "path": str(target) if DESKTOP else None, "size": sz, "error": None})
             if DESKTOP:
                 add_history({"id": jid, "title": job["title"] or target.stem, "site": job["site"], "path": str(target),
-                             "size": sz, "quality": "image", "thumb": job["thumb"], "t": int(time.time())})
+                             "size": sz, "quality": quality, "thumb": job["thumb"], "t": int(time.time())})
             return
         except Exception as e:
             if job.get("cancel"):
@@ -447,6 +493,7 @@ def download():
                  "error": None, "created": time.time(), "cancel": False, "size": None, "quality": quality,
                  "title": str(body.get("title") or "")[:200], "site": str(body.get("site") or "")[:40],
                  "thumb": str(body.get("thumb") or "")[:500], "url": url,
+                 "imageUrls": body.get("imageUrls") or [],
                  "type": str(body.get("type") or ("image" if quality in ("image", "photo") else "video"))}
     threading.Thread(target=run_job, args=(jid, direct_url, quality), daemon=True).start()
     return jsonify(id=jid)
@@ -580,6 +627,8 @@ def set_settings():
     s = settings()
     if "default_quality" in body and body["default_quality"] in QUALITY:
         s["default_quality"] = body["default_quality"]
+    if "auto_download" in body:
+        s["auto_download"] = bool(body["auto_download"])
     if body.get("save_dir"):
         p = Path(str(body["save_dir"]))
         try:

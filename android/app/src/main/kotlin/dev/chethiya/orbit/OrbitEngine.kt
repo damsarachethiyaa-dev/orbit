@@ -212,7 +212,8 @@ object OrbitEngine {
         var size: Long = 0L,
         var error: String = "",
         var isImage: Boolean = false,
-        var directUrl: String = ""
+        var directUrl: String = "",
+        var imageUrls: List<String> = emptyList()
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("id", id)
@@ -228,6 +229,10 @@ object OrbitEngine {
             put("size", size)
             put("error", error)
             put("isImage", isImage)
+            val imgArr = JSONArray()
+            imageUrls.forEach { imgArr.put(it) }
+            put("imageUrls", imgArr)
+            put("count", imageUrls.size)
         }
     }
 
@@ -318,7 +323,7 @@ object OrbitEngine {
         }
         try {
             var currentUrl = rawUrl
-            val mobileUa = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            val mobileUa = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
             for (i in 0..5) {
                 val c = (java.net.URL(currentUrl).openConnection() as java.net.HttpURLConnection).apply {
                     instanceFollowRedirects = false
@@ -326,6 +331,7 @@ object OrbitEngine {
                     readTimeout = 15000
                     setRequestProperty("User-Agent", mobileUa)
                     setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
                 }
                 val code = c.responseCode
                 if (code in 300..399) {
@@ -336,9 +342,9 @@ object OrbitEngine {
                     }
                 }
                 val html = c.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                val regex = Regex("""window\.__INITIAL_STATE__\s*=\s*(\{.*?\});?</script>""", RegexOption.DOT_MATCHES_ALL)
+                val regex = Regex("""window\.__INITIAL_STATE__\s*=\s*(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
                 val match = regex.find(html) ?: return null
-                val jsonStr = match.groupValues[1].replace("undefined", "null")
+                val jsonStr = match.groupValues[1].trim().trimEnd(';').replace("undefined", "null")
                 val root = JSONObject(jsonStr)
                 val note = root.optJSONObject("noteData")?.optJSONObject("data")?.optJSONObject("noteData") ?: return null
 
@@ -351,8 +357,14 @@ object OrbitEngine {
                 if (imgList != null) {
                     for (j in 0 until imgList.length()) {
                         val item = imgList.optJSONObject(j) ?: continue
-                        val u = item.optString("urlOriginal").ifBlank {
+                        var u = item.optString("urlOriginal").ifBlank {
                             item.optString("urlDefault").ifBlank { item.optString("url") }
+                        }
+                        val infoList = item.optJSONArray("infoList")
+                        if (infoList != null && infoList.length() > 0) {
+                            val lastInfo = infoList.optJSONObject(infoList.length() - 1)
+                            val best = lastInfo?.optString("url")
+                            if (!best.isNullOrBlank()) u = best
                         }
                         if (u.isNotBlank()) imageUrls.add(u)
                     }

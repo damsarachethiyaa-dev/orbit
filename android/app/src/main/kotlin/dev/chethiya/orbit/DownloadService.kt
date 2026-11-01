@@ -37,6 +37,7 @@ class DownloadService : Service() {
         const val EXTRA_SITE = "extra_site"
         const val EXTRA_THUMB = "extra_thumb"
         const val EXTRA_IS_IMAGE = "extra_is_image"
+        const val EXTRA_IMAGE_URLS = "extra_image_urls"
         const val CHANNEL_ID = "orbit_downloads_channel"
         const val CHANNEL_NAME = "Orbit Downloads"
     }
@@ -82,6 +83,7 @@ class DownloadService : Service() {
             val passedSite = intent.getStringExtra(EXTRA_SITE) ?: "Video"
             val passedThumb = intent.getStringExtra(EXTRA_THUMB) ?: ""
             val passedIsImage = intent.getBooleanExtra(EXTRA_IS_IMAGE, false)
+            val passedImageUrls = intent.getStringArrayListExtra(EXTRA_IMAGE_URLS) ?: arrayListOf<String>()
 
             var job = OrbitEngine.jobsById[jobId]
             if (job == null) {
@@ -93,11 +95,14 @@ class DownloadService : Service() {
                     thumb = passedThumb,
                     quality = passedQuality,
                     state = "downloading",
-                    isImage = passedIsImage,
-                    directUrl = passedDirect ?: ""
+                    isImage = passedIsImage || passedImageUrls.isNotEmpty(),
+                    directUrl = passedDirect ?: "",
+                    imageUrls = passedImageUrls
                 )
                 OrbitEngine.activeJobs.add(0, job)
                 OrbitEngine.jobsById[jobId] = job
+            } else if (job.imageUrls.isEmpty() && passedImageUrls.isNotEmpty()) {
+                job.imageUrls = passedImageUrls
             }
 
             activeJobsCount.incrementAndGet()
@@ -120,7 +125,7 @@ class DownloadService : Service() {
             }
 
             OrbitEngine.executor.execute {
-                runDownload(notifId, job, cleanUrl, passedDirect)
+                runDownload(notifId, job, cleanUrl, passedDirect, passedImageUrls)
             }
         }
 
@@ -202,7 +207,13 @@ class DownloadService : Service() {
             .build()
     }
 
-    private fun runDownload(notifId: Int, job: OrbitEngine.DownloadJob, url: String, passedDirectUrl: String?) {
+    private fun runDownload(
+        notifId: Int,
+        job: OrbitEngine.DownloadJob,
+        url: String,
+        passedDirectUrl: String?,
+        imageUrls: List<String> = emptyList()
+    ) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         try {
@@ -213,7 +224,17 @@ class DownloadService : Service() {
             val pin = OrbitEngine.resolvePinterest(url)
             val xhs = OrbitEngine.resolveXiaohongshu(url)
 
-            if (job.isImage || directImg != null || pin != null || (xhs != null && xhs.mediaType == "image") ||
+            val resolvedImages = when {
+                imageUrls.isNotEmpty() -> imageUrls
+                job.imageUrls.isNotEmpty() -> job.imageUrls
+                xhs != null && xhs.mediaType == "image" -> xhs.imageUrls
+                pin != null -> pin.imageUrls
+                directImg != null -> directImg.imageUrls
+                passedDirectUrl?.matches(Regex(""".*\.(jpg|jpeg|png|webp|gif)($|\?.*)""", RegexOption.IGNORE_CASE)) == true -> listOf(passedDirectUrl)
+                else -> emptyList()
+            }
+
+            if (job.isImage || resolvedImages.isNotEmpty() ||
                 passedDirectUrl?.matches(Regex(""".*\.(jpg|jpeg|png|webp|gif)($|\?.*)""", RegexOption.IGNORE_CASE)) == true
             ) {
                 job.isImage = true
@@ -223,13 +244,13 @@ class DownloadService : Service() {
                 if (job.site.isBlank() || job.site == "Video") {
                     job.site = directImg?.site ?: pin?.site ?: xhs?.site ?: "Photo"
                 }
-                val imgTargetUrl = passedDirectUrl?.takeIf { it.isNotBlank() }
-                    ?: directImg?.directVideoUrl
-                    ?: pin?.directVideoUrl
-                    ?: xhs?.directVideoUrl
-                    ?: url
+                val targets = if (resolvedImages.isNotEmpty()) {
+                    resolvedImages
+                } else {
+                    listOf(passedDirectUrl?.takeIf { it.isNotBlank() } ?: directImg?.directVideoUrl ?: pin?.directVideoUrl ?: xhs?.directVideoUrl ?: url)
+                }
 
-                runImageDownload(notifId, job, imgTargetUrl)
+                runImageBatchDownload(notifId, job, targets)
                 return
             }
 
@@ -258,10 +279,15 @@ class DownloadService : Service() {
                     val isVideo = info.formats?.any { it.vcodec != "none" && it.height >= 240 } == true
                     if (!isVideo && !info.thumbnail.isNullOrBlank()) {
                         job.isImage = true
-                        runImageDownload(notifId, job, info.thumbnail!!)
+                        runImageBatchDownload(notifId, job, listOf(info.thumbnail!!))
                         return
                     }
                 }
+            }
+
+            if (isDirectStream(downloadUrl)) {
+                runDirectStreamDownload(notifId, job, downloadUrl)
+                return
             }
 
             runVideoDownload(notifId, job, downloadUrl)
@@ -293,10 +319,159 @@ class DownloadService : Service() {
         }
     }
 
-    private fun runImageDownload(notifId: Int, job: OrbitEngine.DownloadJob, rawImageUrl: String) {
+    private fun isDirectStream(url: String): Boolean {
+        val clean = url.substringBefore("?").lowercase()
+        return clean.endsWith(".mp4") || clean.endsWith(".mov") || clean.endsWith(".webm") ||
+               clean.endsWith(".m4v") || url.contains("sns-video") || url.contains("xhscdn.com")
+    }
+
+    private fun runImageBatchDownload(notifId: Int, job: OrbitEngine.DownloadJob, rawImageUrls: List<String>) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val saveDir = OrbitEngine.currentSaveDir(this)
         saveDir.mkdirs()
+
+        val totalPhotos = rawImageUrls.size
+        var totalBytesAll = 0L
+        var firstSavedFile: File? = null
+
+        val safePrefix = job.title
+            .replace(Regex("""[\\/:*?"<>|]"""), "_")
+            .trim()
+            .take(80)
+            .ifBlank { "orbit_${job.id}" }
+
+        try {
+            for ((index, imgUrl) in rawImageUrls.withIndex()) {
+                if (!activeJobIds.contains(job.id)) {
+                    job.state = "cancelled"
+                    nm.cancel(notifId)
+                    return
+                }
+
+                val currentPhotoNum = index + 1
+                nm.notify(
+                    notifId,
+                    buildNotification(
+                        notifId = notifId,
+                        jobId = job.id,
+                        title = job.title,
+                        text = if (totalPhotos > 1) "Downloading photo $currentPhotoNum of $totalPhotos..." else "Downloading photo...",
+                        progress = ((index.toDouble() / totalPhotos) * 100).toInt(),
+                        indeterminate = false,
+                        ongoing = true
+                    )
+                )
+
+                val url = URL(imgUrl)
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 20000
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    setRequestProperty("Accept", "image/*,*/*;q=0.8")
+                }
+
+                val contentType = conn.contentType ?: ""
+                val ext = when {
+                    contentType.contains("png", true) || imgUrl.contains(".png", true) -> "png"
+                    contentType.contains("webp", true) || imgUrl.contains(".webp", true) -> "webp"
+                    contentType.contains("gif", true) || imgUrl.contains(".gif", true) -> "gif"
+                    else -> "jpg"
+                }
+
+                val fileName = if (totalPhotos > 1) {
+                    "$safePrefix (${currentPhotoNum} of ${totalPhotos}) [${job.id}].$ext"
+                } else {
+                    "$safePrefix [${job.id}].$ext"
+                }
+
+                val targetFile = File(saveDir, fileName)
+                val buffer = ByteArray(16384)
+
+                conn.inputStream.use { input ->
+                    targetFile.outputStream().use { output ->
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            if (!activeJobIds.contains(job.id)) {
+                                targetFile.delete()
+                                job.state = "cancelled"
+                                nm.cancel(notifId)
+                                return
+                            }
+                            output.write(buffer, 0, bytesRead)
+                        }
+                    }
+                }
+
+                if (firstSavedFile == null) firstSavedFile = targetFile
+                totalBytesAll += targetFile.length()
+
+                MediaScannerConnection.scanFile(
+                    applicationContext,
+                    arrayOf(targetFile.absolutePath),
+                    null,
+                    null
+                )
+
+                job.percent = (((index + 1).toDouble() / totalPhotos) * 100.0).coerceIn(0.0, 100.0)
+            }
+
+            if (firstSavedFile == null) throw java.io.IOException("No photo could be downloaded.")
+
+            job.file = firstSavedFile.absolutePath
+            job.size = totalBytesAll
+            job.percent = 100.0
+            job.state = "done"
+
+            OrbitEngine.addHistoryItem(
+                context = applicationContext,
+                id = job.id,
+                title = if (totalPhotos > 1) "${job.title} ($totalPhotos Photos)" else job.title,
+                site = job.site,
+                thumb = job.thumb,
+                quality = "photo",
+                file = firstSavedFile.absolutePath,
+                size = totalBytesAll
+            )
+
+            showCompletedNotification(
+                notifId,
+                if (totalPhotos > 1) "$totalPhotos photos saved to Gallery" else job.title,
+                firstSavedFile
+            )
+        } catch (e: Exception) {
+            val isCancelled = !activeJobIds.contains(job.id) || e.javaClass.simpleName.contains("Cancel", ignoreCase = true)
+            if (isCancelled) {
+                job.state = "cancelled"
+                nm.cancel(notifId)
+            } else {
+                val errMsg = OrbitEngine.cleanErrorMessage(e.message)
+                job.state = "error"
+                job.error = errMsg
+                val errorNotif = NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle("Photo download failed")
+                    .setContentText(errMsg)
+                    .setSubText(job.title)
+                    .setOngoing(false)
+                    .setAutoCancel(true)
+                    .build()
+                nm.notify(notifId, errorNotif)
+            }
+        }
+    }
+
+    private fun runDirectStreamDownload(notifId: Int, job: OrbitEngine.DownloadJob, downloadUrl: String) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val saveDir = OrbitEngine.currentSaveDir(this)
+        saveDir.mkdirs()
+
+        val safePrefix = job.title
+            .replace(Regex("""[\\/:*?"<>|]"""), "_")
+            .trim()
+            .take(80)
+            .ifBlank { "orbit_${job.id}" }
+
+        val targetFile = File(saveDir, "$safePrefix [${job.id}].mp4")
 
         try {
             nm.notify(
@@ -305,39 +480,27 @@ class DownloadService : Service() {
                     notifId = notifId,
                     jobId = job.id,
                     title = job.title,
-                    text = "Downloading photo...",
+                    text = "Starting video download...",
                     progress = 0,
                     indeterminate = true,
                     ongoing = true
                 )
             )
 
-            val safePrefix = job.title
-                .replace(Regex("""[\\/:*?"<>|]"""), "_")
-                .trim()
-                .take(80)
-                .ifBlank { "orbit_${job.id}" }
-
-            val url = URL(rawImageUrl)
+            val url = URL(downloadUrl)
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15000
-                readTimeout = 20000
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                setRequestProperty("Accept", "image/*,*/*;q=0.8")
+                readTimeout = 30000
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
+                setRequestProperty("Accept", "*/*")
             }
 
-            val contentType = conn.contentType ?: ""
-            val ext = when {
-                contentType.contains("png", true) || rawImageUrl.contains(".png", true) -> "png"
-                contentType.contains("webp", true) || rawImageUrl.contains(".webp", true) -> "webp"
-                contentType.contains("gif", true) || rawImageUrl.contains(".gif", true) -> "gif"
-                else -> "jpg"
-            }
-
-            val targetFile = File(saveDir, "$safePrefix [${job.id}].$ext")
             val totalBytes = conn.contentLengthLong.coerceAtLeast(1L)
             var downloaded = 0L
-            val buffer = ByteArray(16384)
+            val buffer = ByteArray(32768)
+            var lastNotifTime = 0L
+            var lastPercent = -1
+            val startTime = System.currentTimeMillis()
 
             conn.inputStream.use { input ->
                 targetFile.outputStream().use { output ->
@@ -353,6 +516,34 @@ class DownloadService : Service() {
                         downloaded += bytesRead
                         val p = ((downloaded.toDouble() / totalBytes) * 100.0).coerceIn(0.0, 99.0)
                         job.percent = p
+
+                        val now = System.currentTimeMillis()
+                        val pInt = p.toInt()
+                        if (now - lastNotifTime > 750 || pInt >= lastPercent + 5) {
+                            lastNotifTime = now
+                            lastPercent = pInt
+                            val elapsedSec = ((now - startTime) / 1000.0).coerceAtLeast(0.1)
+                            val spdBytesPerSec = downloaded / elapsedSec
+                            val spdStr = if (spdBytesPerSec > 1024 * 1024) {
+                                String.format("%.1f MB/s", spdBytesPerSec / (1024.0 * 1024.0))
+                            } else {
+                                String.format("%d KB/s", (spdBytesPerSec / 1024.0).toLong())
+                            }
+                            job.speed = spdStr
+
+                            nm.notify(
+                                notifId,
+                                buildNotification(
+                                    notifId = notifId,
+                                    jobId = job.id,
+                                    title = job.title,
+                                    text = "$pInt% · $spdStr",
+                                    progress = pInt,
+                                    indeterminate = false,
+                                    ongoing = true
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -381,7 +572,7 @@ class DownloadService : Service() {
                 title = job.title,
                 site = job.site,
                 thumb = job.thumb,
-                quality = "photo",
+                quality = job.quality,
                 file = targetFile.absolutePath,
                 size = targetFile.length()
             )
@@ -398,7 +589,7 @@ class DownloadService : Service() {
                 job.error = errMsg
                 val errorNotif = NotificationCompat.Builder(this, CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_notification)
-                    .setContentTitle("Photo download failed")
+                    .setContentTitle("Download failed")
                     .setContentText(errMsg)
                     .setSubText(job.title)
                     .setOngoing(false)
@@ -450,12 +641,11 @@ class DownloadService : Service() {
                 if (h != null) {
                     addOption(
                         "-f",
-                        "bestvideo[height<=$h][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=$h]+bestaudio/best[height<=$h]/best"
+                        "bestvideo[height<=$h]+bestaudio/best[height<=$h]/best"
                     )
                 } else {
-                    addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best")
+                    addOption("-f", "bestvideo+bestaudio/best")
                 }
-                addOption("--merge-output-format", "mp4")
             }
         }
 
