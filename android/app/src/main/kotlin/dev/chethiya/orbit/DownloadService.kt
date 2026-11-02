@@ -466,10 +466,17 @@ class DownloadService : Service() {
                     throw java.io.IOException("The link did not return a photo.")
                 }
                 val ext = when {
-                    contentType.contains("png", true) || imgUrl.contains(".png", true) -> "png"
-                    contentType.contains("webp", true) || imgUrl.contains(".webp", true) -> "webp"
-                    contentType.contains("gif", true) || imgUrl.contains(".gif", true) -> "gif"
-                    contentType.contains("avif", true) || imgUrl.contains(".avif", true) -> "avif"
+                    contentType.contains("png", true) -> "png"
+                    contentType.contains("webp", true) -> "webp"
+                    contentType.contains("gif", true) -> "gif"
+                    contentType.contains("avif", true) -> "avif"
+                    contentType.contains("heic", true) || contentType.contains("heif", true) -> "heic"
+                    contentType.contains("bmp", true) -> "bmp"
+                    imgUrl.contains(".png", true) -> "png"
+                    imgUrl.contains(".webp", true) -> "webp"
+                    imgUrl.contains(".gif", true) -> "gif"
+                    imgUrl.contains(".avif", true) -> "avif"
+                    imgUrl.contains(".heic", true) -> "heic"
                     else -> "jpg"
                 }
 
@@ -766,6 +773,11 @@ class DownloadService : Service() {
                 } else {
                     addOption("-f", "bestvideo+bestaudio/best")
                 }
+                // Full quality stays full quality: resolution is never traded away, but an
+                // MP4/H.264 stream wins at the same size and the result is always a .mp4.
+                addOption("--format-sort", "res,ext:mp4:m4a")
+                addOption("--merge-output-format", "mp4")
+                addOption("--remux-video", "mp4")
             }
         }
 
