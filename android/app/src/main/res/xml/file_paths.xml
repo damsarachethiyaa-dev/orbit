@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <external-path name="external_files" path="." />
-    <external-files-path name="app_external_files" path="." />
-    <external-cache-path name="app_external_cache" path="." />
-    <files-path name="internal_files" path="." />
-    <cache-path name="internal_cache" path="." />
+    <!-- Only the folders Orbit actually shares from; never the whole app sandbox. -->
+    <external-path name="public_downloads" path="Download/Orbit/" />
+    <external-files-path name="app_downloads" path="Download/" />
+    <files-path name="vault" path="vault/" />
+    <external-cache-path name="update_external" path="update/" />
+    <cache-path name="convert" path="convert/" />
 </paths>
