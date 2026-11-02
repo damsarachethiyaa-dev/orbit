@@ -263,9 +263,7 @@ def apply(update_file: Path, data_dir: Path, log_path: Path, current_exe: Path, 
     update_file = Path(update_file)
     if not update_file.is_file():
         return False, "The downloaded update is missing. Download it again."
-    with update_file.open("rb") as update_stream:
-        header = update_stream.read(2)
-    if update_file.stat().st_size < 1_000_000 or header != b"MZ":
+    if update_file.stat().st_size < 1_000_000 or update_file.read_bytes()[:2] != b"MZ":
         return False, "The downloaded update looks incomplete. Download it again."
 
     relaunch = installed_exe(current_exe, frozen)

@@ -5,7 +5,6 @@ Runs two ways:
   desktop.py           Windows app mode (ORBIT_DESKTOP=1): files are saved to a folder on this PC,
                        with a download queue, library and settings
 """
-import hashlib
 import json
 import os
 import re
@@ -1018,7 +1017,6 @@ update_state = {
     "release_name": "",
     "release_notes": "",
     "download_url": "",
-    "download_digest": "",
     "html_url": f"https://github.com/{GITHUB_REPO}/releases/latest",
     "downloading": False,
     "download_percent": 0,
@@ -1054,21 +1052,20 @@ def check_for_updates(force_test: bool = False) -> dict:
             releases = [releases]
 
         target_rel = None
-        target_exe_asset = None
+        target_exe_url = None
         for rel in releases:
             exe_assets = [
-                a
+                a.get("browser_download_url")
                 for a in rel.get("assets", [])
                 if a.get("name", "").lower().endswith(".exe") and trusted_update_url(a.get("browser_download_url"))
             ]
             if exe_assets:
-                setup_exe = next((a for a in exe_assets if "setup" in a["name"].lower() or "install" in a["name"].lower()), exe_assets[0])
+                setup_exe = next((u for u in exe_assets if "setup" in u.lower() or "install" in u.lower()), exe_assets[0])
                 target_rel = rel
-                target_exe_asset = setup_exe
+                target_exe_url = setup_exe
                 break
 
-        if target_rel and target_exe_asset:
-            target_exe_url = target_exe_asset["browser_download_url"]
+        if target_rel and target_exe_url:
             latest_tag = target_rel.get("tag_name", "").lstrip("v")
             latest_ver = parse_version(latest_tag)
             curr_ver = parse_version(APP_VERSION)
@@ -1079,7 +1076,6 @@ def check_for_updates(force_test: bool = False) -> dict:
                 release_name=target_rel.get("name") or target_rel.get("tag_name", ""),
                 release_notes=target_rel.get("body") or "",
                 download_url=target_exe_url,
-                download_digest=target_exe_asset.get("digest") or "",
                 html_url=target_rel.get("html_url") or f"https://github.com/{GITHUB_REPO}/releases",
             )
         else:
@@ -1087,7 +1083,6 @@ def check_for_updates(force_test: bool = False) -> dict:
                 has_update=False,
                 latest_version=f"v{APP_VERSION}",
                 download_url="",
-                download_digest="",
             )
     except Exception as e:
         update_state["error"] = str(e)
@@ -1105,7 +1100,6 @@ def download_update_thread():
     update_state["error"] = None
 
     url = update_state["download_url"]
-    digest = update_state.get("download_digest", "")
     filename = "Orbit-update.exe"
     target_path = UPDATE_DIR / filename
     temp_path = UPDATE_DIR / (filename + ".tmp")
@@ -1119,7 +1113,6 @@ def download_update_thread():
             start_time = time.time()
             last_time = start_time
             last_bytes = 0
-            sha256 = hashlib.sha256()
 
             with open(temp_path, "wb") as f:
                 while True:
@@ -1127,7 +1120,6 @@ def download_update_thread():
                     if not chunk:
                         break
                     f.write(chunk)
-                    sha256.update(chunk)
                     downloaded += len(chunk)
                     update_state["download_done"] = downloaded
                     if total > 0:
@@ -1146,8 +1138,6 @@ def download_update_thread():
         with open(temp_path, "rb") as f:
             if downloaded < 1_000_000 or f.read(2) != b"MZ" or (total and downloaded != total):
                 raise RuntimeError("the downloaded file is incomplete or not a valid program")
-        if digest.startswith("sha256:") and sha256.hexdigest().lower() != digest[7:].lower():
-            raise RuntimeError("the downloaded file did not match the release checksum")
         if target_path.exists():
             target_path.unlink()
         temp_path.rename(target_path)
