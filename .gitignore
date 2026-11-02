@@ -22,3 +22,6 @@ android/app/*.jks
 # Temporary scratch & debug files
 scratch_*
 
+
+# Local APK build copy
+/Orbit.apk
