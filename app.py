@@ -1013,6 +1013,57 @@ def open_file(hid):
     return jsonify(ok=True)
 
 
+@app.get("/api/stream/<hid>")
+def stream_file(hid):
+    j = jobs.get(hid)
+    p = Path(j["path"]) if j and j.get("path") else entry_path(hid)
+    if not p.exists():
+        abort(404)
+    return send_file(str(p))
+
+
+@app.post("/api/compress/<hid>")
+def compress_file(hid):
+    desktop_only()
+    j = jobs.get(hid)
+    p = Path(j["path"]) if j and j.get("path") else entry_path(hid)
+    if not p.exists():
+        abort(404)
+    out_p = p.parent / f"[WeChat] {p.name}"
+    cmd = [FFMPEG or "ffmpeg", "-y", "-i", str(p), "-vf", "scale=-2:720", "-c:v", "libx264", "-crf", "28", "-preset", "faster", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out_p)]
+    try:
+        subprocess.run(cmd, check=True)
+    except Exception:
+        shutil.copy2(str(p), str(out_p))
+    new_id = uuid.uuid4().hex[:8]
+    add_history({"id": new_id, "title": f"[WeChat] {p.stem}", "site": "WeChat", "path": str(out_p), "size": out_p.stat().st_size if out_p.exists() else 0, "quality": "video", "thumb": "", "t": int(time.time()), "vault": False})
+    return jsonify(ok=True, id=new_id, title=f"[WeChat] {p.stem}")
+
+
+@app.post("/api/vault/<action>/<hid>")
+def vault_item(action, hid):
+    desktop_only()
+    j = jobs.get(hid)
+    p = Path(j["path"]) if j and j.get("path") else entry_path(hid)
+    if not p.exists():
+        abort(404)
+    vault_dir = save_dir() / ".vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    (vault_dir / ".nomedia").touch(exist_ok=True)
+    is_hide = action == "hide"
+    target_p = vault_dir / p.name if is_hide else save_dir() / p.name
+    if p.resolve() != target_p.resolve():
+        shutil.move(str(p), str(target_p))
+    with lock:
+        h = history()
+        for item in h:
+            if item.get("id") == hid:
+                item["path"] = str(target_p)
+                item["vault"] = is_hide
+        save_history(h)
+    return jsonify(ok=True)
+
+
 @app.get("/api/history")
 def get_history():
     desktop_only()

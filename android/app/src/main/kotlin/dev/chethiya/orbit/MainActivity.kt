@@ -1,6 +1,7 @@
 package dev.chethiya.orbit
 
 import android.Manifest
+import android.media.MediaScannerConnection
 import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.app.DownloadManager
@@ -164,6 +165,26 @@ class MainActivity : AppCompatActivity() {
                     if (path.isEmpty() || path == "index.html") {
                         path = "desktop/index.html"
                     }
+                    if (path.startsWith("stream/")) {
+                        val id = path.removePrefix("stream/").substringBefore("/")
+                        val filePath = findFileForId(id)
+                        if (filePath != null) {
+                            val f = File(filePath)
+                            if (f.exists()) {
+                                val ext = f.extension.lowercase()
+                                val mime = when (ext) {
+                                    "mp3", "m4a", "wav" -> "audio/" + ext
+                                    else -> "video/mp4"
+                                }
+                                val h = mutableMapOf(
+                                    "Accept-Ranges" to "bytes",
+                                    "Content-Type" to mime,
+                                    "Access-Control-Allow-Origin" to "https://orbit.local"
+                                )
+                                return WebResourceResponse(mime, null, 200, "OK", h, f.inputStream())
+                            }
+                        }
+                    }
                     return try {
                         val stream = assets.open(path)
                         val mime = guessMime(path)
@@ -174,9 +195,9 @@ class MainActivity : AppCompatActivity() {
                         )
                         if (path == "desktop/index.html") {
                             headers["Content-Security-Policy"] =
-                                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-                                "img-src 'self' https: data:; font-src 'self'; connect-src 'none'; " +
-                                "frame-src 'none'; object-src 'none'; base-uri 'none'"
+                                "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+                                "img-src 'self' https: data:; font-src 'self'; media-src 'self' https: data: blob:; connect-src 'self' https:; " +
+                                "frame-src 'self' https:; object-src 'none'; base-uri 'none'"
                         }
                         WebResourceResponse(
                             mime,
@@ -411,6 +432,18 @@ class MainActivity : AppCompatActivity() {
                 val id = path.removePrefix("/api/share/")
                 shareMediaById(id)
                 JSONObject().put("ok", true)
+            }
+            path.startsWith("/api/compress/") -> {
+                val id = path.removePrefix("/api/compress/")
+                compressMediaForChat(id)
+            }
+            path.startsWith("/api/vault/hide/") -> {
+                val id = path.removePrefix("/api/vault/hide/")
+                toggleVaultItem(id, true)
+            }
+            path.startsWith("/api/vault/restore/") -> {
+                val id = path.removePrefix("/api/vault/restore/")
+                toggleVaultItem(id, false)
             }
             path.startsWith("/api/reveal/") -> {
                 openDownloadsFolder()
@@ -960,7 +993,7 @@ class MainActivity : AppCompatActivity() {
                     } catch (_: Exception) {}
                 }
 
-                val commonInstallers = listOf(
+    val commonInstallers = listOf(
                     "com.google.android.packageinstaller",
                     "com.android.packageinstaller",
                     "com.google.android.apps.packageinstaller",
@@ -987,4 +1020,90 @@ class MainActivity : AppCompatActivity() {
     private fun cleanErrorMessage(raw: String?): String {
         return OrbitEngine.cleanErrorMessage(raw)
     }
+
+    private fun compressMediaForChat(id: String): JSONObject {
+        val path = findFileForId(id) ?: throw IllegalArgumentException("File not found on device.")
+        val inputFile = File(path)
+        if (!inputFile.exists()) throw IllegalArgumentException("Source file missing.")
+        val saveDir = currentSaveDir()
+        val outName = "[WeChat]_${inputFile.nameWithoutExtension}.mp4"
+        val outFile = File(saveDir, outName)
+
+        val ffmpegBin = listOf(
+            File(applicationInfo.nativeLibraryDir, "libffmpeg.so"),
+            File(noBackupFilesDir, "youtubedl-android/packages/ffmpeg/ffmpeg")
+        ).firstOrNull { it.exists() }
+
+        val outId = UUID.randomUUID().toString().substring(0, 8)
+        if (ffmpegBin != null) {
+            try {
+                val cmd = listOf(
+                    ffmpegBin.absolutePath,
+                    "-y",
+                    "-i", inputFile.absolutePath,
+                    "-vf", "scale=-2:720",
+                    "-c:v", "libx264",
+                    "-crf", "28",
+                    "-preset", "faster",
+                    "-c:a", "aac",
+                    "-b:a", "128k",
+                    "-movflags", "+faststart",
+                    outFile.absolutePath
+                )
+                val proc = ProcessBuilder(cmd).redirectErrorStream(true).start()
+                proc.waitFor(45, TimeUnit.SECONDS)
+            } catch (_: Exception) {
+                inputFile.copyTo(outFile, overwrite = true)
+            }
+        } else {
+            inputFile.copyTo(outFile, overwrite = true)
+        }
+
+        val publishedPath = OrbitEngine.publishMedia(applicationContext, outFile)
+        OrbitEngine.addHistoryItem(
+            context = applicationContext,
+            id = outId,
+            title = "[WeChat] ${inputFile.nameWithoutExtension}",
+            site = "WeChat",
+            thumb = "",
+            quality = "video",
+            file = publishedPath,
+            size = outFile.length()
+        )
+        return JSONObject().apply {
+            put("ok", true)
+            put("id", outId)
+            put("title", "[WeChat] ${inputFile.nameWithoutExtension}")
+        }
+    }
+
+    private fun toggleVaultItem(id: String, hide: Boolean): JSONObject {
+        val path = findFileForId(id) ?: throw IllegalArgumentException("File not found.")
+        val file = File(path)
+        if (!file.exists()) throw IllegalArgumentException("Source file does not exist.")
+
+        val vaultDir = File(OrbitEngine.defaultSaveDir(this), ".vault").apply {
+            mkdirs()
+            File(this, ".nomedia").createNewFile()
+        }
+        val targetDir = if (hide) vaultDir else currentSaveDir()
+        val targetFile = File(targetDir, file.name)
+        if (file.absolutePath != targetFile.absolutePath) {
+            file.renameTo(targetFile)
+        }
+
+        val arr = readHistory()
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            if (item.optString("id") == id) {
+                item.put("file", targetFile.absolutePath)
+                item.put("vault", hide)
+                break
+            }
+        }
+        OrbitEngine.writeHistory(applicationContext, arr)
+        MediaScannerConnection.scanFile(applicationContext, arrayOf(file.absolutePath, targetFile.absolutePath), null, null)
+        return JSONObject().put("ok", true)
+    }
+
 }
