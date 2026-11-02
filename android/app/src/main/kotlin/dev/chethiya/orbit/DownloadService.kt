@@ -28,7 +28,6 @@ class DownloadService : Service() {
     companion object {
         const val ACTION_START_DOWNLOAD = "dev.chethiya.orbit.action.START_DOWNLOAD"
         const val ACTION_CANCEL_DOWNLOAD = "dev.chethiya.orbit.action.CANCEL_DOWNLOAD"
-        const val ACTION_RECOVER_DOWNLOADS = "dev.chethiya.orbit.action.RECOVER_DOWNLOADS"
         const val EXTRA_URL = "extra_url"
         const val EXTRA_JOB_ID = "extra_job_id"
         const val EXTRA_DIRECT_URL = "extra_direct_url"
@@ -55,47 +54,26 @@ class DownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_CANCEL_DOWNLOAD -> intent.getStringExtra(EXTRA_JOB_ID)?.let { cancelDownload(it) }
-            ACTION_START_DOWNLOAD -> beginDownload(intent, true)
-        }
-        // START_STICKY can restart us with a null Intent after process death.
-        // The journal restores every unfinished job, not just the most recent one.
-        recoverPendingDownloads()
-        if (activeJobsCount.get() == 0) {
-            stopSelf(startId)
+        if (intent == null) return START_NOT_STICKY
+
+        val action = intent.action
+        if (action == ACTION_CANCEL_DOWNLOAD) {
+            val jobId = intent.getStringExtra(EXTRA_JOB_ID)
+            if (!jobId.isNullOrBlank()) {
+                cancelDownload(jobId)
+            }
             return START_NOT_STICKY
         }
-        return START_STICKY
-    }
 
-    private fun recoverPendingDownloads() {
-        val completedIds = HashSet<String>()
-        val history = OrbitEngine.readHistory(applicationContext)
-        for (i in 0 until history.length()) {
-            history.optJSONObject(i)?.optString("id")?.let { completedIds.add(it) }
-        }
-        for (recoveryIntent in PendingDownloads.recoveryIntents(applicationContext)) {
-            val id = recoveryIntent.getStringExtra(EXTRA_JOB_ID) ?: continue
-            if (id in completedIds) {
-                PendingDownloads.remove(applicationContext, id)
-            } else if (!activeJobIds.contains(id)) {
-                beginDownload(recoveryIntent, false)
-            }
-        }
-    }
-
-    private fun beginDownload(intent: Intent, persist: Boolean) {
+        if (action == ACTION_START_DOWNLOAD) {
             val rawUrl = intent.getStringExtra(EXTRA_URL)
             val cleanUrl = OrbitEngine.extractUrl(rawUrl) ?: rawUrl
-            if (cleanUrl.isNullOrBlank()) return
+            if (cleanUrl.isNullOrBlank()) return START_NOT_STICKY
 
             var jobId = intent.getStringExtra(EXTRA_JOB_ID)
             if (jobId.isNullOrBlank()) {
                 jobId = UUID.randomUUID().toString().substring(0, 8)
             }
-            intent.putExtra(EXTRA_JOB_ID, jobId)
-            if (!activeJobIds.add(jobId)) return
             val notifId = (jobId.hashCode().and(0x7fffffff) % 90000) + 1000
 
             val passedTitle = intent.getStringExtra(EXTRA_TITLE)
@@ -127,6 +105,7 @@ class DownloadService : Service() {
             }
 
             activeJobsCount.incrementAndGet()
+            activeJobIds.add(jobId)
 
             val initialNotification = buildNotification(
                 notifId = notifId,
@@ -138,28 +117,22 @@ class DownloadService : Service() {
                 ongoing = true
             )
 
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startForeground(notifId, initialNotification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-                } else {
-                    startForeground(notifId, initialNotification)
-                }
-                if (persist) PendingDownloads.save(applicationContext, intent, jobId)
-                OrbitEngine.executor.execute {
-                    runDownload(notifId, job, cleanUrl, passedDirect, if (job.isImage) passedImageUrls else emptyList())
-                }
-            } catch (e: Exception) {
-                activeJobIds.remove(jobId)
-                activeJobsCount.decrementAndGet()
-                PendingDownloads.remove(applicationContext, jobId)
-                job.state = "error"
-                job.error = OrbitEngine.cleanErrorMessage(e.message)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(notifId, initialNotification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(notifId, initialNotification)
             }
+
+            OrbitEngine.executor.execute {
+                runDownload(notifId, job, cleanUrl, passedDirect, if (job.isImage) passedImageUrls else emptyList())
+            }
+        }
+
+        return START_NOT_STICKY
     }
 
     private fun cancelDownload(jobId: String) {
         activeJobIds.remove(jobId)
-        PendingDownloads.remove(applicationContext, jobId)
         OrbitEngine.jobsById[jobId]?.let {
             it.state = "cancelled"
         }
@@ -379,7 +352,6 @@ class DownloadService : Service() {
                 nm.notify(notifId, errorNotif)
             }
         } finally {
-            PendingDownloads.remove(applicationContext, job.id)
             activeJobIds.remove(job.id)
             if (activeJobsCount.decrementAndGet() <= 0) {
                 stopForeground(STOP_FOREGROUND_DETACH)

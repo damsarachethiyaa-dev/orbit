@@ -84,12 +84,6 @@ class MainActivity : AppCompatActivity() {
         val sharedLink = extractSharedUrl(intent)
         val sharedDownloadStarted = savedInstanceState == null && sharedLink != null &&
             startSharedDownload(sharedLink)
-        if (!sharedDownloadStarted && PendingDownloads.hasPending(applicationContext)) {
-            val recovery = Intent(this, DownloadService::class.java).apply {
-                action = DownloadService.ACTION_RECOVER_DOWNLOADS
-            }
-            runCatching { startService(recovery) }
-        }
 
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = Color.BLACK
@@ -394,7 +388,6 @@ class MainActivity : AppCompatActivity() {
                 cancelJob(id)
                 JSONObject().put("ok", true)
             }
-            path.startsWith("/api/retry/") -> retryJob(path.removePrefix("/api/retry/"))
             path.startsWith("/api/dismiss/") -> {
                 val id = path.removePrefix("/api/dismiss/")
                 dismissJob(id)
@@ -622,8 +615,7 @@ class MainActivity : AppCompatActivity() {
                     if (u.isNotBlank()) imgList.add(u)
                 }
             }
-            if (imgList.isEmpty() && directUrl.isNotBlank() &&
-                (directUrl != rawUrl || rawUrl.substringBefore('?').matches(Regex("(?i).*\\.(jpe?g|png|webp|gif)$")))) {
+            if (imgList.isEmpty() && directUrl.isNotBlank()) {
                 imgList.add(directUrl)
             }
         }
@@ -657,39 +649,13 @@ class MainActivity : AppCompatActivity() {
             putStringArrayListExtra(DownloadService.EXTRA_IMAGE_URLS, imgList)
         }
 
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ContextCompat.startForegroundService(this, serviceIntent)
-            } else {
-                startService(serviceIntent)
-            }
-        } catch (e: Exception) {
-            OrbitEngine.jobsById.remove(id)
-            OrbitEngine.activeJobs.remove(job)
-            throw e
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(this, serviceIntent)
+        } else {
+            startService(serviceIntent)
         }
 
         return JSONObject().put("id", id)
-    }
-
-    private fun retryJob(id: String): JSONObject {
-        val failed = OrbitEngine.jobsById[id]
-            ?: throw IllegalArgumentException("This download is no longer in the queue. Paste its link to try again.")
-        if (failed.state != "error" && failed.state != "cancelled") {
-            throw IllegalArgumentException("Only failed or cancelled downloads can be retried.")
-        }
-        // Resolve the source again. CDN and direct media links can expire between attempts.
-        val request = JSONObject().apply {
-            put("url", failed.url)
-            put("quality", failed.quality)
-            put("title", "Downloading…")
-            put("site", failed.site)
-            put("thumb", failed.thumb)
-            put("type", if (failed.isImage) "image" else "video")
-        }
-        val result = startDownloadJob(request)
-        dismissJob(id)
-        return result
     }
 
     private fun cancelJob(id: String) {

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Orbit</title>
 <link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/fonts/fonts.css">
@@ -34,20 +34,20 @@
       </svg>
     </div>
     <nav class="nav" id="nav">
-      <button type="button" class="nav-btn on" data-view="download" aria-pressed="true">
+      <button class="nav-btn on" data-view="download">
         <span class="nav-icon-wrap">
           <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>
           <b class="badge" id="qBadge" hidden>0</b>
         </span>
         <span>Download</span>
       </button>
-      <button type="button" class="nav-btn" data-view="library" aria-pressed="false">
+      <button class="nav-btn" data-view="library">
         <span class="nav-icon-wrap">
           <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         </span>
         <span>Library</span>
       </button>
-      <button type="button" class="nav-btn" data-view="settings" aria-pressed="false">
+      <button class="nav-btn" data-view="settings">
         <span class="nav-icon-wrap">
           <svg viewBox="0 0 24 24"><path d="M4 6h9m4 0h3M4 12h3m4 0h9M4 18h11m4 0h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
         </span>
@@ -212,27 +212,6 @@
         </div>
         <button class="ghost-btn" id="libClear" hidden>Clear list</button>
       </header>
-      <div class="lib-tools" id="libTools" hidden>
-        <label class="lib-search">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
-          <input type="search" id="libSearch" placeholder="Search downloads" aria-label="Search downloads">
-        </label>
-        <div class="lib-filters" role="group" aria-label="Filter media type">
-          <button type="button" class="on" data-filter="all" aria-pressed="true">All</button>
-          <button type="button" data-filter="video" aria-pressed="false">Videos</button>
-          <button type="button" data-filter="photo" aria-pressed="false">Photos</button>
-          <button type="button" data-filter="audio" aria-pressed="false">Audio</button>
-        </div>
-        <div class="lib-selects">
-          <select id="libPlatform" aria-label="Filter platform"><option value="all">All platforms</option></select>
-          <select id="libSort" aria-label="Sort downloads">
-            <option value="newest">Newest first</option>
-            <option value="oldest">Oldest first</option>
-            <option value="title">Title A–Z</option>
-            <option value="size">Largest first</option>
-          </select>
-        </div>
-      </div>
       <ul class="lib" id="lib"></ul>
       <div class="empty" id="libEmpty" hidden>
         <div class="orb">
@@ -242,8 +221,8 @@
             <circle fill="currentColor" cx="27" cy="27" r="4"/>
           </svg>
         </div>
-        <p id="libEmptyTitle">Your library is empty</p>
-        <span class="empty-sub" id="libEmptyText">Completed downloads will be saved here and in your phone's Gallery</span>
+        <p>Your library is empty</p>
+        <span class="empty-sub">Completed downloads will be saved here and in your phone's Gallery</span>
       </div>
     </section>
 
