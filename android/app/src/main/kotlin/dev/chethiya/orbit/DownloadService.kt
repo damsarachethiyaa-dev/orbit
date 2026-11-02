@@ -196,6 +196,7 @@ class DownloadService : Service() {
             .setSubText("Orbit Downloader")
             .setOngoing(ongoing)
             .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setContentIntent(pApp)
             .setProgress(100, progress, indeterminate)
             .apply {
@@ -763,6 +764,8 @@ class DownloadService : Service() {
                 addOption("-x")
                 addOption("--audio-format", "mp3")
                 addOption("--audio-quality", "0")
+                addOption("--embed-thumbnail")
+                addOption("--embed-metadata")
             } else {
                 val h = job.quality.toIntOrNull()
                 if (h != null) {
@@ -890,6 +893,18 @@ class DownloadService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = contentResolver.getType(contentUri) ?: mime
+            putExtra(Intent.EXTRA_STREAM, contentUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val pShare = PendingIntent.getActivity(
+            this,
+            notifId + 2,
+            Intent.createChooser(shareIntent, "Share with..."),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val completeNotif = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Download complete")
@@ -897,7 +912,10 @@ class DownloadService : Service() {
             .setSubText("Saved to your media library")
             .setOngoing(false)
             .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setContentIntent(pOpen)
+            .addAction(android.R.drawable.ic_menu_view, "Open", pOpen)
+            .addAction(android.R.drawable.ic_menu_share, "Share", pShare)
             .build()
 
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
