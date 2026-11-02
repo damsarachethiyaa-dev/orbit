@@ -11,8 +11,8 @@ android {
     applicationId = "dev.chethiya.orbit"
     minSdk = 24
     targetSdk = 34
-    versionCode = 118
-    versionName = "1.0.18"
+    versionCode = 119
+    versionName = "1.0.19"
 
     ndk {
       abiFilters += listOf("arm64-v8a", "armeabi-v7a")
