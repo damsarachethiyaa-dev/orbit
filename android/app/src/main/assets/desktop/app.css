@@ -1531,3 +1531,498 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline-color:
   .quality-setting-card { padding: 15px; }
   .quality-chip-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+
+/* ==========================================================================
+   Orbit v1.0.17 Upgrades: Themes, Player, Vault, AI Assistant, Browser
+   ========================================================================== */
+
+/* ---------------- THEMES & ACCENT PALETTES ---------------- */
+:root {
+  --accent: #00f2fe;
+  --accent-glow: rgba(0, 242, 254, 0.25);
+  --accent-soft: rgba(0, 242, 254, 0.12);
+  --accent-border: rgba(0, 242, 254, 0.35);
+}
+
+[data-theme="amoled"] {
+  --bg: #000000 !important;
+  --surface: #050505 !important;
+  --surface-raised: #0b0b0b !important;
+  --surface-active: #141414 !important;
+  background-color: #000000 !important;
+}
+
+[data-accent="cyan"] {
+  --accent: #00f2fe;
+  --accent-glow: rgba(0, 242, 254, 0.35);
+  --accent-soft: rgba(0, 242, 254, 0.12);
+  --accent-border: rgba(0, 242, 254, 0.35);
+}
+
+[data-accent="purple"] {
+  --accent: #a855f7;
+  --accent-glow: rgba(168, 85, 247, 0.35);
+  --accent-soft: rgba(168, 85, 247, 0.12);
+  --accent-border: rgba(168, 85, 247, 0.35);
+}
+
+[data-accent="green"] {
+  --accent: #07c160;
+  --accent-glow: rgba(7, 193, 96, 0.35);
+  --accent-soft: rgba(7, 193, 96, 0.14);
+  --accent-border: rgba(7, 193, 96, 0.38);
+}
+
+[data-accent="gold"] {
+  --accent: #f59e0b;
+  --accent-glow: rgba(245, 158, 11, 0.35);
+  --accent-soft: rgba(245, 158, 11, 0.12);
+  --accent-border: rgba(245, 158, 11, 0.35);
+}
+
+[data-accent="red"] {
+  --accent: #ef4444;
+  --accent-glow: rgba(239, 68, 68, 0.35);
+  --accent-soft: rgba(239, 68, 68, 0.12);
+  --accent-border: rgba(239, 68, 68, 0.35);
+}
+
+[data-accent="white"] {
+  --accent: #ffffff;
+  --accent-glow: rgba(255, 255, 255, 0.25);
+  --accent-soft: rgba(255, 255, 255, 0.1);
+  --accent-border: rgba(255, 255, 255, 0.3);
+}
+
+.orbit-dot, .orbit-dot2 { fill: var(--accent) !important; }
+.nav-btn.on { color: var(--accent); border-color: var(--accent-border); }
+.nav-btn.on::before { background: var(--accent) !important; box-shadow: 0 0 14px var(--accent-glow) !important; }
+.nav-btn.on .nav-icon-wrap { color: var(--accent) !important; background: var(--accent-soft) !important; border-color: var(--accent-border) !important; }
+.btn-fetch, .btn-update-now, .ghost-btn.primary, .iconbtn.primary { border-color: var(--accent-border); }
+.ghost-btn.primary:hover, .iconbtn.primary:hover { background: var(--accent); color: #000; border-color: var(--accent); }
+.badge { background: var(--accent) !important; color: #000 !important; }
+.bar i { background: var(--accent) !important; }
+.q.processing .bar i { background: linear-gradient(90deg, rgba(255, 255, 255, 0.1), var(--accent), rgba(255, 255, 255, 0.1)) !important; }
+.q-chip.on { border-color: var(--accent) !important; background: var(--accent-soft) !important; }
+.q-chip.on .q-res { color: var(--accent) !important; }
+.highlight { color: var(--accent) !important; }
+
+/* Theme Selector Grid in Settings */
+.theme-palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.theme-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: all 0.2s var(--spring);
+}
+.theme-chip:hover { border-color: var(--line-strong); transform: translateY(-2px); }
+.theme-chip.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 15px var(--accent-glow);
+}
+.theme-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+.theme-label { font-size: 0.7rem; font-weight: 700; color: #fff; }
+
+/* ---------------- IN-APP MEDIA PLAYER MODAL ---------------- */
+.player-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.2s var(--spring);
+}
+.player-window {
+  width: 100%;
+  max-width: 860px;
+  background: #0d0d0d;
+  border: 1px solid var(--line-strong);
+  border-radius: 24px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 40px var(--accent-glow);
+}
+.player-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+.player-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 65%;
+}
+.player-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.player-body {
+  position: relative;
+  width: 100%;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+  max-height: 60vh;
+}
+.player-video {
+  width: 100%;
+  max-height: 60vh;
+  outline: none;
+}
+.player-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+.speed-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.speed-pill {
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  color: var(--dim);
+  cursor: pointer;
+}
+.speed-pill.on {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
+/* ---------------- PRIVATE VAULT ---------------- */
+.vault-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.vault-header-tabs {
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 99px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  gap: 4px;
+}
+.vault-tab {
+  padding: 6px 16px;
+  border-radius: 99px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--dim);
+  cursor: pointer;
+  transition: all 0.2s var(--spring);
+}
+.vault-tab.on {
+  background: var(--accent);
+  color: #000;
+}
+.vault-locked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  text-align: center;
+  gap: 16px;
+}
+.vault-icon-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+.vault-icon-circle svg { width: 32px; height: 32px; }
+.vault-pin-dots {
+  display: flex;
+  gap: 12px;
+  margin: 10px 0;
+}
+.pin-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  transition: all 0.2s ease;
+}
+.pin-dot.filled {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+.pin-numpad {
+  display: grid;
+  grid-template-columns: repeat(3, 72px);
+  gap: 12px;
+  margin-top: 10px;
+}
+.pin-num {
+  height: 56px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  font-size: 1.25rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.pin-num:active {
+  background: var(--accent);
+  color: #000;
+  transform: scale(0.92);
+}
+
+/* ---------------- BUILT-IN VIDEO SNIFFER BROWSER ---------------- */
+.browser-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 8px 14px;
+}
+.browser-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 0.9rem;
+  outline: none;
+}
+.browser-shortcuts {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+.b-chip {
+  padding: 6px 14px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--dim);
+  cursor: pointer;
+}
+.b-chip:hover {
+  border-color: var(--accent);
+  color: #fff;
+}
+.sniffer-card {
+  position: relative;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  min-height: 400px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+}
+.sniffer-badge {
+  position: absolute;
+  bottom: 24px;
+  background: var(--accent);
+  color: #000;
+  font-weight: 700;
+  padding: 12px 24px;
+  border-radius: 99px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 10px 30px var(--accent-glow);
+  cursor: pointer;
+  animation: pulseSniffer 2s infinite;
+}
+.sniffer-badge svg { width: 18px; height: 18px; stroke: #000; }
+@keyframes pulseSniffer {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); box-shadow: 0 15px 40px var(--accent-glow); }
+}
+
+/* ---------------- ORBIT AI ASSISTANT ---------------- */
+.ai-view {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px);
+}
+.ai-chat-box {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-right: 6px;
+}
+.ai-msg {
+  display: flex;
+  gap: 12px;
+  max-width: 85%;
+}
+.ai-msg.bot { align-self: flex-start; }
+.ai-msg.user { align-self: flex-end; flex-direction: row-reverse; }
+.ai-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--accent);
+}
+.ai-bubble {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 12px 16px;
+  color: #fff;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.ai-msg.user .ai-bubble {
+  background: var(--accent);
+  color: #000;
+  font-weight: 600;
+  border: none;
+}
+.ai-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.ai-action-chip {
+  padding: 6px 12px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line-strong);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ai-action-chip:hover {
+  background: var(--accent);
+  color: #000;
+}
+.ai-input-bar {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.ai-input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 12px 18px;
+  color: #fff;
+  font-size: 0.9rem;
+  outline: none;
+}
+.ai-input:focus { border-color: var(--accent); }
+
+/* ---------------- FLOATING QUICK DOWNLOAD BUBBLE ---------------- */
+.float-bubble {
+  position: fixed;
+  bottom: 96px;
+  right: 20px;
+  z-index: 999;
+  background: var(--surface-raised);
+  border: 1px solid var(--accent-border);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6), 0 0 20px var(--accent-glow);
+  border-radius: 99px;
+  padding: 8px 16px 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  animation: slideUp 0.3s var(--spring);
+}
+.float-bubble .bubble-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.float-bubble .bubble-icon svg { width: 16px; height: 16px; stroke: #000; }
+.float-bubble .bubble-text {
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: #fff;
+}
