@@ -9,7 +9,7 @@
   ### Desktop App — Windows 10 & 11
 
   **Paste any link. Download anything.**  
-  *Untouched 4K / 8K & lossless MP3 • 100% offline localhost • Zero subscriptions • Zero cloud leaks.*
+  *Original-quality downloads up to 4K • MP3 extraction • No accounts, no ads, no telemetry.*
 
   <br />
 
@@ -74,12 +74,21 @@ Experience the full interactive editorial website, live 4K walkthrough player, p
 ## ✨ Features
 
 - **⚡ Instant Clipboard Sensing:** Orbit automatically detects copied video links from your clipboard. Paste, press Fetch, and choose your resolution.
-- **🎬 Untouched 4K / 8K, 60fps & HDR:** Downloads raw video streams directly from the source CDNs with zero transcoding loss.
-- **🎵 Lossless Audio Extraction:** One-click conversion to pristine 320kbps MP3 with automatic ID3 metadata and album art.
+- **🎬 Original-quality video:** Fetches the source streams (4K and 60fps where the site offers them) without re-encoding. On Android, the optional **Share-ready** mode saves H.264 + AAC so files play in WeChat, WhatsApp and Telegram; resolutions that only exist as VP9/AV1 are converted to H.264 after download.
+- **🎵 MP3 extraction:** One-tap MP3 at LAME's highest variable-bitrate setting, with metadata and album art embedded. (MP3 is lossy; the source audio is re-encoded.)
 - **📦 Zero Dependencies, Pre-Bundled:** Includes embedded FFmpeg, FFprobe, and the yt-dlp core. No terminal, no Python, no codec installs needed.
 - **📥 Parallel Multi-Download Queue:** Run concurrent background downloads with live throughput speeds (MB/s), elapsed time, and ETA countdowns.
 - **📁 Local-First Media Library:** Automatically catalogs your finished downloads with thumbnails. One click to play or reveal directly in Windows Explorer.
-- **🔒 100% Private & Offline:** Zero sign-ups, zero accounts, zero cloud telemetry, and zero ads. Nothing ever leaves your PC.
+- **🔒 Private by design:** No sign-ups, no accounts, no telemetry and no ads. Orbit only contacts the sites you download from and GitHub (to check for updates).
+
+### 📱 Android (v1.0.20)
+
+- **Share-ready by default:** videos are saved as H.264 + AAC MP4. Orbit reads each file with FFmpeg and records its real codec, so the Library shows what you actually have (for example `1080p · H.264 · Share-ready`).
+- **Share sheet:** send straight to WeChat, WhatsApp or Telegram (shown only if installed), or convert a copy: *share-ready* (same resolution) or *smaller for chats* (up to 720p).
+- **Background downloads that survive:** one foreground notification, automatic retry on connection drops, resume of direct downloads, and unfinished jobs are restored if Android kills the app.
+- **Search tab:** results come from YouTube via yt-dlp. There is no AI involved.
+
+Orbit does not promise to fit any app's file-size limit; chat apps change their limits, so check the one you use.
 
 ---
 
@@ -93,7 +102,7 @@ Experience the full interactive editorial website, live 4K walkthrough player, p
 
 ## 🚀 Quick Start (Windows)
 
-1. Download the Windows Setup Installer from **[Releases (v1.0.9)](https://github.com/damsarachethiyaa-dev/orbit/releases/download/v1.0.9/Orbit-Setup.exe)** (`Orbit-Setup.exe`).
+1. Download the Windows Setup Installer (`Orbit-Setup.exe`) from the **[latest release that includes it](https://github.com/damsarachethiyaa-dev/orbit/releases)**.
 2. Double-click `Orbit-Setup.exe` to install Orbit and launch it.
 3. Paste any video or audio link (YouTube, TikTok, Instagram, X, Vimeo, Reddit, Twitch, etc.) and hit **Fetch**.
 4. Choose **Video** (4K, 1440p, 1080p, 720p) or **Audio** (MP3) and click **Download**.
