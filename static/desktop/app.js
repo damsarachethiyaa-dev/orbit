@@ -14,13 +14,31 @@ const BRANDS = {
   douyin: ["douyin", "#010101"], kuaishou: ["kuaishou", "#ff4400"], kwai: ["kuaishou", "#ff4400"],
 };
 const BRAND_KEYS = Object.keys(BRANDS).sort((a, b) => b.length - a.length);
-function brand(site) {
+const BRAND_DOMAINS = [
+  [/^(?:.+\.)?(?:tiktok\.com|tiktokcdn\.com|muscdn\.com)$/, "tiktok"],
+  [/^(?:.+\.)?(?:instagram\.com|cdninstagram\.com)$/, "instagram"],
+  [/^(?:.+\.)?(?:youtube\.com|youtu\.be|ytimg\.com)$/, "youtube"],
+  [/^(?:.+\.)?(?:facebook\.com|fb\.watch)$/, "facebook"],
+  [/^(?:.+\.)?(?:twitter\.com|x\.com|twimg\.com)$/, "twitter"],
+  [/^(?:.+\.)?pinterest\.com$/, "pinterest"],
+  [/^(?:.+\.)?reddit\.com$/, "reddit"],
+  [/^(?:.+\.)?vimeo\.com$/, "vimeo"],
+];
+function brand(site, url = "", thumb = "") {
   const k = String(site || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const hit = BRAND_KEYS.find(b => b.length <= 2 ? k === b : k.startsWith(b));   // short keys must match exactly ("x" is not "xvideos")
-  return hit ? BRANDS[hit] : null;
+  if (hit) return BRANDS[hit];
+  for (const source of [url, thumb]) {
+    try {
+      const host = new URL(source).hostname.toLowerCase();
+      const domain = BRAND_DOMAINS.find(([pattern]) => pattern.test(host));
+      if (domain) return BRANDS[domain[1]];
+    } catch {}
+  }
+  return null;
 }
-const icoStyle = site => { const b = brand(site); return b ? `--i:url(/icons/${b[0]}.svg);` : "--i:url(/desktop/video.svg);"; };
-const icoHtml = site => `<span class="ico" style="${icoStyle(site)}"></span>`;
+const icoStyle = (site, url, thumb) => { const b = brand(site, url, thumb); return b ? `--i:url(/icons/${b[0]}.svg);` : "--i:url(/desktop/video.svg);"; };
+const icoHtml = (site, url, thumb) => `<span class="ico" role="img" aria-label="${esc(site || "Media")}" style="${icoStyle(site, url, thumb)}"></span>`;
 
 /* ---------------- helpers ---------------- */
 const fmtTime = s => { if (!s) return ""; const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = Math.floor(s % 60); return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); };
@@ -246,10 +264,12 @@ function renderQueue(list) {
     let li = rows.get(j.id);
     if (!li) {
       li = document.createElement("li"); li.dataset.id = j.id;
-      li.innerHTML = `${icoHtml(j.site)}<div class="q-main"><p class="q-title"></p><p class="q-sub mono"></p><div class="bar"><i></i></div></div><div class="q-act"></div>`;
+      li.innerHTML = `${icoHtml(j.site, j.url, j.thumb)}<div class="q-main"><p class="q-title"></p><p class="q-sub mono"></p><div class="bar"><i></i></div></div><div class="q-act"></div>`;
       rows.set(j.id, li);
     }
     li.className = "q " + j.state;
+    li.querySelector(".ico").style.cssText = icoStyle(j.site, j.url, j.thumb);
+    li.querySelector(".ico").setAttribute("aria-label", j.site || "Media");
     li.querySelector(".q-title").textContent = j.title || "Downloading…";
     const isImg = j.isImage || j.quality === "image" || j.quality === "photo";
     const q = isImg ? "Photo" : (QLABEL[j.quality] || "");
@@ -323,33 +343,106 @@ async function loadLib() {
     list = list.filter(e => !e.vault);
   }
   $("#libCount").textContent = list.length ? `${list.length} download${list.length > 1 ? "s" : ""}` : "Saved on your device storage";
-  $("#libEmpty").hidden = list.length > 0; $("#libClear").hidden = !list.length;
-  $("#lib").innerHTML = list.map(e => `
-    <li class="l${e.exists ? "" : " gone"}" data-id="${esc(e.id)}" data-vault="${e.vault ? "true" : "false"}">
-      <div class="thumb-wrap">
-        ${e.thumb ? `<img class="thumb" src="${esc(e.thumb)}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">` : ""}
-        <span class="ico" style="${icoStyle(e.site)}; ${e.thumb ? 'display:none;' : ''}"></span>
+  $("#libEmpty").hidden = list.length > 0;
+  if ($("#libClear")) $("#libClear").hidden = !list.length;
+
+  $("#lib").innerHTML = list.map(e => {
+    const kind = e.quality === "image" || e.quality === "photo" ? "Photo" : (QLABEL[e.quality] || "Best");
+    const isVid = kind !== "Photo" && kind !== "Audio";
+    return `
+    <li class="lib-card ${e.exists ? "" : "gone"}" data-id="${esc(e.id)}" data-vault="${e.vault ? "true" : "false"}" data-title="${esc(e.title)}">
+      <div class="lib-card-top" data-act="player">
+        <div class="lib-card-thumb">
+          ${icoHtml(e.site, e.url, e.thumb)}
+          <div class="lib-play-badge">${svg(I.play)}</div>
+        </div>
+        <div class="lib-card-info">
+          <h4 class="lib-card-title">${esc(e.title)}</h4>
+          <div class="lib-card-meta">
+            <span class="lib-meta-pill ${e.exists ? "saved" : "missing"}">${e.exists ? "Saved" : "Missing"}</span>
+            <span class="lib-meta-tag">${fmtSize(e.size)}</span>
+            <span class="lib-meta-tag">${kind}</span>
+            ${e.vault ? '<span class="lib-meta-tag vault">🔒 Vault</span>' : ""}
+          </div>
+        </div>
       </div>
-      <div class="q-main"><p class="q-title">${esc(e.title)}</p>
-        <p class="q-sub mono">${esc([e.site, fmtSize(e.size), new Date(e.t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" }), e.exists ? "" : "File moved or deleted"].filter(Boolean).join("  ·  "))}</p></div>
-      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="player" title="In-App Player">${svg(I.play)}<span>Watch</span></button><button class="iconbtn" data-act="compress" title="Compress for WeChat">${svg(I.compress)}<span>WeChat</span></button><button class="iconbtn" data-act="vault" title="${e.vault ? "Restore" : "Vault"}">${svg(I.lock)}<span>${e.vault ? "Restore" : "Vault"}</span></button><button class="iconbtn" data-act="share" title="Share">${svg(I.share)}<span>Share</span></button><button class="iconbtn" data-act="show" title="Folder">${svg(I.folder)}<span>Show</span></button>` : ""}
-        <button class="iconbtn sq danger" data-act="remove" title="Remove from list">${svg(I.trash)}</button></div>
-    </li>`).join("");
+      <div class="lib-card-actions">
+        <button class="lib-act-btn primary" data-act="player" title="Play Video">
+          ${svg(I.play)}
+          <span>Play</span>
+        </button>
+        <button class="lib-act-btn" data-act="share" title="Share Media">
+          ${svg(I.share)}
+          <span>Share</span>
+        </button>
+        ${isVid ? `<button class="lib-act-btn" data-act="compress" title="Compress for WeChat / Chat Apps">
+          ${svg(I.compress)}
+          <span>Compress</span>
+        </button>` : ""}
+        <button class="lib-act-btn" data-act="vault" title="${e.vault ? "Restore to Public Gallery" : "Lock to Private Vault"}">
+          ${svg(I.lock)}
+          <span>${e.vault ? "Restore" : "Vault"}</span>
+        </button>
+        <button class="lib-act-btn danger" data-act="remove" title="Delete File">
+          ${svg(I.x)}
+          <span>Delete</span>
+        </button>
+      </div>
+    </li>`;
+  }).join("");
 }
+
 $("#lib").addEventListener("click", async e => {
-  const b = e.target.closest("[data-act]"); if (!b) return;
+  const card = e.target.closest(".lib-card, li");
+  if (!card) return;
+  const id = card.dataset.id;
+  const title = card.dataset.title || card.querySelector(".lib-card-title, .q-title")?.textContent || "Media";
+  const isVault = card.dataset.vault === "true";
+
+  const btn = e.target.closest("[data-act]");
+  const act = btn ? btn.dataset.act : null;
+
+  // If clicked top card area -> launch In-App Player!
+  if (!act && e.target.closest(".lib-card-top")) {
+    triggerHaptic();
+    openInAppPlayer(id, title, "video");
+    return;
+  }
+  if (!act) return;
+
   triggerHaptic();
-  const id = b.closest("li").dataset.id;
   try {
-    if (b.dataset.act === "open") await api("/api/open/" + id, {});
-    if (b.dataset.act === "show") await api("/api/reveal/" + id, {});
-    if (b.dataset.act === "remove") {
-      if (!confirm("Permanently delete this video from your device storage?")) return;
-      await api("/api/history/" + id, undefined, "DELETE");
-      toast("Video deleted from device");
-      loadLib();
+    if (act === "player") {
+      openInAppPlayer(id, title, "video");
+      return;
     }
-  } catch { toast("That file isn't there any more"); loadLib(); }
+    if (act === "share") {
+      await api("/api/share/" + id, {});
+      return;
+    }
+    if (act === "compress") {
+      compressMedia(id);
+      return;
+    }
+    if (act === "vault") {
+      toggleVaultItem(id, isVault);
+      return;
+    }
+    if (act === "show" || act === "open") {
+      await api("/api/open/" + id, {});
+      return;
+    }
+    if (act === "remove") {
+      if (!confirm("Permanently delete this file from your device storage?")) return;
+      await api("/api/history/" + id, undefined, "DELETE");
+      toast("File deleted from device");
+      loadLib();
+      return;
+    }
+  } catch (err) {
+    toast("Action error: " + (err.message || "File unavailable"));
+    loadLib();
+  }
 });
 async function clearLib() {
   triggerHaptic();
@@ -363,6 +456,10 @@ function applySettings(s) {
   cfg = s;
   $("#setPath").textContent = s.save_dir;
   $("#folderName").textContent = baseName(s.save_dir) || s.save_dir;
+  if (window.OrbitAndroid) {
+    $("#setChange").hidden = true;
+    $("#setOpen").hidden = true;
+  }
   const q = s.default_quality || "best";
   $("#setQuality").value = q;
   $$("#setQualityGrid .q-chip").forEach(c => {
@@ -450,24 +547,13 @@ $("#setChange").onclick = async () => {
   if (!dir) return;
   try { applySettings(await api("/api/settings", { save_dir: dir })); toast("Save folder updated"); } catch (err) { toast(err.message); }
 };
-const openFolder = () => api("/api/open-folder", {}).catch(() => toast("Couldn't open the folder"));
+const openFolder = () => window.OrbitAndroid
+  ? toast("Find Orbit media in your phone's Pictures, Movies or Music folders")
+  : api("/api/open-folder", {}).catch(() => toast("Couldn't open the folder"));
 $("#setOpen").onclick = openFolder; $("#openFolder").onclick = openFolder;
 
 /* ---------------- in-app auto updater ---------------- */
 let updatePoll = null;
-let updateWatchdog = null;
-
-// Orbit exits as soon as the updater takes over, so a dropped request is expected
-const offlineError = err => /failed to fetch|networkerror|load failed|connection|network|empty response|unexpected end/i.test(String((err && err.message) || err));
-
-function setUpdateUi(mode, label) {
-  const main = $("#ubBtn"), side = $("#setUpdateNow");
-  [main, side].forEach(b => {
-    if (!b) return;
-    if (mode) b.dataset.mode = mode;
-    if (label) b.textContent = label;
-  });
-}
 
 async function checkUpdate(manual = false) {
   try {
@@ -489,14 +575,11 @@ function renderUpdate(data, manual = false) {
     $("#ubMeta").textContent = data.release_name || "A new release is ready to download.";
     b.hidden = false;
     if (sInfo) sInfo.textContent = `Update available: ${data.latest_version} (Current: v${data.current_version})`;
-    if (sBtn) { sBtn.hidden = false; sBtn.disabled = false; sBtn.textContent = "Update"; }
-    $("#ubBtn").disabled = false;
-    setUpdateUi("download", "Update Now");
+    if (sBtn) sBtn.hidden = false;
   } else {
     b.hidden = true;
     if (sInfo) sInfo.textContent = `Orbit v${data.current_version} — You are on the latest version`;
     if (sBtn) sBtn.hidden = true;
-    setUpdateUi("download", "");
     if (manual) toast("You're on the latest version of Orbit!");
   }
 }
@@ -509,8 +592,8 @@ async function startUpdate() {
   const sBtn = $("#setUpdateNow");
 
   btn.disabled = true;
-  if (sBtn) sBtn.disabled = true;
-  setUpdateUi("download", "Downloading...");
+  btn.textContent = "Downloading...";
+  if (sBtn) { sBtn.disabled = true; sBtn.textContent = "Downloading..."; }
   meter.hidden = false;
 
   try {
@@ -525,20 +608,21 @@ async function startUpdate() {
           stat.textContent = pct + "%";
           const speedTxt = s.download_speed ? `Downloading (${s.download_speed})` : "Downloading...";
           btn.textContent = speedTxt;
-          if (sBtn) sBtn.textContent = `${pct}%`;
+          if (sBtn) { sBtn.textContent = `${pct}%`; }
         } else if (s.ready_to_install) {
           clearInterval(updatePoll);
           fill.style.width = "100%";
           stat.textContent = "100%";
           btn.disabled = false;
-          if (sBtn) sBtn.disabled = false;
-          setUpdateUi("install", window.OrbitAndroid ? "Install Update" : "Restart & Install");
+          const instTxt = window.OrbitAndroid ? "Install Update" : "Restart & Install";
+          btn.textContent = instTxt;
+          if (sBtn) { sBtn.disabled = false; sBtn.textContent = instTxt; }
           toast("Update downloaded! Click to install.");
         } else if (s.error) {
           clearInterval(updatePoll);
           btn.disabled = false;
-          if (sBtn) sBtn.disabled = false;
-          setUpdateUi("download", "Retry Update");
+          btn.textContent = "Retry Update";
+          if (sBtn) { sBtn.disabled = false; sBtn.textContent = "Retry"; }
           toast("Update failed: " + s.error);
         }
       } catch (e) {
@@ -547,8 +631,8 @@ async function startUpdate() {
     }, 300);
   } catch (err) {
     btn.disabled = false;
-    if (sBtn) sBtn.disabled = false;
-    setUpdateUi("download", "Update Now");
+    btn.textContent = "Update Now";
+    if (sBtn) { sBtn.disabled = false; sBtn.textContent = "Update"; }
     meter.hidden = true;
     toast("Could not start update: " + err.message);
   }
@@ -557,59 +641,36 @@ async function startUpdate() {
 async function applyUpdate() {
   const btn = $("#ubBtn");
   const sBtn = $("#setUpdateNow");
-  const android = !!window.OrbitAndroid;
-
   btn.disabled = true;
-  if (sBtn) sBtn.disabled = true;
-  setUpdateUi("install", android ? "Opening Installer..." : "Restarting...");
-  clearTimeout(updateWatchdog);
-  toast(android ? "Opening package installer..." : "Restarting Orbit to apply the update...");
-
-  let detail = "";
+  const opTxt = window.OrbitAndroid ? "Opening Installer..." : "Restarting...";
+  btn.textContent = opTxt;
+  if (sBtn) { sBtn.disabled = true; sBtn.textContent = opTxt; }
   try {
-    const res = await api("/api/update/apply", {}, "POST");
-    detail = (res && res.message) || "";
+    toast(window.OrbitAndroid ? "Opening package installer..." : "Restarting Orbit to apply update...");
+    await api("/api/update/apply", {}, "POST");
+    if (window.OrbitAndroid) {
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = "Install Update";
+        if (sBtn) { sBtn.disabled = false; sBtn.textContent = "Install Update"; }
+      }, 3000);
+    }
   } catch (err) {
-    if (!offlineError(err)) { offerManualInstall(err.message); return; }
-  }
-
-  if (android) {
-    setTimeout(() => {
-      if (sBtn) sBtn.disabled = false;
-      btn.disabled = false;
-      setUpdateUi("install", "Install Update");
-    }, 3000);
-    return;
-  }
-
-  // still on this page after 15s means Orbit never restarted: fall back to the setup wizard
-  updateWatchdog = setTimeout(() => offerManualInstall(detail), 15000);
-}
-
-async function offerManualInstall(reason) {
-  const btn = $("#ubBtn");
-  const sBtn = $("#setUpdateNow");
-
-  clearTimeout(updateWatchdog);
-  btn.disabled = false;
-  if (sBtn) sBtn.disabled = false;
-  setUpdateUi("install", "Install Update");
-
-  const question = reason
-    ? `Orbit could not apply the update automatically.\n\n${reason}\n\nOpen the downloaded installer now?`
-    : "Orbit did not restart, so the update was not applied automatically.\n\nOpen the downloaded installer now?";
-  if (!confirm(question)) { toast("Update not installed. Try again from Settings."); return; }
-  try {
-    await api("/api/update/manual-install", {}, "POST");
-    toast("Opening the Orbit installer...");
-  } catch (err) {
-    toast("Could not open the installer: " + err.message);
+    btn.disabled = false;
+    const retryTxt = window.OrbitAndroid ? "Install Update" : "Restart & Install";
+    btn.textContent = retryTxt;
+    if (sBtn) { sBtn.disabled = false; sBtn.textContent = retryTxt; }
+    toast("Failed: " + err.message);
   }
 }
 
 $("#ubBtn").addEventListener("click", () => {
-  if ($("#ubBtn").dataset.mode === "install") applyUpdate();
-  else startUpdate();
+  const t = $("#ubBtn").textContent;
+  if (t.includes("Restart") || t.includes("Install")) {
+    applyUpdate();
+  } else {
+    startUpdate();
+  }
 });
 
 $("#ubClose").addEventListener("click", () => {
@@ -621,8 +682,10 @@ if (sCheck) sCheck.addEventListener("click", () => checkUpdate(true));
 
 const sUpdateNow = $("#setUpdateNow");
 if (sUpdateNow) sUpdateNow.addEventListener("click", () => {
-  if (sUpdateNow.dataset.mode === "install") applyUpdate();
-  else {
+  const t = sUpdateNow.textContent;
+  if (t.includes("Restart") || t.includes("Install")) {
+    applyUpdate();
+  } else {
     $("#updateBanner").hidden = false;
     startUpdate();
   }
@@ -635,8 +698,9 @@ const params = new URLSearchParams(location.search);
 if (params.has("shot")) removeEventListener("focus", checkClip);
 if (["#library", "#settings"].includes(location.hash)) show(location.hash.slice(1));
 loadSettings();
-urlEl.focus();
+if (!params.has("shared")) urlEl.focus();
 if (params.get("url")) { urlEl.value = params.get("url"); fetchInfo(); }
+else if (params.has("shared")) { show("download"); toast("Download started in background"); }
 else if (!params.has("shot")) checkClip();
 
 window.onOrbitShareLink = sharedUrl => {
@@ -657,7 +721,8 @@ setTimeout(() => checkUpdate(false), 2500);
    ========================================================================== */
 
 /* ---------------- 1. Themes & Accent Palette ---------------- */
-let currentAccent = localStorage.getItem("orbit_accent") || "cyan";
+let currentAccent = localStorage.getItem("orbit_accent") || "blue";
+if (currentAccent !== "blue" && currentAccent !== "white") currentAccent = "blue";
 let isAmoled = localStorage.getItem("orbit_amoled") === "true";
 
 function applyThemeColors() {
@@ -856,93 +921,54 @@ async function toggleVaultItem(id, currentVaultStatus) {
   }
 }
 
-/* ---------------- 5. Built-in Video Sniffer Browser ---------------- */
-const bUrl = $("#bUrl");
-const sniffBadge = $("#sniffBadge");
-let detectedSniffUrl = "";
-
-function checkSniffUrl(u) {
-  if (!u) return;
-  const isVideoSite = /tiktok\.com|youtube\.com|youtu\.be|instagram\.com|twitter\.com|x\.com|pinterest\.com|bilibili\.com|vimeo\.com|facebook\.com/i.test(u);
-  if (isVideoSite || /\.(mp4|m3u8|webm)(\?.*)?$/i.test(u)) {
-    detectedSniffUrl = u;
-    if (sniffBadge) {
-      sniffBadge.hidden = false;
-      $("#sniffText").textContent = "Download Video Detected!";
-    }
-  }
-}
-
-$("#bGo")?.addEventListener("click", () => {
-  let val = (bUrl?.value || "").trim();
-  if (!val) return;
-  if (!/^https?:\/\//i.test(val)) {
-    val = val.includes(".") ? "https://" + val : "https://www.google.com/search?q=" + encodeURIComponent(val);
-  }
-  bUrl.value = val;
-  checkSniffUrl(val);
-  toast("Browsing: " + val);
-});
-
-bUrl?.addEventListener("keydown", e => {
-  if (e.key === "Enter") $("#bGo")?.click();
-});
-
-$$(".b-chip").forEach(c => {
-  c.addEventListener("click", () => {
-    triggerHaptic();
-    const u = c.dataset.url;
-    if (bUrl) bUrl.value = u;
-    checkSniffUrl(u);
-  });
-});
-
-sniffBadge?.addEventListener("click", () => {
-  triggerHaptic();
-  if (detectedSniffUrl) {
-    show("download");
-    urlEl.value = detectedSniffUrl;
-    fetchInfo();
-    sniffBadge.hidden = true;
-  }
-});
-
-/* ---------------- 6. Orbit AI Assistant Chatbot ---------------- */
+/* ---------------- 6. Real Orbit AI Assistant ---------------- */
 const aiChatBox = $("#aiChatBox");
 const aiInput = $("#aiInput");
+const aiSendBtn = $("#aiSend");
+const aiClearBtn = $("#aiClearChat");
 
-function appendAiMessage(role, text, actions = []) {
+function appendAiMessage(role, htmlContent, results = []) {
   if (!aiChatBox) return;
   const msgDiv = document.createElement("div");
   msgDiv.className = "ai-msg " + role;
 
-  const bubbleDiv = document.createElement("div");
-  bubbleDiv.className = "ai-bubble";
-  bubbleDiv.innerHTML = text;
-
-  if (actions && actions.length > 0) {
-    const actRow = document.createElement("div");
-    actRow.className = "ai-actions-row";
-    actions.forEach(a => {
-      const chip = document.createElement("button");
-      chip.className = "ai-action-chip";
-      chip.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg> <span>${esc(a.label)}</span>`;
-      chip.onclick = () => {
-        triggerHaptic();
-        show("download");
-        urlEl.value = a.url;
-        fetchInfo();
-      };
-      actRow.appendChild(chip);
-    });
-    bubbleDiv.appendChild(actRow);
-  }
-
   if (role === "bot") {
     const avatar = document.createElement("div");
     avatar.className = "ai-avatar";
-    avatar.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>`;
+    avatar.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>`;
     msgDiv.appendChild(avatar);
+  }
+
+  const bubbleDiv = document.createElement("div");
+  bubbleDiv.className = "ai-bubble";
+  bubbleDiv.innerHTML = htmlContent;
+
+  if (results && results.length > 0) {
+    const resGrid = document.createElement("div");
+    resGrid.className = "ai-result-grid";
+    resGrid.innerHTML = results.map(r => `
+      <div class="ai-result-card">
+        <img class="ai-result-thumb" src="${esc(r.thumb)}" alt="${esc(r.title)}" onerror="this.src='/icons/youtube.svg'" loading="lazy" />
+        <div class="ai-result-info">
+          <div class="ai-result-title" title="${esc(r.title)}">${esc(r.title)}</div>
+          <div class="ai-result-meta">
+            <span>${esc(r.uploader || "YouTube")}</span>
+            ${r.duration ? `<span>· ${esc(r.duration)}</span>` : ""}
+          </div>
+          <div class="ai-result-actions">
+            <button class="ai-dl-btn primary" data-url="${esc(r.url)}" data-title="${esc(r.title)}" data-q="best">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>
+              <span>Download</span>
+            </button>
+            <button class="ai-dl-btn" data-url="${esc(r.url)}" data-title="${esc(r.title)}" data-q="audio">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              <span>MP3</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    `).join("");
+    bubbleDiv.appendChild(resGrid);
   }
 
   msgDiv.appendChild(bubbleDiv);
@@ -950,48 +976,38 @@ function appendAiMessage(role, text, actions = []) {
   aiChatBox.scrollTop = aiChatBox.scrollHeight;
 }
 
-function processAiQuery(query) {
+async function processAiQuery(query) {
   const q = String(query || "").trim();
   if (!q) return;
   appendAiMessage("user", esc(q));
+  aiChatBox.scrollTop = aiChatBox.scrollHeight;
 
-  const urlMatch = q.match(/https?:\/\/[^\s]+/i);
-  if (urlMatch) {
-    setTimeout(() => {
-      appendAiMessage("bot", `I detected a media link in your request! You can download it directly with Orbit:`, [
-        { label: "Download Link with Orbit", url: urlMatch[0] }
-      ]);
-    }, 400);
-    return;
-  }
+  const thinkingMsg = document.createElement("div");
+  thinkingMsg.className = "ai-msg bot";
+  thinkingMsg.id = "aiThinking";
+  thinkingMsg.innerHTML = `
+    <div class="ai-avatar"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg></div>
+    <div class="ai-bubble" style="color: var(--dim); font-style: italic;">Orbit AI is searching live...</div>
+  `;
+  aiChatBox.appendChild(thinkingMsg);
+  aiChatBox.scrollTop = aiChatBox.scrollHeight;
 
-  const lower = q.toLowerCase();
-  setTimeout(() => {
-    if (lower.includes("wechat") || lower.includes("compress")) {
-      appendAiMessage("bot", `<b>WeChat Video Sharing Guide:</b><br>
-1. WeChat requires standard video-first stream layout (Stream 0 video, Stream 1 audio). Orbit v1.0.16+ automatically handles this!<br>
-2. WeChat has a 25MB file limit for instant chat messages.<br>
-3. Use Orbit's <b>"Compress for WeChat"</b> button in your Library or Player to automatically transcode any video under 25MB in crisp H.264 with +faststart!`);
-    } else if (lower.includes("travel") || lower.includes("tiktok")) {
-      appendAiMessage("bot", `Here are some trending travel and scenic video collections on TikTok you can explore:`, [
-        { label: "TikTok #TravelViral", url: "https://www.tiktok.com/tag/travel" },
-        { label: "TikTok #Wanderlust", url: "https://www.tiktok.com/tag/wanderlust" }
-      ]);
-    } else if (lower.includes("lofi") || lower.includes("music") || lower.includes("study")) {
-      appendAiMessage("bot", `Here are top royalty-free and relaxing lofi study tracks:`, [
-        { label: "Lofi Girl Study Stream", url: "https://www.youtube.com/watch?v=jfKfPfyJRdk" },
-        { label: "ChillHop Radio Beats", url: "https://www.youtube.com/watch?v=5yx6BWlEVcY" }
-      ]);
+  try {
+    const resp = await api("/api/ai/query", { query: q });
+    $("#aiThinking")?.remove();
+    if (resp && resp.text) {
+      appendAiMessage("bot", resp.text, resp.results || []);
     } else {
-      appendAiMessage("bot", `I found relevant videos for "<b>${esc(q)}</b>". Explore and copy any video link to download:`, [
-        { label: `Search YouTube: "${q}"`, url: `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}` },
-        { label: `Search TikTok: "${q}"`, url: `https://www.tiktok.com/search?q=${encodeURIComponent(q)}` }
-      ]);
+      appendAiMessage("bot", "Could not complete the search. Please try again.");
     }
-  }, 450);
+  } catch (err) {
+    $("#aiThinking")?.remove();
+    appendAiMessage("bot", "Error connecting to Orbit AI: " + (err.message || "Network error"));
+  }
+  aiChatBox.scrollTop = aiChatBox.scrollHeight;
 }
 
-$("#aiSend")?.addEventListener("click", () => {
+aiSendBtn?.addEventListener("click", () => {
   const val = aiInput?.value;
   if (!val) return;
   aiInput.value = "";
@@ -999,14 +1015,55 @@ $("#aiSend")?.addEventListener("click", () => {
 });
 
 aiInput?.addEventListener("keydown", e => {
-  if (e.key === "Enter") $("#aiSend")?.click();
+  if (e.key === "Enter") {
+    e.preventDefault();
+    aiSendBtn?.click();
+  }
 });
 
-$$(".ai-action-chip").forEach(c => {
-  c.addEventListener("click", () => {
+aiClearBtn?.addEventListener("click", () => {
+  triggerHaptic();
+  if (aiChatBox) {
+    aiChatBox.innerHTML = `
+      <div class="ai-msg bot">
+        <div class="ai-avatar"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg></div>
+        <div class="ai-bubble">Chat cleared. Ask me to find any video, topic, or song!</div>
+      </div>
+    `;
+  }
+});
+
+aiChatBox?.addEventListener("click", async e => {
+  const sugBtn = e.target.closest(".ai-sug-chip");
+  if (sugBtn) {
     triggerHaptic();
-    processAiQuery(c.dataset.prompt);
-  });
+    processAiQuery(sugBtn.dataset.query);
+    return;
+  }
+
+  const dlBtn = e.target.closest(".ai-dl-btn");
+  if (dlBtn) {
+    triggerHaptic();
+    const url = dlBtn.dataset.url;
+    const title = dlBtn.dataset.title;
+    const quality = dlBtn.dataset.q || "best";
+    if (!url) return;
+    try {
+      dlBtn.textContent = "Starting...";
+      dlBtn.disabled = true;
+      await api("/api/download", {
+        url: url,
+        quality: quality,
+        title: title
+      });
+      toast("Orbit: Download started in background!");
+      dlBtn.textContent = "Queued ✓";
+    } catch (err) {
+      toast("Download error: " + err.message);
+      dlBtn.textContent = "Retry";
+      dlBtn.disabled = false;
+    }
+  }
 });
 
 /* ---------------- 7. Floating Quick Download Bubble ---------------- */
