@@ -23,7 +23,7 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
 import updater  # Windows in-app updater helper
 
-APP_VERSION = "1.0.13"
+APP_VERSION = "1.0.14"
 GITHUB_REPO = "damsarachethiyaa-dev/orbit"
 
 DESKTOP = os.environ.get("ORBIT_DESKTOP") == "1"
@@ -56,6 +56,61 @@ QUALITY = {
     "image": "image",
     "photo": "photo",
 }
+
+# Quality rule: resolution always wins (pixels are never traded for a container), but at
+# the same resolution an MP4/H.264 stream is preferred so the file plays everywhere.
+# Anything that still lands in another container is remuxed, never re-encoded.
+FORMAT_SORT = ["res", "ext:mp4:m4a", "codec:avc:m4a"]
+
+_IMAGE_EXTS = {"jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "heif", "bmp"}
+
+
+def image_ext(content_type: str, data: bytes, url: str = "") -> str:
+    """Extension of the bytes we actually received, so a photo is never mislabelled."""
+    ct = (content_type or "").lower()
+    for needle, ext in (("png", "png"), ("webp", "webp"), ("gif", "gif"), ("avif", "avif"),
+                        ("heic", "heic"), ("heif", "heif"), ("bmp", "bmp"), ("jpeg", "jpg")):
+        if needle in ct:
+            return ext
+    head = data[:16] if isinstance(data, bytes) else b""
+    if head.startswith(b"\x89PNG"):
+        return "png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return "gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    if head[4:8] == b"ftyp":
+        brand = head[8:12].lower()
+        if brand in (b"avif", b"avis"):
+            return "avif"
+        if brand in (b"heic", b"heix", b"hevc", b"mif1"):
+            return "heic"
+    if head.startswith(b"BM"):
+        return "bmp"
+    suffix = os.path.splitext(url.split("?")[0])[1].lstrip(".").lower()
+    return suffix if suffix in _IMAGE_EXTS else "jpg"
+
+
+def remux_to_mp4(path: Path) -> Path:
+    """Stream-copy a non-MP4 video into MP4 so every video download is a .mp4."""
+    if not FFMPEG or path.suffix.lower() == ".mp4" or not path.is_file():
+        return path
+    target = path.with_suffix(".mp4")
+    try:
+        import subprocess
+        subprocess.run(
+            [str(Path(FFMPEG) / "ffmpeg.exe"), "-y", "-loglevel", "error", "-i", str(path),
+             "-c", "copy", "-movflags", "+faststart", str(target)],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=0x08000000 if os.name == "nt" else 0,
+        )
+        path.unlink(missing_ok=True)
+        return target
+    except Exception:
+        target.unlink(missing_ok=True)
+        return path
 
 # ---------------------------------------------------------------- settings + library (desktop)
 SETTINGS_FILE, HISTORY_FILE = DATA / "settings.json", DATA / "history.json"
@@ -257,12 +312,12 @@ def resolve_xiaohongshu(url: str):
             for item in img_list:
                 if not item:
                     continue
-                u = item.get("urlOriginal") or item.get("urlDefault") or item.get("url") or ""
-                info_list = item.get("infoList") or []
-                if info_list:
-                    best = info_list[-1].get("url")
-                    if best:
-                        u = best
+                u = item.get("urlOriginal") or ""
+                if not u:
+                    info_list = item.get("infoList") or []
+                    if info_list:
+                        u = info_list[-1].get("url") or ""
+                u = u or item.get("urlDefault") or item.get("url") or ""
                 if u:
                     image_urls.append(u)
             thumb = image_urls[0] if image_urls else (img_list[0].get("url", "") if img_list else "")
@@ -452,7 +507,8 @@ def resolve_instagram(url: str):
             title = ((info.get("caption") or {}).get("text") or "Instagram Post")[:80]
             mtype = info.get("media_type") or 0
             cands = (info.get("image_versions2") or {}).get("candidates") or []
-            top_img = (cands[0].get("url") if cands else None) or info.get("display_uri") or ""
+            best_cand = max(cands, key=lambda c: (c.get("width") or 0) * (c.get("height") or 0), default=None)
+            top_img = (best_cand.get("url") if best_cand else None) or info.get("display_uri") or ""
             if mtype == 1 and top_img:
                 return {
                     "title": title,
@@ -488,7 +544,8 @@ def resolve_instagram(url: str):
                 for item in cm:
                     it_type = item.get("media_type") or 1
                     it_cands = (item.get("image_versions2") or {}).get("candidates") or []
-                    it_img = (it_cands[0].get("url") if it_cands else None) or item.get("display_uri") or ""
+                    it_best = max(it_cands, key=lambda c: (c.get("width") or 0) * (c.get("height") or 0), default=None)
+                    it_img = (it_best.get("url") if it_best else None) or item.get("display_uri") or ""
                     it_vids = item.get("video_versions") or []
                     it_vid = it_vids[0].get("url") if it_vids else ""
                     if it_type == 1 and it_img:
@@ -710,13 +767,13 @@ def run_job(jid: str, url: str, quality: str):
                     return
                 req = urllib.request.Request(img_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
                 with urllib.request.urlopen(req, timeout=20) as resp:
-                    ct = resp.headers.get_content_type()
-                    ext = "png" if "png" in ct else ("webp" if "webp" in ct else ("gif" if "gif" in ct else "jpg"))
-                    suffix = f" ({idx + 1} of {total})" if total > 1 else ""
-                    target = save_path / f"{title}{suffix} [{jid}].{ext}"
-                    with open(target, "wb") as f:
-                        f.write(resp.read())
-                    saved_files.append(target)
+                    data = resp.read()   # untouched bytes: a photo is never re-encoded
+                    ext = image_ext(resp.headers.get_content_type(), data, img_url)
+                suffix = f" ({idx + 1} of {total})" if total > 1 else ""
+                target = save_path / f"{title}{suffix} [{jid}].{ext}"
+                with open(target, "wb") as f:
+                    f.write(data)
+                saved_files.append(target)
                 job["percent"] = min(99.0, round(((idx + 1) / total) * 100.0, 1))
 
             first_file = saved_files[0] if saved_files else None
@@ -740,9 +797,11 @@ def run_job(jid: str, url: str, quality: str):
         try:
             import urllib.request, re
             title = re.sub(r'[\\/:*?"<>|]', "_", job.get("title") or "orbit_video").strip().rstrip(". ")[:80] or f"orbit_{jid}"
-            target = out / f"{title} [{jid}].mp4"
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
             with urllib.request.urlopen(req, timeout=25) as resp:
+                ctype = (resp.headers.get_content_type() or "").lower()
+                vext = "webm" if "webm" in ctype else ("mov" if "quicktime" in ctype else "mp4")
+                target = out / f"{title} [{jid}].{vext}"
                 total_len = int(resp.headers.get("content-length") or 0)
                 downloaded = 0
                 with open(target, "wb") as f:
@@ -758,6 +817,7 @@ def run_job(jid: str, url: str, quality: str):
                         downloaded += len(chunk)
                         if total_len > 0:
                             job["percent"] = min(99.0, round((downloaded / total_len) * 100.0, 1))
+            target = remux_to_mp4(target)
             sz = target.stat().st_size
             job.update({"state": "done", "percent": 100, "file": target.name, "path": str(target) if DESKTOP else None, "size": sz, "error": None})
             if DESKTOP:
@@ -788,6 +848,7 @@ def run_job(jid: str, url: str, quality: str):
 
     opts = {
         "format": QUALITY.get(quality, QUALITY["best"]),
+        "format_sort": FORMAT_SORT,
         "outtmpl": str(out / "%(title).120B.%(ext)s"),
         "noplaylist": True,
         "quiet": True,
@@ -798,6 +859,9 @@ def run_job(jid: str, url: str, quality: str):
     }
     if FFMPEG:
         opts["ffmpeg_location"] = FFMPEG
+        if quality != "audio":
+            # guarantees a .mp4 container; the remuxer copies streams, it never re-encodes
+            opts["postprocessors"] = [{"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}]
     if quality == "audio":
         opts.pop("merge_output_format")
         opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3",
