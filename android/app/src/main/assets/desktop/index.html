@@ -47,6 +47,18 @@
         </span>
         <span>Library</span>
       </button>
+      <button class="nav-btn" data-view="browser">
+        <span class="nav-icon-wrap">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        </span>
+        <span>Browser</span>
+      </button>
+      <button class="nav-btn" data-view="assistant">
+        <span class="nav-icon-wrap">
+          <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+        </span>
+        <span>Orbit AI</span>
+      </button>
       <button class="nav-btn" data-view="settings">
         <span class="nav-icon-wrap">
           <svg viewBox="0 0 24 24"><path d="M4 6h9m4 0h3M4 12h3m4 0h9M4 18h11m4 0h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
@@ -203,6 +215,73 @@
       </div>
     </section>
 
+    <!-- BROWSER VIEW (Video Sniffer) -->
+    <section class="view" id="v-browser">
+      <header class="head">
+        <h1>Browser</h1>
+        <p class="head-sub">Explore video websites with automatic stream sniffing</p>
+      </header>
+      <div class="browser-view">
+        <div class="browser-bar">
+          <svg viewBox="0 0 24 24" width="18" height="18"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" class="browser-input" id="bUrl" placeholder="Enter website address or search term..." />
+          <button class="ghost-btn primary" id="bGo" style="padding: 4px 14px; height: 32px;">Go</button>
+        </div>
+        <div class="browser-shortcuts">
+          <button class="b-chip" data-url="https://www.tiktok.com">TikTok</button>
+          <button class="b-chip" data-url="https://www.youtube.com">YouTube</button>
+          <button class="b-chip" data-url="https://www.instagram.com">Instagram</button>
+          <button class="b-chip" data-url="https://twitter.com">X / Twitter</button>
+          <button class="b-chip" data-url="https://www.pinterest.com">Pinterest</button>
+          <button class="b-chip" data-url="https://www.bilibili.com">Bilibili</button>
+        </div>
+        <div class="sniffer-card">
+          <div class="orb" style="margin-bottom: 12px;">
+            <svg viewBox="0 0 64 64">
+              <path d="M47.47 25.93A20.5 20.5 0 1 1 28.07 6.53" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+              <circle class="orbit-dot" cx="41.5" cy="12.5" r="5" fill="#0099FF"/>
+              <circle fill="currentColor" cx="27" cy="27" r="4"/>
+            </svg>
+          </div>
+          <h3>Smart Video Sniffer Active</h3>
+          <p class="dim" style="max-width: 420px; margin-top: 6px; font-size: 0.85rem;">Browse any video site. When media is detected, the 1-tap download trigger will appear automatically.</p>
+          <div class="sniffer-badge" id="sniffBadge" hidden>
+            <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>
+            <span id="sniffText">Download Video Detected</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ORBIT AI ASSISTANT VIEW -->
+    <section class="view" id="v-assistant">
+      <header class="head">
+        <h1>Orbit AI</h1>
+        <p class="head-sub">Smart video search, formatting advice & automated link finder</p>
+      </header>
+      <div class="ai-view">
+        <div class="ai-chat-box" id="aiChatBox">
+          <div class="ai-msg bot">
+            <div class="ai-avatar">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+            </div>
+            <div class="ai-bubble">
+              Hello! I'm <b>Orbit AI</b>. Ask me to find trending video topics, discover music, or get tips on formatting videos for WeChat and WhatsApp.
+              <div class="ai-actions-row">
+                <button class="ai-action-chip" data-prompt="Find viral travel reels on TikTok">✨ Viral Travel Reels</button>
+                <button class="ai-action-chip" data-prompt="Recommend lofi study music on YouTube">🎧 Study Lofi Beats</button>
+                <button class="ai-action-chip" data-prompt="How do I compress videos under 25MB for WeChat?">💬 WeChat Compression Tips</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="ai-input-bar">
+          <input type="text" class="ai-input" id="aiInput" placeholder="Ask Orbit AI to find videos or give advice..." />
+          <button class="ghost-btn primary" id="aiSend" style="height: 44px; padding: 0 18px;">Send</button>
+        </div>
+      </div>
+    </section>
+
     <!-- LIBRARY VIEW -->
     <section class="view" id="v-library">
       <header class="head row-head">
@@ -210,8 +289,41 @@
           <h1>Library</h1>
           <p class="head-sub" id="libCount">Saved on your device storage</p>
         </div>
+        <div class="vault-header-tabs">
+          <button class="vault-tab on" id="tabLibAll">Public Media</button>
+          <button class="vault-tab" id="tabLibVault">Private Vault 🔒</button>
+        </div>
         <button class="ghost-btn" id="libClear" hidden>Clear list</button>
       </header>
+
+      <!-- VAULT LOCKED SCREEN -->
+      <div class="vault-locked" id="vaultLockScreen" hidden>
+        <div class="vault-icon-circle">
+          <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <h3 id="vaultLockTitle">Private Vault Locked</h3>
+        <p class="dim" id="vaultLockDesc" style="font-size: 0.82rem; max-width: 320px;">Enter your 4-digit PIN to access private media hidden from the phone gallery.</p>
+        <div class="vault-pin-dots">
+          <span class="pin-dot" id="pdot0"></span>
+          <span class="pin-dot" id="pdot1"></span>
+          <span class="pin-dot" id="pdot2"></span>
+          <span class="pin-dot" id="pdot3"></span>
+        </div>
+        <div class="pin-numpad" id="pinPad">
+          <button class="pin-num" data-n="1">1</button>
+          <button class="pin-num" data-n="2">2</button>
+          <button class="pin-num" data-n="3">3</button>
+          <button class="pin-num" data-n="4">4</button>
+          <button class="pin-num" data-n="5">5</button>
+          <button class="pin-num" data-n="6">6</button>
+          <button class="pin-num" data-n="7">7</button>
+          <button class="pin-num" data-n="8">8</button>
+          <button class="pin-num" data-n="9">9</button>
+          <button class="pin-num" data-n="C" style="font-size: 0.85rem;">CLR</button>
+          <button class="pin-num" data-n="0">0</button>
+          <button class="pin-num" data-n="X" style="font-size: 0.85rem;">⌫</button>
+        </div>
+      </div>
       <ul class="lib" id="lib"></ul>
       <div class="empty" id="libEmpty" hidden>
         <div class="orb">
@@ -234,6 +346,54 @@
       </header>
 
       <div class="set-group">
+        <!-- APPEARANCE & THEMES -->
+        <div class="set-card">
+          <div class="set-card-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          </div>
+          <div class="set-card-body" style="width: 100%;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div>
+                <h4>True AMOLED Black</h4>
+                <p class="dim">Pure #000000 pixels for maximum OLED battery savings</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="setAmoled">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div style="margin-top: 14px;">
+              <h4 style="font-size: 0.82rem; margin-bottom: 6px;">Accent Color Palette</h4>
+              <div class="theme-palette-grid" id="paletteGrid">
+                <button type="button" class="theme-chip on" data-accent="cyan">
+                  <span class="theme-swatch" style="background: #00f2fe; box-shadow: 0 0 10px rgba(0,242,254,0.5);"></span>
+                  <span class="theme-label">Cyber Cyan</span>
+                </button>
+                <button type="button" class="theme-chip" data-accent="purple">
+                  <span class="theme-swatch" style="background: #a855f7; box-shadow: 0 0 10px rgba(168,85,247,0.5);"></span>
+                  <span class="theme-label">Purple</span>
+                </button>
+                <button type="button" class="theme-chip" data-accent="green">
+                  <span class="theme-swatch" style="background: #07c160; box-shadow: 0 0 10px rgba(7,193,96,0.5);"></span>
+                  <span class="theme-label">WeChat Green</span>
+                </button>
+                <button type="button" class="theme-chip" data-accent="gold">
+                  <span class="theme-swatch" style="background: #f59e0b; box-shadow: 0 0 10px rgba(245,158,11,0.5);"></span>
+                  <span class="theme-label">Solar Gold</span>
+                </button>
+                <button type="button" class="theme-chip" data-accent="red">
+                  <span class="theme-swatch" style="background: #ef4444; box-shadow: 0 0 10px rgba(239,68,68,0.5);"></span>
+                  <span class="theme-label">Sunset Red</span>
+                </button>
+                <button type="button" class="theme-chip" data-accent="white">
+                  <span class="theme-swatch" style="background: #ffffff; box-shadow: 0 0 10px rgba(255,255,255,0.5);"></span>
+                  <span class="theme-label">Classic</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="set-card">
           <div class="set-card-icon">
             <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
@@ -359,6 +519,41 @@
       </div>
     </section>
   </main>
+</div>
+
+<!-- IN-APP MEDIA PLAYER MODAL -->
+<div class="player-modal" id="playerModal" hidden>
+  <div class="player-window">
+    <div class="player-header">
+      <span class="player-title" id="playerTitle">Now Playing</span>
+      <div class="player-header-actions">
+        <button class="ghost-btn primary" id="playerCompressBtn" style="height: 32px; padding: 0 12px; font-size: 0.72rem;">Compress for WeChat</button>
+        <button class="iconbtn sq" id="playerCloseBtn" aria-label="Close Player"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+    </div>
+    <div class="player-body">
+      <video class="player-video" id="inAppVideo" controls playsinline></video>
+    </div>
+    <div class="player-footer">
+      <div class="speed-group">
+        <span class="mono dim" style="margin-right: 4px;">Speed:</span>
+        <button class="speed-pill" data-speed="0.5">0.5x</button>
+        <button class="speed-pill on" data-speed="1.0">1.0x</button>
+        <button class="speed-pill" data-speed="1.25">1.25x</button>
+        <button class="speed-pill" data-speed="1.5">1.5x</button>
+        <button class="speed-pill" data-speed="2.0">2.0x</button>
+      </div>
+      <button class="ghost-btn primary" id="playerShareBtn" style="height: 32px; padding: 0 14px;">Share Video</button>
+    </div>
+  </div>
+</div>
+
+<!-- FLOATING QUICK DOWNLOAD BUBBLE -->
+<div class="float-bubble" id="floatBubble" hidden>
+  <div class="bubble-icon">
+    <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>
+  </div>
+  <span class="bubble-text" id="floatBubbleText">Download Copied Link</span>
 </div>
 
 <div class="toast" id="toast" role="status"></div>

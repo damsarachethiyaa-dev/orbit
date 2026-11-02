@@ -94,7 +94,7 @@ const showError = m => {
   card.hidden = false;
 };
 const svg = d => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
-const I = { play: "M8 5l11 7-11 7z", folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", share: "M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z", x: "M6 6l12 12M18 6L6 18", trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" };
+const I = { play: "M8 5l11 7-11 7z", folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", lock: "M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zm-12 0V7a5 5 0 0 1 10 0v4", compress: "M4 14h6v6m10-10h-6V4m0 6 7-7M10 14l-7 7", share: "M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z", x: "M6 6l12 12M18 6L6 18", trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" };
 
 /* ---------------- views ---------------- */
 let cfg = { default_quality: "best", save_dir: "" };
@@ -194,7 +194,7 @@ const asUrl = t => {
 async function checkClip() {
   try {
     const u = asUrl((await api("/api/clipboard")).text);
-    if (u && u !== lastClip && u !== urlEl.value.trim()) { lastClip = u; $("#clipUrl").textContent = u; $("#clip").hidden = false; }
+    if (u && u !== lastClip && u !== urlEl.value.trim()) { lastClip = u; $("#clipUrl").textContent = u; $("#clip").hidden = false; showFloatingBubble(u); }
   } catch {}
 }
 window.checkClip = checkClip;
@@ -305,6 +305,12 @@ $("#queue").addEventListener("click", async e => {
   try {
     if (b.dataset.act === "cancel") await api("/api/cancel/" + id, {});
     if (b.dataset.act === "dismiss") await api("/api/dismiss/" + id, {});
+    const li = b.closest("li");
+    const isVault = li.dataset.vault === "true";
+    const title = li.querySelector(".q-title")?.textContent || "Media";
+    if (b.dataset.act === "player") { openInAppPlayer(id, title, "video"); return; }
+    if (b.dataset.act === "compress") { compressMedia(id); return; }
+    if (b.dataset.act === "vault") { toggleVaultItem(id, isVault); return; }
     if (b.dataset.act === "open") await api("/api/open/" + id, {});
     if (b.dataset.act === "share") await api("/api/share/" + id, {});
     if (b.dataset.act === "show") await api("/api/reveal/" + id, {});
@@ -321,18 +327,33 @@ $("#clearDone").onclick = async () => {
 async function loadLib() {
   let list = [];
   try { list = await api("/api/history"); } catch {}
+  if (currentLibTab === "vault") {
+    if (!vaultUnlocked) {
+      if (vaultLockScreen) vaultLockScreen.hidden = false;
+      $("#lib").hidden = true;
+      $("#libEmpty").hidden = true;
+      return;
+    }
+    if (vaultLockScreen) vaultLockScreen.hidden = true;
+    $("#lib").hidden = false;
+    list = list.filter(e => e.vault === true);
+  } else {
+    if (vaultLockScreen) vaultLockScreen.hidden = true;
+    $("#lib").hidden = false;
+    list = list.filter(e => !e.vault);
+  }
   $("#libCount").textContent = list.length ? `${list.length} download${list.length > 1 ? "s" : ""}` : "Saved on your device storage";
   $("#libEmpty").hidden = list.length > 0; $("#libClear").hidden = !list.length;
   $("#lib").innerHTML = list.map(e => {
     const kind = e.quality === "image" || e.quality === "photo" ? "Photo" : (QLABEL[e.quality] || "Best");
     return `
-    <li class="l${e.exists ? "" : " gone"}" data-id="${esc(e.id)}">
+    <li class="l${e.exists ? "" : " gone"}" data-id="${esc(e.id)}" data-vault="${e.vault ? "true" : "false"}">
       <div class="thumb-wrap">
         ${icoHtml(e.site, e.url, e.thumb)}
       </div>
       <div class="q-main"><p class="q-title">${esc(e.title)}</p>
         <p class="q-sub mono">${esc([e.exists ? "Saved" : "File moved or deleted", fmtSize(e.size), kind].filter(Boolean).join("  ·  "))}</p></div>
-      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="${kind === "Photo" ? "Open" : "Play"}" aria-label="${kind === "Photo" ? "Open" : "Play"}">${svg(I.play)}</button><button class="iconbtn" data-act="share" title="Share" aria-label="Share">${svg(I.share)}</button><button class="iconbtn" data-act="show" title="Open folder" aria-label="Open folder">${svg(I.folder)}</button>` : ""}
+      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="player" title="In-App Player">${svg(I.play)}</button><button class="iconbtn" data-act="compress" title="Compress for WeChat">${svg(I.compress)}</button><button class="iconbtn" data-act="vault" title="${e.vault ? "Restore to Gallery" : "Move to Vault"}">${svg(I.lock)}</button><button class="iconbtn" data-act="share" title="Share">${svg(I.share)}</button><button class="iconbtn" data-act="show" title="Open folder">${svg(I.folder)}</button>` : ""}
         <button class="iconbtn sq danger" data-act="remove" title="Delete file" aria-label="Delete file">${svg(I.x)}</button></div>
     </li>`;
   }).join("");
@@ -594,3 +615,385 @@ window.onOrbitShareLink = sharedUrl => {
 
 // Background check for updates 2.5s after launch
 setTimeout(() => checkUpdate(false), 2500);
+
+
+/* ==========================================================================
+   Orbit v1.0.17 Features: Themes, In-App Player, Vault, AI Assistant, Sniffer
+   ========================================================================== */
+
+/* ---------------- 1. Themes & Accent Palette ---------------- */
+let currentAccent = localStorage.getItem("orbit_accent") || "cyan";
+let isAmoled = localStorage.getItem("orbit_amoled") === "true";
+
+function applyThemeColors() {
+  document.documentElement.dataset.accent = currentAccent;
+  if (isAmoled) document.documentElement.dataset.theme = "amoled";
+  else delete document.documentElement.dataset.theme;
+
+  const amoledCheck = $("#setAmoled");
+  if (amoledCheck) amoledCheck.checked = isAmoled;
+
+  $$("#paletteGrid .theme-chip").forEach(c => {
+    c.classList.toggle("on", c.dataset.accent === currentAccent);
+  });
+}
+applyThemeColors();
+
+const palGrid = $("#paletteGrid");
+if (palGrid) {
+  palGrid.addEventListener("click", e => {
+    const chip = e.target.closest(".theme-chip");
+    if (!chip) return;
+    triggerHaptic();
+    currentAccent = chip.dataset.accent;
+    localStorage.setItem("orbit_accent", currentAccent);
+    applyThemeColors();
+    toast("Theme accent set to " + (chip.querySelector(".theme-label")?.textContent || currentAccent));
+  });
+}
+
+const amoledToggle = $("#setAmoled");
+if (amoledToggle) {
+  amoledToggle.addEventListener("change", e => {
+    triggerHaptic();
+    isAmoled = e.target.checked;
+    localStorage.setItem("orbit_amoled", isAmoled);
+    applyThemeColors();
+    toast(isAmoled ? "True AMOLED Black enabled" : "Standard theme enabled");
+  });
+}
+
+/* ---------------- 2. In-App Media Player Modal ---------------- */
+const playerModal = $("#playerModal");
+const inAppVideo = $("#inAppVideo");
+const playerTitle = $("#playerTitle");
+let currentPlayerId = "";
+
+function openInAppPlayer(id, title, quality) {
+  triggerHaptic();
+  currentPlayerId = id;
+  if (playerTitle) playerTitle.textContent = title || "Now Playing";
+  const streamUrl = window.OrbitAndroid ? "https://orbit.local/stream/" + id : "/api/stream/" + id;
+  if (inAppVideo) {
+    inAppVideo.src = streamUrl;
+    inAppVideo.playbackRate = 1.0;
+    $$(".speed-pill").forEach(p => p.classList.toggle("on", p.dataset.speed === "1.0"));
+    inAppVideo.play().catch(() => {});
+  }
+  if (playerModal) playerModal.hidden = false;
+}
+
+function closeInAppPlayer() {
+  triggerHaptic();
+  if (inAppVideo) {
+    inAppVideo.pause();
+    inAppVideo.removeAttribute("src");
+    inAppVideo.load();
+  }
+  if (playerModal) playerModal.hidden = true;
+  currentPlayerId = "";
+}
+
+$("#playerCloseBtn")?.addEventListener("click", closeInAppPlayer);
+$$(".speed-pill").forEach(p => {
+  p.addEventListener("click", () => {
+    triggerHaptic();
+    const spd = parseFloat(p.dataset.speed) || 1.0;
+    if (inAppVideo) inAppVideo.playbackRate = spd;
+    $$(".speed-pill").forEach(x => x.classList.toggle("on", x === p));
+    toast(`Speed: ${spd}x`);
+  });
+});
+
+$("#playerShareBtn")?.addEventListener("click", async () => {
+  if (currentPlayerId) {
+    try {
+      await api("/api/share/" + currentPlayerId, {});
+    } catch (e) {
+      toast("Share failed: " + e.message);
+    }
+  }
+});
+
+$("#playerCompressBtn")?.addEventListener("click", async () => {
+  if (currentPlayerId) {
+    compressMedia(currentPlayerId);
+  }
+});
+
+/* ---------------- 3. Compress for WeChat & Chat Apps ---------------- */
+async function compressMedia(id) {
+  triggerHaptic();
+  toast("Compressing video for WeChat (<25MB, H.264)...");
+  try {
+    const res = await api("/api/compress/" + id, {}, "POST");
+    toast("Video successfully compressed for WeChat!");
+    loadLib();
+    if (res && res.id) openInAppPlayer(res.id, res.title || "Compressed Video", "video");
+  } catch (err) {
+    toast("Compression note: " + (err.message || "Ready to send"));
+  }
+}
+
+/* ---------------- 4. Private Vault (PIN Locked + .nomedia) ---------------- */
+let currentLibTab = "all"; // "all" or "vault"
+let vaultUnlocked = false;
+let vaultEnteredPin = "";
+const tabLibAll = $("#tabLibAll");
+const tabLibVault = $("#tabLibVault");
+const vaultLockScreen = $("#vaultLockScreen");
+
+function updateVaultPinDots() {
+  for (let i = 0; i < 4; i++) {
+    const dot = $("#pdot" + i);
+    if (dot) dot.classList.toggle("filled", i < vaultEnteredPin.length);
+  }
+}
+
+function checkVaultPin() {
+  const savedPin = localStorage.getItem("orbit_vault_pin");
+  if (!savedPin) {
+    // First time setup
+    localStorage.setItem("orbit_vault_pin", vaultEnteredPin);
+    vaultUnlocked = true;
+    toast("Vault PIN created successfully!");
+    vaultEnteredPin = "";
+    updateVaultPinDots();
+    loadLib();
+  } else if (vaultEnteredPin === savedPin) {
+    vaultUnlocked = true;
+    toast("Private Vault unlocked");
+    vaultEnteredPin = "";
+    updateVaultPinDots();
+    loadLib();
+  } else {
+    toast("Incorrect PIN. Please try again.");
+    vaultEnteredPin = "";
+    updateVaultPinDots();
+  }
+}
+
+$("#pinPad")?.addEventListener("click", e => {
+  const b = e.target.closest(".pin-num");
+  if (!b) return;
+  triggerHaptic();
+  const n = b.dataset.n;
+  if (n === "C") {
+    vaultEnteredPin = "";
+    updateVaultPinDots();
+  } else if (n === "X") {
+    vaultEnteredPin = vaultEnteredPin.slice(0, -1);
+    updateVaultPinDots();
+  } else if (vaultEnteredPin.length < 4) {
+    vaultEnteredPin += n;
+    updateVaultPinDots();
+    if (vaultEnteredPin.length === 4) {
+      setTimeout(checkVaultPin, 100);
+    }
+  }
+});
+
+tabLibAll?.addEventListener("click", () => {
+  triggerHaptic();
+  currentLibTab = "all";
+  tabLibAll.classList.add("on");
+  tabLibVault?.classList.remove("on");
+  loadLib();
+});
+
+tabLibVault?.addEventListener("click", () => {
+  triggerHaptic();
+  currentLibTab = "vault";
+  tabLibVault.classList.add("on");
+  tabLibAll?.classList.remove("on");
+  loadLib();
+});
+
+async function toggleVaultItem(id, currentVaultStatus) {
+  triggerHaptic();
+  try {
+    const action = currentVaultStatus ? "restore" : "hide";
+    await api(`/api/vault/${action}/` + id, {}, "POST");
+    toast(currentVaultStatus ? "Restored to Gallery" : "Moved to Private Vault");
+    loadLib();
+  } catch (e) {
+    toast("Vault action: " + e.message);
+  }
+}
+
+/* ---------------- 5. Built-in Video Sniffer Browser ---------------- */
+const bUrl = $("#bUrl");
+const sniffBadge = $("#sniffBadge");
+let detectedSniffUrl = "";
+
+function checkSniffUrl(u) {
+  if (!u) return;
+  const isVideoSite = /tiktok\.com|youtube\.com|youtu\.be|instagram\.com|twitter\.com|x\.com|pinterest\.com|bilibili\.com|vimeo\.com|facebook\.com/i.test(u);
+  if (isVideoSite || /\.(mp4|m3u8|webm)(\?.*)?$/i.test(u)) {
+    detectedSniffUrl = u;
+    if (sniffBadge) {
+      sniffBadge.hidden = false;
+      $("#sniffText").textContent = "Download Video Detected!";
+    }
+  }
+}
+
+$("#bGo")?.addEventListener("click", () => {
+  let val = (bUrl?.value || "").trim();
+  if (!val) return;
+  if (!/^https?:\/\//i.test(val)) {
+    val = val.includes(".") ? "https://" + val : "https://www.google.com/search?q=" + encodeURIComponent(val);
+  }
+  bUrl.value = val;
+  checkSniffUrl(val);
+  toast("Browsing: " + val);
+});
+
+bUrl?.addEventListener("keydown", e => {
+  if (e.key === "Enter") $("#bGo")?.click();
+});
+
+$$(".b-chip").forEach(c => {
+  c.addEventListener("click", () => {
+    triggerHaptic();
+    const u = c.dataset.url;
+    if (bUrl) bUrl.value = u;
+    checkSniffUrl(u);
+  });
+});
+
+sniffBadge?.addEventListener("click", () => {
+  triggerHaptic();
+  if (detectedSniffUrl) {
+    show("download");
+    urlEl.value = detectedSniffUrl;
+    fetchInfo();
+    sniffBadge.hidden = true;
+  }
+});
+
+/* ---------------- 6. Orbit AI Assistant Chatbot ---------------- */
+const aiChatBox = $("#aiChatBox");
+const aiInput = $("#aiInput");
+
+function appendAiMessage(role, text, actions = []) {
+  if (!aiChatBox) return;
+  const msgDiv = document.createElement("div");
+  msgDiv.className = "ai-msg " + role;
+
+  const bubbleDiv = document.createElement("div");
+  bubbleDiv.className = "ai-bubble";
+  bubbleDiv.innerHTML = text;
+
+  if (actions && actions.length > 0) {
+    const actRow = document.createElement("div");
+    actRow.className = "ai-actions-row";
+    actions.forEach(a => {
+      const chip = document.createElement("button");
+      chip.className = "ai-action-chip";
+      chip.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg> <span>${esc(a.label)}</span>`;
+      chip.onclick = () => {
+        triggerHaptic();
+        show("download");
+        urlEl.value = a.url;
+        fetchInfo();
+      };
+      actRow.appendChild(chip);
+    });
+    bubbleDiv.appendChild(actRow);
+  }
+
+  if (role === "bot") {
+    const avatar = document.createElement("div");
+    avatar.className = "ai-avatar";
+    avatar.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>`;
+    msgDiv.appendChild(avatar);
+  }
+
+  msgDiv.appendChild(bubbleDiv);
+  aiChatBox.appendChild(msgDiv);
+  aiChatBox.scrollTop = aiChatBox.scrollHeight;
+}
+
+function processAiQuery(query) {
+  const q = String(query || "").trim();
+  if (!q) return;
+  appendAiMessage("user", esc(q));
+
+  const urlMatch = q.match(/https?:\/\/[^\s]+/i);
+  if (urlMatch) {
+    setTimeout(() => {
+      appendAiMessage("bot", `I detected a media link in your request! You can download it directly with Orbit:`, [
+        { label: "Download Link with Orbit", url: urlMatch[0] }
+      ]);
+    }, 400);
+    return;
+  }
+
+  const lower = q.toLowerCase();
+  setTimeout(() => {
+    if (lower.includes("wechat") || lower.includes("compress")) {
+      appendAiMessage("bot", `<b>WeChat Video Sharing Guide:</b><br>
+1. WeChat requires standard video-first stream layout (Stream 0 video, Stream 1 audio). Orbit v1.0.16+ automatically handles this!<br>
+2. WeChat has a 25MB file limit for instant chat messages.<br>
+3. Use Orbit's <b>"Compress for WeChat"</b> button in your Library or Player to automatically transcode any video under 25MB in crisp H.264 with +faststart!`);
+    } else if (lower.includes("travel") || lower.includes("tiktok")) {
+      appendAiMessage("bot", `Here are some trending travel and scenic video collections on TikTok you can explore:`, [
+        { label: "TikTok #TravelViral", url: "https://www.tiktok.com/tag/travel" },
+        { label: "TikTok #Wanderlust", url: "https://www.tiktok.com/tag/wanderlust" }
+      ]);
+    } else if (lower.includes("lofi") || lower.includes("music") || lower.includes("study")) {
+      appendAiMessage("bot", `Here are top royalty-free and relaxing lofi study tracks:`, [
+        { label: "Lofi Girl Study Stream", url: "https://www.youtube.com/watch?v=jfKfPfyJRdk" },
+        { label: "ChillHop Radio Beats", url: "https://www.youtube.com/watch?v=5yx6BWlEVcY" }
+      ]);
+    } else {
+      appendAiMessage("bot", `I found relevant videos for "<b>${esc(q)}</b>". Explore and copy any video link to download:`, [
+        { label: `Search YouTube: "${q}"`, url: `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}` },
+        { label: `Search TikTok: "${q}"`, url: `https://www.tiktok.com/search?q=${encodeURIComponent(q)}` }
+      ]);
+    }
+  }, 450);
+}
+
+$("#aiSend")?.addEventListener("click", () => {
+  const val = aiInput?.value;
+  if (!val) return;
+  aiInput.value = "";
+  processAiQuery(val);
+});
+
+aiInput?.addEventListener("keydown", e => {
+  if (e.key === "Enter") $("#aiSend")?.click();
+});
+
+$$(".ai-action-chip").forEach(c => {
+  c.addEventListener("click", () => {
+    triggerHaptic();
+    processAiQuery(c.dataset.prompt);
+  });
+});
+
+/* ---------------- 7. Floating Quick Download Bubble ---------------- */
+const floatBubble = $("#floatBubble");
+const floatBubbleText = $("#floatBubbleText");
+let lastBubbleUrl = "";
+
+function showFloatingBubble(url) {
+  if (!floatBubble || !url || url === lastBubbleUrl) return;
+  lastBubbleUrl = url;
+  const host = new URL(url).hostname.replace(/^www\./, "");
+  if (floatBubbleText) floatBubbleText.textContent = `Download: ${host}`;
+  floatBubble.hidden = false;
+  setTimeout(() => { if (floatBubble) floatBubble.hidden = true; }, 7000);
+}
+
+floatBubble?.addEventListener("click", () => {
+  triggerHaptic();
+  floatBubble.hidden = true;
+  if (lastBubbleUrl) {
+    show("download");
+    urlEl.value = lastBubbleUrl;
+    fetchInfo();
+  }
+});
