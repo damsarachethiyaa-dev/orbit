@@ -20,7 +20,7 @@ function brand(site) {
   return hit ? BRANDS[hit] : null;
 }
 const icoStyle = site => { const b = brand(site); return b ? `--i:url(/icons/${b[0]}.svg);` : "--i:url(/desktop/video.svg);"; };
-const icoHtml = site => `<span class="ico" style="${icoStyle(site)}"></span>`;
+const icoHtml = site => `<span class="ico" role="img" aria-label="${esc(site || "Media")}" style="${icoStyle(site)}"></span>`;
 
 /* ---------------- helpers ---------------- */
 const fmtTime = s => { if (!s) return ""; const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = Math.floor(s % 60); return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); };
@@ -301,23 +301,19 @@ async function loadLib() {
   try { list = await api("/api/history"); } catch {}
   $("#libCount").textContent = list.length ? `${list.length} download${list.length > 1 ? "s" : ""}` : "Saved on your device storage";
   $("#libEmpty").hidden = list.length > 0; $("#libClear").hidden = !list.length;
-  $("#lib").innerHTML = list.map(e => `
+  $("#lib").innerHTML = list.map(e => {
+    const kind = e.quality === "image" || e.quality === "photo" ? "Photo" : (QLABEL[e.quality] || "Best");
+    return `
     <li class="l${e.exists ? "" : " gone"}" data-id="${esc(e.id)}">
       <div class="thumb-wrap">
-        ${e.thumb ? `<img class="thumb" src="${esc(e.thumb)}" alt="">` : ""}
-        <span class="ico" style="${icoStyle(e.site)}; ${e.thumb ? 'display:none;' : ''}"></span>
+        ${icoHtml(e.site)}
       </div>
       <div class="q-main"><p class="q-title">${esc(e.title)}</p>
-        <p class="q-sub mono">${esc([e.site, fmtSize(e.size), new Date(e.t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" }), e.exists ? "" : "File moved or deleted"].filter(Boolean).join("  ·  "))}</p></div>
-      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="Open">${svg(I.play)}<span>${(e.quality === "image" || e.quality === "photo") ? "Open" : "Play"}</span></button>${window.OrbitAndroid ? "" : `<button class="iconbtn" data-act="show" title="Folder">${svg(I.folder)}<span>Show</span></button>`}` : ""}
-        <button class="iconbtn sq danger" data-act="remove" title="Remove from list">${svg(I.trash)}</button></div>
-    </li>`).join("");
-  $("#lib").querySelectorAll("img.thumb").forEach(img => {
-    img.addEventListener("error", () => {
-      img.style.display = "none";
-      if (img.nextElementSibling) img.nextElementSibling.style.display = "inline-block";
-    });
-  });
+        <p class="q-sub mono">${esc([e.exists ? "Saved" : "File moved or deleted", fmtSize(e.size), kind].filter(Boolean).join("  ·  "))}</p></div>
+      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="${kind === "Photo" ? "Open" : "Play"}" aria-label="${kind === "Photo" ? "Open" : "Play"}">${svg(I.play)}</button><button class="iconbtn" data-act="show" title="Open folder" aria-label="Open folder">${svg(I.folder)}</button>` : ""}
+        <button class="iconbtn sq danger" data-act="remove" title="Delete file" aria-label="Delete file">${svg(I.x)}</button></div>
+    </li>`;
+  }).join("");
 }
 $("#lib").addEventListener("click", async e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
@@ -327,9 +323,9 @@ $("#lib").addEventListener("click", async e => {
     if (b.dataset.act === "open") await api("/api/open/" + id, {});
     if (b.dataset.act === "show") await api("/api/reveal/" + id, {});
     if (b.dataset.act === "remove") {
-      if (!confirm("Permanently delete this video from your device storage?")) return;
+      if (!confirm("Permanently delete this file from your device storage?")) return;
       await api("/api/history/" + id, undefined, "DELETE");
-      toast("Video deleted from device");
+      toast("File deleted from device");
       loadLib();
     }
   } catch { toast("That file isn't there any more"); loadLib(); }
@@ -359,10 +355,22 @@ function applySettings(s) {
     $("#setAutoDownload").checked = Boolean(s.auto_download);
   }
 }
+let engineChecks = 0;
+let engineTimer = null;
 async function loadSettings() {
   try {
     const s = await api("/api/settings");
     applySettings(s);
+    const engineStatus = $("#engineStatus");
+    if (engineStatus) {
+      const ready = Boolean(s.engine_ready);
+      engineStatus.classList.toggle("ready", ready);
+      engineStatus.classList.toggle("warning", !ready && engineChecks >= 12);
+      engineStatus.querySelector("span").textContent = ready ? "ENGINE READY" : engineChecks >= 12 ? "ENGINE UNAVAILABLE" : "ENGINE STARTING";
+      if (!ready && engineChecks++ < 12 && !engineTimer) {
+        engineTimer = setTimeout(() => { engineTimer = null; loadSettings(); }, 2500);
+      }
+    }
     if ($("#aAppVer")) $("#aAppVer").textContent = "v" + (s.version || "1.0.4");
     $("#aVer").textContent = s.yt_dlp; $("#aFf").textContent = s.ffmpeg ? "Ready" : "Missing";
     if (s.has_update) {

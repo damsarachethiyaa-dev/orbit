@@ -444,6 +444,7 @@ class MainActivity : AppCompatActivity() {
             put("auto_download", prefs().getBoolean("auto_download", false))
             put("version", BuildConfig.VERSION_NAME)
             put("yt_dlp", ytDlpVersion)
+            put("engine_ready", engineReady)
             put("ffmpeg", ffmpegReady)
             put("has_update", hasUpdate)
             put("latest_version", latestVersion)
