@@ -14,6 +14,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import android.webkit.JavascriptInterface
@@ -247,7 +248,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (::webView.isInitialized) {
             webView.post {
-                webView.evaluateJavascript("if (window.checkClip) window.checkClip();", null)
+                webView.evaluateJavascript("if (window.checkClip) window.checkClip(); if (window.loadJobs) window.loadJobs();", null)
             }
         }
     }
@@ -406,6 +407,36 @@ class MainActivity : AppCompatActivity() {
             path == "/api/settings" && method == "GET" -> getSettingsJson()
             path == "/api/settings" && method == "POST" -> updateSettingsJson(body)
             path == "/api/clipboard" -> getClipboardJson()
+            path == "/api/battery/status" -> {
+                val ignored = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    pm?.isIgnoringBatteryOptimizations(packageName) ?: true
+                } else {
+                    true
+                }
+                JSONObject().put("ignored", ignored)
+            }
+            path == "/api/battery/request" -> {
+                runOnUiThread {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        try {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(intent)
+                        } catch (_: Exception) {
+                            try {
+                                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(intent)
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+                JSONObject().put("ok", true)
+            }
             path == "/api/info" -> fetchVideoInfo(body.optString("url"))
             path == "/api/download" -> startDownloadJob(body)
             path == "/api/jobs" -> {

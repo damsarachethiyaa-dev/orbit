@@ -11,6 +11,8 @@ import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.net.wifi.WifiManager
+import android.os.PowerManager
 import android.webkit.MimeTypeMap
 import androidx.core.app.NotificationCompat
 import com.yausername.youtubedl_android.YoutubeDL
@@ -45,7 +47,76 @@ class DownloadService : Service() {
     private val activeJobIds = ConcurrentHashMap.newKeySet<String>()
     private val speedRegex = Regex("""at\s+([0-9.]+[KMGTP]?i?B/s)""", RegexOption.IGNORE_CASE)
 
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+    private val lockMutex = Any()
+
+    private fun acquireWakeAndWifiLocks() {
+        synchronized(lockMutex) {
+            try {
+                if (wakeLock == null) {
+                    val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    wakeLock = pm?.newWakeLock(
+                        PowerManager.PARTIAL_WAKE_LOCK,
+                        "Orbit::DownloadWakeLock"
+                    )?.apply {
+                        setReferenceCounted(false)
+                    }
+                }
+                if (wakeLock?.isHeld == false) {
+                    wakeLock?.acquire(45 * 60 * 1000L)
+                }
+            } catch (_: Exception) {}
+
+            try {
+                if (wifiLock == null) {
+                    val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                    @Suppress("DEPRECATION")
+                    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                    } else {
+                        WifiManager.WIFI_MODE_FULL
+                    }
+                    wifiLock = wm?.createWifiLock(mode, "Orbit::DownloadWifiLock")?.apply {
+                        setReferenceCounted(false)
+                    }
+                }
+                if (wifiLock?.isHeld == false) {
+                    wifiLock?.acquire()
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun releaseWakeAndWifiLocks() {
+        synchronized(lockMutex) {
+            try {
+                if (wakeLock?.isHeld == true) {
+                    wakeLock?.release()
+                }
+            } catch (_: Exception) {}
+            try {
+                if (wifiLock?.isHeld == true) {
+                    wifiLock?.release()
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        super.onDestroy()
+        releaseWakeAndWifiLocks()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        if (activeJobsCount.get() > 0) {
+            // Keep background downloads alive even if activity task is swiped away
+            return
+        }
+        super.onTaskRemoved(rootIntent)
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -54,7 +125,13 @@ class DownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent == null) return START_NOT_STICKY
+        if (intent == null) {
+            if (activeJobsCount.get() <= 0) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            return START_STICKY
+        }
 
         val action = intent.action
         if (action == ACTION_CANCEL_DOWNLOAD) {
@@ -62,13 +139,13 @@ class DownloadService : Service() {
             if (!jobId.isNullOrBlank()) {
                 cancelDownload(jobId)
             }
-            return START_NOT_STICKY
+            return if (activeJobsCount.get() > 0) START_STICKY else START_NOT_STICKY
         }
 
         if (action == ACTION_START_DOWNLOAD) {
             val rawUrl = intent.getStringExtra(EXTRA_URL)
             val cleanUrl = OrbitEngine.extractUrl(rawUrl) ?: rawUrl
-            if (cleanUrl.isNullOrBlank()) return START_NOT_STICKY
+            if (cleanUrl.isNullOrBlank()) return if (activeJobsCount.get() > 0) START_STICKY else START_NOT_STICKY
 
             var jobId = intent.getStringExtra(EXTRA_JOB_ID)
             if (jobId.isNullOrBlank()) {
@@ -106,6 +183,7 @@ class DownloadService : Service() {
 
             activeJobsCount.incrementAndGet()
             activeJobIds.add(jobId)
+            acquireWakeAndWifiLocks()
 
             val initialNotification = buildNotification(
                 notifId = notifId,
@@ -128,7 +206,7 @@ class DownloadService : Service() {
             }
         }
 
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun cancelDownload(jobId: String) {
@@ -355,6 +433,7 @@ class DownloadService : Service() {
         } finally {
             activeJobIds.remove(job.id)
             if (activeJobsCount.decrementAndGet() <= 0) {
+                releaseWakeAndWifiLocks()
                 stopForeground(STOP_FOREGROUND_DETACH)
                 stopSelf()
             }
@@ -760,6 +839,9 @@ class DownloadService : Service() {
             addOption("--no-playlist")
             addOption("--newline")
             addOption("-o", outTemplate)
+            addOption("--socket-timeout", "30")
+            addOption("--retries", "10")
+            addOption("--fragment-retries", "10")
             if (job.quality == "audio") {
                 addOption("-x")
                 addOption("--audio-format", "mp3")
