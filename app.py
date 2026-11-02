@@ -21,7 +21,9 @@ from urllib.parse import urlparse
 import yt_dlp
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
-APP_VERSION = "1.0.9"
+import updater  # Windows in-app updater helper
+
+APP_VERSION = "1.0.10"
 GITHUB_REPO = "damsarachethiyaa-dev/orbit"
 
 DESKTOP = os.environ.get("ORBIT_DESKTOP") == "1"
@@ -32,6 +34,7 @@ DOWNLOADS = DATA / "downloads"
 DOWNLOADS.mkdir(parents=True, exist_ok=True)
 UPDATE_DIR = DATA / "updates"
 UPDATE_DIR.mkdir(parents=True, exist_ok=True)
+UPDATE_LOG = DATA / "updater.log"
 JOB_TTL = 60 * 60  # website mode: delete finished files after an hour
 
 # ffmpeg: use the copy bundled with the app, otherwise whatever is on PATH
@@ -1160,89 +1163,17 @@ def download_update_thread():
         update_state["downloading"] = False
 
 
-def is_nsis_installer(path: Path) -> bool:
-    try:
-        with open(path, "rb") as f:
-            return b"Nullsoft" in f.read(131072)
-    except Exception:
-        return "setup" in path.name.lower()
-
-
 def apply_update_process():
+    """Hand the downloaded setup to a detached helper that installs it and restarts Orbit."""
     if not update_state.get("ready_to_install") or not update_state.get("update_file"):
         return False, "No update file is ready to install."
-
-    new_exe = Path(update_state["update_file"])
-    if not new_exe.exists():
-        return False, "Downloaded update executable was not found."
-
-    pid = os.getpid()
-    installed_default = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / "Orbit" / "Orbit.exe"
-    current_exe = Path(sys.executable) if FROZEN else installed_default
-    installer_mode = is_nsis_installer(new_exe)
-
-    updater_bat = DATA / "updater.bat"
-    if installer_mode:
-        bat_content = f"""@echo off
-setlocal
-echo Updating Orbit to latest version...
-timeout /t 1 /nobreak >nul
-:wait_loop
-tasklist /fi "pid eq {pid}" | find "{pid}" >nul
-if not errorlevel 1 (
-    timeout /t 1 /nobreak >nul
-    goto wait_loop
-)
-
-powershell -NoProfile -Command "Unblock-File -Path '{new_exe}'" >nul 2>&1
-start /wait "" "{new_exe}" /S
-if exist "{installed_default}" (
-    start "" "{installed_default}"
-) else if exist "{current_exe}" (
-    start "" "{current_exe}"
-)
-del "%~f0" & exit
-"""
-    elif FROZEN:
-        bat_content = f"""@echo off
-setlocal
-echo Updating Orbit to latest version...
-timeout /t 1 /nobreak >nul
-:wait_loop
-tasklist /fi "pid eq {pid}" | find "{pid}" >nul
-if not errorlevel 1 (
-    timeout /t 1 /nobreak >nul
-    goto wait_loop
-)
-
-copy /y "{new_exe}" "{current_exe}" >nul
-if errorlevel 1 (
-    timeout /t 2 /nobreak >nul
-    copy /y "{new_exe}" "{current_exe}" >nul
-)
-
-powershell -NoProfile -Command "Unblock-File -Path '{current_exe}'" >nul 2>&1
-start "" "{current_exe}"
-del "%~f0" & exit
-"""
-    else:
-        if sys.platform == "win32":
-            try:
-                subprocess.run(
-                    ["powershell", "-NoProfile", "-Command", f"Unblock-File -Path '{new_exe}'"],
-                    creationflags=0x08000000,
-                    timeout=5,
-                )
-            except Exception:
-                pass
-        subprocess.Popen([str(new_exe)], creationflags=0x08000000 | 0x00000008)
-        threading.Thread(target=lambda: (time.sleep(0.6), os._exit(0)), daemon=True).start()
-        return True, "Launching updated Orbit binary..."
-
-    updater_bat.write_text(bat_content, encoding="utf-8")
-    subprocess.Popen(["cmd.exe", "/c", str(updater_bat)], creationflags=0x08000000 | 0x00000008)
-    threading.Thread(target=lambda: (time.sleep(0.6), os._exit(0)), daemon=True).start()
-    return True, "Restarting Orbit to apply update..."
+    return updater.apply(
+        Path(update_state["update_file"]),
+        data_dir=DATA,
+        log_path=UPDATE_LOG,
+        current_exe=Path(sys.executable),
+        frozen=FROZEN,
+    )
 
 
 @app.get("/api/update/check")
@@ -1277,6 +1208,17 @@ def update_apply():
     ok, msg = apply_update_process()
     if not ok:
         return jsonify(error=msg), 400
+    return jsonify(ok=True, message=msg)
+
+
+@app.post("/api/update/manual-install")
+def update_manual_install():
+    """Last resort: open the downloaded setup so the update can be finished by hand."""
+    desktop_only()
+    ok, msg = updater.open_setup(Path(update_state.get("update_file") or ""), UPDATE_LOG)
+    if not ok:
+        return jsonify(error=msg), 400
+    updater.exit_soon(0.8)
     return jsonify(ok=True, message=msg)
 
 

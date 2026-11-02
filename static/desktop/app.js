@@ -404,6 +404,19 @@ $("#setOpen").onclick = openFolder; $("#openFolder").onclick = openFolder;
 
 /* ---------------- in-app auto updater ---------------- */
 let updatePoll = null;
+let updateWatchdog = null;
+
+// Orbit exits as soon as the updater takes over, so a dropped request is expected
+const offlineError = err => /failed to fetch|networkerror|load failed|connection|network|empty response|unexpected end/i.test(String((err && err.message) || err));
+
+function setUpdateUi(mode, label) {
+  const main = $("#ubBtn"), side = $("#setUpdateNow");
+  [main, side].forEach(b => {
+    if (!b) return;
+    if (mode) b.dataset.mode = mode;
+    if (label) b.textContent = label;
+  });
+}
 
 async function checkUpdate(manual = false) {
   try {
@@ -425,11 +438,14 @@ function renderUpdate(data, manual = false) {
     $("#ubMeta").textContent = data.release_name || "A new release is ready to download.";
     b.hidden = false;
     if (sInfo) sInfo.textContent = `Update available: ${data.latest_version} (Current: v${data.current_version})`;
-    if (sBtn) sBtn.hidden = false;
+    if (sBtn) { sBtn.hidden = false; sBtn.disabled = false; sBtn.textContent = "Update"; }
+    $("#ubBtn").disabled = false;
+    setUpdateUi("download", "Update Now");
   } else {
     b.hidden = true;
     if (sInfo) sInfo.textContent = `Orbit v${data.current_version} — You are on the latest version`;
     if (sBtn) sBtn.hidden = true;
+    setUpdateUi("download", "");
     if (manual) toast("You're on the latest version of Orbit!");
   }
 }
@@ -442,8 +458,8 @@ async function startUpdate() {
   const sBtn = $("#setUpdateNow");
 
   btn.disabled = true;
-  btn.textContent = "Downloading...";
-  if (sBtn) { sBtn.disabled = true; sBtn.textContent = "Downloading..."; }
+  if (sBtn) sBtn.disabled = true;
+  setUpdateUi("download", "Downloading...");
   meter.hidden = false;
 
   try {
@@ -458,21 +474,20 @@ async function startUpdate() {
           stat.textContent = pct + "%";
           const speedTxt = s.download_speed ? `Downloading (${s.download_speed})` : "Downloading...";
           btn.textContent = speedTxt;
-          if (sBtn) { sBtn.textContent = `${pct}%`; }
+          if (sBtn) sBtn.textContent = `${pct}%`;
         } else if (s.ready_to_install) {
           clearInterval(updatePoll);
           fill.style.width = "100%";
           stat.textContent = "100%";
           btn.disabled = false;
-          const instTxt = window.OrbitAndroid ? "Install Update" : "Restart & Install";
-          btn.textContent = instTxt;
-          if (sBtn) { sBtn.disabled = false; sBtn.textContent = instTxt; }
+          if (sBtn) sBtn.disabled = false;
+          setUpdateUi("install", window.OrbitAndroid ? "Install Update" : "Restart & Install");
           toast("Update downloaded! Click to install.");
         } else if (s.error) {
           clearInterval(updatePoll);
           btn.disabled = false;
-          btn.textContent = "Retry Update";
-          if (sBtn) { sBtn.disabled = false; sBtn.textContent = "Retry"; }
+          if (sBtn) sBtn.disabled = false;
+          setUpdateUi("download", "Retry Update");
           toast("Update failed: " + s.error);
         }
       } catch (e) {
@@ -481,8 +496,8 @@ async function startUpdate() {
     }, 300);
   } catch (err) {
     btn.disabled = false;
-    btn.textContent = "Update Now";
-    if (sBtn) { sBtn.disabled = false; sBtn.textContent = "Update"; }
+    if (sBtn) sBtn.disabled = false;
+    setUpdateUi("download", "Update Now");
     meter.hidden = true;
     toast("Could not start update: " + err.message);
   }
@@ -491,36 +506,59 @@ async function startUpdate() {
 async function applyUpdate() {
   const btn = $("#ubBtn");
   const sBtn = $("#setUpdateNow");
+  const android = !!window.OrbitAndroid;
+
   btn.disabled = true;
-  const opTxt = window.OrbitAndroid ? "Opening Installer..." : "Restarting...";
-  btn.textContent = opTxt;
-  if (sBtn) { sBtn.disabled = true; sBtn.textContent = opTxt; }
+  if (sBtn) sBtn.disabled = true;
+  setUpdateUi("install", android ? "Opening Installer..." : "Restarting...");
+  clearTimeout(updateWatchdog);
+  toast(android ? "Opening package installer..." : "Restarting Orbit to apply the update...");
+
+  let detail = "";
   try {
-    toast(window.OrbitAndroid ? "Opening package installer..." : "Restarting Orbit to apply update...");
-    await api("/api/update/apply", {}, "POST");
-    if (window.OrbitAndroid) {
-      setTimeout(() => {
-        btn.disabled = false;
-        btn.textContent = "Install Update";
-        if (sBtn) { sBtn.disabled = false; sBtn.textContent = "Install Update"; }
-      }, 3000);
-    }
+    const res = await api("/api/update/apply", {}, "POST");
+    detail = (res && res.message) || "";
   } catch (err) {
-    btn.disabled = false;
-    const retryTxt = window.OrbitAndroid ? "Install Update" : "Restart & Install";
-    btn.textContent = retryTxt;
-    if (sBtn) { sBtn.disabled = false; sBtn.textContent = retryTxt; }
-    toast("Failed: " + err.message);
+    if (!offlineError(err)) { offerManualInstall(err.message); return; }
+  }
+
+  if (android) {
+    setTimeout(() => {
+      if (sBtn) sBtn.disabled = false;
+      btn.disabled = false;
+      setUpdateUi("install", "Install Update");
+    }, 3000);
+    return;
+  }
+
+  // still on this page after 15s means Orbit never restarted: fall back to the setup wizard
+  updateWatchdog = setTimeout(() => offerManualInstall(detail), 15000);
+}
+
+async function offerManualInstall(reason) {
+  const btn = $("#ubBtn");
+  const sBtn = $("#setUpdateNow");
+
+  clearTimeout(updateWatchdog);
+  btn.disabled = false;
+  if (sBtn) sBtn.disabled = false;
+  setUpdateUi("install", "Install Update");
+
+  const question = reason
+    ? `Orbit could not apply the update automatically.\n\n${reason}\n\nOpen the downloaded installer now?`
+    : "Orbit did not restart, so the update was not applied automatically.\n\nOpen the downloaded installer now?";
+  if (!confirm(question)) { toast("Update not installed. Try again from Settings."); return; }
+  try {
+    await api("/api/update/manual-install", {}, "POST");
+    toast("Opening the Orbit installer...");
+  } catch (err) {
+    toast("Could not open the installer: " + err.message);
   }
 }
 
 $("#ubBtn").addEventListener("click", () => {
-  const t = $("#ubBtn").textContent;
-  if (t.includes("Restart") || t.includes("Install")) {
-    applyUpdate();
-  } else {
-    startUpdate();
-  }
+  if ($("#ubBtn").dataset.mode === "install") applyUpdate();
+  else startUpdate();
 });
 
 $("#ubClose").addEventListener("click", () => {
@@ -532,10 +570,8 @@ if (sCheck) sCheck.addEventListener("click", () => checkUpdate(true));
 
 const sUpdateNow = $("#setUpdateNow");
 if (sUpdateNow) sUpdateNow.addEventListener("click", () => {
-  const t = sUpdateNow.textContent;
-  if (t.includes("Restart") || t.includes("Install")) {
-    applyUpdate();
-  } else {
+  if (sUpdateNow.dataset.mode === "install") applyUpdate();
+  else {
     $("#updateBanner").hidden = false;
     startUpdate();
   }

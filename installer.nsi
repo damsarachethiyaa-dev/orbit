@@ -3,7 +3,7 @@ Unicode True
 SetCompressor /SOLID lzma
 
 !define APP_NAME "Orbit"
-!define APP_VERSION "1.0.9"
+!define APP_VERSION "1.0.10"
 !define APP_PUBLISHER "Chethiya Rathnasekara"
 !define APP_URL "https://damsarachethiyaa-dev.github.io/orbit/"
 !define APP_EXE "Orbit.exe"
