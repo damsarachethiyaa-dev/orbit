@@ -356,6 +356,68 @@ input:checked + .slider::before { transform: translateX(20px); background: #000;
 .sheet-opt:disabled { opacity: 0.5; }
 .sheet-close { width: 100%; height: 46px; margin-top: 10px; }
 
+/* ---------------- motion ---------------- */
+@keyframes popIn { 0% { opacity: 0; transform: scale(0.92) translateY(8px); } 60% { transform: scale(1.01); } 100% { opacity: 1; transform: none; } }
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@keyframes ring { 0% { box-shadow: 0 0 0 0 var(--accent-glow); } 100% { box-shadow: 0 0 0 14px transparent; } }
+@keyframes dotPulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 10px var(--accent-glow); } 50% { transform: scale(1.35); box-shadow: 0 0 18px var(--accent-glow); } }
+@keyframes tick { 0% { transform: scale(0.4); opacity: 0; } 70% { transform: scale(1.15); } 100% { transform: none; opacity: 1; } }
+@keyframes slideRight { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+
+/* lists glide in one after another */
+.q, .lib-card, .sr-card, .stat-card, .set-card { animation: popIn 0.45s var(--spring) both; }
+.lib-card:nth-child(1), .sr-card:nth-child(1), .q:nth-child(1), .stat-card:nth-child(1) { animation-delay: 0ms; }
+.lib-card:nth-child(2), .sr-card:nth-child(2), .q:nth-child(2), .stat-card:nth-child(2) { animation-delay: 60ms; }
+.lib-card:nth-child(3), .sr-card:nth-child(3), .q:nth-child(3), .stat-card:nth-child(3) { animation-delay: 120ms; }
+.lib-card:nth-child(4), .sr-card:nth-child(4), .q:nth-child(4), .stat-card:nth-child(4) { animation-delay: 180ms; }
+.lib-card:nth-child(n+5), .sr-card:nth-child(n+5), .q:nth-child(n+5) { animation-delay: 240ms; }
+.set-card:nth-child(2) { animation-delay: 40ms; } .set-card:nth-child(3) { animation-delay: 80ms; }
+.set-card:nth-child(4) { animation-delay: 120ms; } .set-card:nth-child(n+5) { animation-delay: 160ms; }
+
+/* hero card and heading */
+.head h1, .lib-header h1 { animation: slideRight 0.5s var(--spring) both; }
+.download-panel { animation: popIn 0.5s var(--spring) both; }
+.panel-heading::before { animation: dotPulse 2.4s ease-in-out infinite; }
+.btn-fetch:not(:disabled), .btn-download:not(:disabled) { position: relative; overflow: hidden; }
+.btn-fetch:not(:disabled)::after, .btn-download:not(:disabled)::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%); transform: translateX(-100%); animation: sweep 3.2s ease-in-out infinite 1s; pointer-events: none; }
+.btn-fetch:disabled { animation: pulse 1s ease-in-out infinite; }
+
+/* press feedback */
+.chip:active, .paste:active, .iconbtn:active, .lib-act-btn:active, .speed-pill:active, .q-chip:active, .theme-chip:active, .sheet-opt:active, .lib-seg-btn:active { transform: scale(0.95); }
+.chip, .paste, .iconbtn, .lib-act-btn, .speed-pill, .q-chip, .theme-chip, .sheet-opt, .lib-seg-btn, .seg button { transition: transform 0.15s var(--spring), background 0.2s, color 0.2s, border-color 0.2s; }
+
+/* navigation */
+.nav-btn .nav-icon-wrap svg { transition: transform 0.3s var(--bounce, cubic-bezier(0.34, 1.56, 0.64, 1)); }
+.nav-btn.on .nav-icon-wrap svg { transform: translateY(-2px) scale(1.12); }
+.nav-btn:active { transform: scale(0.94); }
+.nav-btn.on { animation: popIn 0.35s var(--spring); }
+.badge { animation: popIn 0.35s var(--spring); }
+
+/* live downloads */
+.q.downloading .bar i, .q.processing .bar i { position: relative; overflow: hidden; }
+.q.downloading .bar i::after, .q.processing .bar i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent); animation: sweep 1.4s linear infinite; }
+.q.downloading .ico, .q.processing .ico { animation: ring 1.8s ease-out infinite; }
+.q.done .q-act .iconbtn.primary { animation: tick 0.45s var(--spring) both; }
+.q.error { animation: popIn 0.45s var(--spring) both, shake 0.4s 0.3s; }
+@keyframes shake { 20%, 60% { transform: translateX(-4px); } 40%, 80% { transform: translateX(4px); } }
+
+/* thumbnails and media */
+.p-thumb img, .sr-thumb img { transition: transform 0.6s var(--spring), opacity 0.4s; }
+.preview:hover .p-thumb img, .sr-card:active .sr-thumb img { transform: scale(1.04); }
+.lib-play-badge { transition: transform 0.25s var(--spring); }
+.lib-card-top:active .lib-play-badge { transform: scale(1.25); }
+
+/* overlays */
+.sheet-backdrop { animation: fadeIn 0.25s ease-out; }
+.sheet-app, .sheet-opt, .sheet-note { animation: rise 0.4s var(--spring) both; }
+.sheet-app:nth-child(2) { animation-delay: 40ms; } .sheet-app:nth-child(3) { animation-delay: 80ms; } .sheet-opt:nth-of-type(1) { animation-delay: 120ms; } .sheet-opt:nth-of-type(2) { animation-delay: 160ms; }
+.player-modal { animation: fadeIn 0.25s ease-out; }
+.player-window { animation: popIn 0.4s var(--spring) both; }
+.speed-pill.on { animation: popIn 0.3s var(--spring); }
+.toast { transition: opacity 0.25s, translate 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.pin-dot.filled { animation: popIn 0.25s var(--spring); }
+.empty .orb { animation: float 4s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
