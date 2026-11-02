@@ -53,6 +53,7 @@ jobs:
               sed -i -E "s/Download Free \(v[0-9]+\.[0-9]+\.[0-9]+\)/Download Free ($TAG)/g" "$file"
               sed -i -E "s/Download v[0-9]+\.[0-9]+\.[0-9]+/Download $TAG/g" "$file"
               sed -i -E "s#releases/download/v[0-9.]+/Orbit-Setup\.exe#releases/download/$TAG/Orbit-Setup.exe#g" "$file"
+              sed -i -E "s#releases/download/v[0-9.]+/Orbit\.apk#releases/download/$TAG/Orbit.apk#g" "$file"
             fi
           done
 
