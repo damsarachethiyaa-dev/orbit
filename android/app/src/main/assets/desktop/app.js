@@ -93,14 +93,18 @@ const showError = m => {
   else card.textContent = clean;
   card.hidden = false;
 };
-const svg = d => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
-const I = { play: "M8 5l11 7-11 7z", folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", x: "M6 6l12 12M18 6L6 18", trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" };
+const svg = d => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+const I = { play: "M8 5l11 7-11 7z", folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2-2z", x: "M6 6l12 12M18 6L6 18", retry: "M20 11a8 8 0 1 0-2.3 6M20 4v7h-7", trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" };
 
 /* ---------------- views ---------------- */
 let cfg = { default_quality: "best", save_dir: "" };
 function show(view) {
   triggerHaptic();
-  $$(".nav-btn").forEach(b => b.classList.toggle("on", b.dataset.view === view));
+  $$(".nav-btn").forEach(b => {
+    const active = b.dataset.view === view;
+    b.classList.toggle("on", active);
+    b.setAttribute("aria-pressed", String(active));
+  });
   $$(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + view));
   if (view === "library") loadLib();
   if (view === "settings") loadSettings();
@@ -250,11 +254,11 @@ $("#dl").onclick = async () => {
 /* ---------------- queue ---------------- */
 const rows = new Map(), prev = {};
 function actions(j) {
-  const b = (act, label, ic, cls = "") => `<button class="iconbtn ${cls}" data-act="${act}" title="${label}">${svg(ic)}${label ? `<span>${label}</span>` : ""}</button>`;
+  const b = (act, label, ic, cls = "") => `<button type="button" class="iconbtn ${cls}" data-act="${act}" title="${label}" aria-label="${label}">${svg(ic)}<span>${label}</span></button>`;
   if (j.state === "downloading" || j.state === "processing") return b("cancel", "Cancel", I.x, "danger sq");
   const isImg = j.isImage || j.quality === "image" || j.quality === "photo";
-  if (j.state === "done") return b("open", isImg ? "Open" : "Play", I.play, "primary") + b("show", "Folder", I.folder) + b("dismiss", "", I.x, "sq");
-  return b("dismiss", "", I.x, "sq");
+  if (j.state === "done") return b("open", isImg ? "Open" : "Play", I.play, "primary") + b("show", "Folder", I.folder) + b("dismiss", "Dismiss", I.x, "sq");
+  return b("retry", "Retry", I.retry, "primary") + b("dismiss", "Dismiss", I.x, "sq");
 }
 function renderQueue(list) {
   const ul = $("#queue"), ids = new Set(list.map(j => j.id));
@@ -263,13 +267,14 @@ function renderQueue(list) {
     let li = rows.get(j.id);
     if (!li) {
       li = document.createElement("li"); li.dataset.id = j.id;
-      li.innerHTML = `${icoHtml(j.site, j.url, j.thumb)}<div class="q-main"><p class="q-title"></p><p class="q-sub mono"></p><div class="bar"><i></i></div></div><div class="q-act"></div>`;
+      li.innerHTML = `${icoHtml(j.site, j.url, j.thumb)}<div class="q-main"><p class="q-title"></p><p class="q-sub mono"></p><div class="bar" role="progressbar" aria-label="Download progress" aria-valuemin="0" aria-valuemax="100"><i></i></div></div><div class="q-act"></div>`;
       rows.set(j.id, li);
     }
     li.className = "q " + j.state;
     li.querySelector(".ico").style.cssText = icoStyle(j.site, j.url, j.thumb);
     li.querySelector(".ico").setAttribute("aria-label", j.site || "Media");
     li.querySelector(".q-title").textContent = j.title || "Downloading…";
+    li.querySelector(".q-title").title = j.title || "Downloading";
     const isImg = j.isImage || j.quality === "image" || j.quality === "photo";
     const q = isImg ? "Photo" : (QLABEL[j.quality] || "");
     li.querySelector(".q-sub").textContent =
@@ -277,12 +282,14 @@ function renderQueue(list) {
       j.state === "processing" ? "Merging and finishing…" :
       j.state === "done" ? `Saved  ·  ${fmtSize(j.size)}` :
       j.state === "cancelled" ? "Cancelled" : (j.error || "Failed");
+    li.querySelector(".q-sub").title = j.error || "";
     li.querySelector(".bar i").style.width = j.percent + "%";
+    li.querySelector(".bar").setAttribute("aria-valuenow", String(Math.round(j.percent || 0)));
     const act = li.querySelector(".q-act");
     if (act.dataset.state !== j.state) { act.innerHTML = actions(j); act.dataset.state = j.state; }
     if (ul.children[i] !== li) ul.insertBefore(li, ul.children[i] || null);
     if (prev[j.id] && prev[j.id] !== "done" && j.state === "done") toast("Saved: " + (j.title || j.file));
-    if (prev[j.id] && prev[j.id] !== "error" && j.state === "error") toast("A download failed");
+    if (prev[j.id] && prev[j.id] !== "error" && j.state === "error") toast("Download failed: " + (j.error || "Tap Retry to try again"));
     prev[j.id] = j.state;
   });
   const active = list.filter(j => j.state === "downloading" || j.state === "processing").length;
@@ -306,7 +313,8 @@ $("#queue").addEventListener("click", async e => {
     if (b.dataset.act === "dismiss") await api("/api/dismiss/" + id, {});
     if (b.dataset.act === "open") await api("/api/open/" + id, {});
     if (b.dataset.act === "show") await api("/api/reveal/" + id, {});
-  } catch { toast("That file isn't there any more"); }
+    if (b.dataset.act === "retry") { await api("/api/retry/" + id, {}); toast("Retry started"); }
+  } catch (err) { toast(err.message || "Could not complete that action"); }
   poll();
 });
 $("#clearDone").onclick = async () => {
@@ -316,11 +324,40 @@ $("#clearDone").onclick = async () => {
 };
 
 /* ---------------- library ---------------- */
-async function loadLib() {
-  let list = [];
-  try { list = await api("/api/history"); } catch {}
-  $("#libCount").textContent = list.length ? `${list.length} download${list.length > 1 ? "s" : ""}` : "Saved on your device storage";
-  $("#libEmpty").hidden = list.length > 0; $("#libClear").hidden = !list.length;
+let libraryItems = [];
+let libraryFilter = "all";
+const mediaKind = e => {
+  const quality = String(e.quality || "").toLowerCase();
+  const file = String(e.file || "").split("?")[0].toLowerCase();
+  if (["photo", "image"].includes(quality) || /\.(jpe?g|png|webp|gif)$/.test(file)) return "photo";
+  if (quality === "audio" || /\.(mp3|m4a|opus|wav)$/.test(file)) return "audio";
+  return "video";
+};
+const platformKey = e => {
+  const known = brand(e.site, e.url, e.thumb);
+  if (known) return known[0];
+  const key = String(e.site || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return ["", "video", "image", "audio", "web"].includes(key) ? "other" : key;
+};
+const platformLabel = key => ({ tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", x: "X", facebook: "Facebook", pinterest: "Pinterest", reddit: "Reddit", xiaohongshu: "Xiaohongshu", other: "Other" }[key] || key.replace(/^./, c => c.toUpperCase()));
+function renderLibrary() {
+  const query = $("#libSearch").value.trim().toLocaleLowerCase();
+  const platform = $("#libPlatform").value;
+  const sort = $("#libSort").value;
+  const list = libraryItems.filter(e =>
+    (libraryFilter === "all" || mediaKind(e) === libraryFilter) &&
+    (platform === "all" || platformKey(e) === platform) &&
+    (!query || `${e.title || ""} ${e.site || ""} ${platformLabel(platformKey(e))}`.toLocaleLowerCase().includes(query))
+  );
+  list.sort((a, b) => sort === "oldest" ? (a.t || 0) - (b.t || 0) :
+    sort === "title" ? String(a.title || "").localeCompare(String(b.title || "")) :
+    sort === "size" ? (b.size || 0) - (a.size || 0) : (b.t || 0) - (a.t || 0));
+  const total = libraryItems.length;
+  $("#libCount").textContent = !total ? "Saved on your device storage" :
+    list.length === total ? `${total} download${total === 1 ? "" : "s"}` : `${list.length} of ${total} downloads`;
+  $("#libEmpty").hidden = list.length > 0;
+  $("#libEmptyTitle").textContent = total ? "No matching downloads" : "Your library is empty";
+  $("#libEmptyText").textContent = total ? "Try a different search or filter" : "Completed downloads will be saved here and in your phone's Gallery";
   $("#lib").innerHTML = list.map(e => {
     const kind = e.quality === "image" || e.quality === "photo" ? "Photo" : (QLABEL[e.quality] || "Best");
     return `
@@ -328,13 +365,41 @@ async function loadLib() {
       <div class="thumb-wrap">
         ${icoHtml(e.site, e.url, e.thumb)}
       </div>
-      <div class="q-main"><p class="q-title">${esc(e.title)}</p>
+      <div class="q-main"><p class="q-title" title="${esc(e.title)}">${esc(e.title)}</p>
         <p class="q-sub mono">${esc([e.exists ? "Saved" : "File moved or deleted", fmtSize(e.size), kind].filter(Boolean).join("  ·  "))}</p></div>
       <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="${kind === "Photo" ? "Open" : "Play"}" aria-label="${kind === "Photo" ? "Open" : "Play"}">${svg(I.play)}</button><button class="iconbtn" data-act="show" title="Open folder" aria-label="Open folder">${svg(I.folder)}</button>` : ""}
         <button class="iconbtn sq danger" data-act="remove" title="Delete file" aria-label="Delete file">${svg(I.x)}</button></div>
     </li>`;
   }).join("");
 }
+async function loadLib() {
+  try {
+    const list = await api("/api/history");
+    libraryItems = Array.isArray(list) ? list : [];
+  } catch { libraryItems = []; }
+  $("#libTools").hidden = !libraryItems.length;
+  $("#libClear").hidden = !libraryItems.length;
+  const select = $("#libPlatform"), selected = select.value;
+  const platforms = new Set(libraryItems.map(platformKey));
+  select.replaceChildren(new Option("All platforms", "all"),
+    ...[...platforms].sort((a, b) => platformLabel(a).localeCompare(platformLabel(b)))
+      .map(key => new Option(platformLabel(key), key)));
+  if (platforms.has(selected)) select.value = selected;
+  renderLibrary();
+}
+$("#libSearch").addEventListener("input", renderLibrary);
+$("#libPlatform").addEventListener("change", renderLibrary);
+$("#libSort").addEventListener("change", renderLibrary);
+$(".lib-filters").addEventListener("click", e => {
+  const button = e.target.closest("[data-filter]"); if (!button) return;
+  libraryFilter = button.dataset.filter;
+  $$(".lib-filters button").forEach(b => {
+    const active = b === button;
+    b.classList.toggle("on", active);
+    b.setAttribute("aria-pressed", String(active));
+  });
+  renderLibrary();
+});
 $("#lib").addEventListener("click", async e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
   triggerHaptic();

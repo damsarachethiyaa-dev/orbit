@@ -269,6 +269,23 @@ object OrbitEngine {
         if (raw.isNullOrBlank()) return "Couldn't fetch that link. Please check the URL and try again."
         var clean = raw.lines().lastOrNull { it.contains("ERROR:") } ?: raw.lines().lastOrNull { it.isNotBlank() } ?: raw
         clean = clean.replace(Regex("""^.*ERROR:\s*(\[[^\]]+\]\s*[^:]+:\s*)?"""), "").trim()
+        val lower = clean.lowercase()
+        if (lower.contains("no space left") || lower.contains("enospc")) {
+            return "Not enough storage space. Free up space and tap Retry."
+        }
+        if (lower.contains("http error 404") || lower.contains("not found") || lower.contains("deleted")) {
+            return "This post or media file is no longer available."
+        }
+        if (lower.contains("http error 429") || lower.contains("rate limit") || lower.contains("too many requests")) {
+            return "This site is limiting downloads right now. Wait a while, then tap Retry."
+        }
+        if (lower.contains("timed out") || lower.contains("timeout") || lower.contains("network is unreachable") ||
+            lower.contains("unable to resolve host") || lower.contains("connection reset")) {
+            return "Connection interrupted. Check your internet connection, then tap Retry."
+        }
+        if (lower.contains("http error 403") || lower.contains("forbidden")) {
+            return "The site refused this download. The link may have expired or require an account."
+        }
         if (clean.contains("No video formats found", ignoreCase = true)) {
             return "No video stream found. The reel or post might be private, restricted, or requires an account."
         }
@@ -282,7 +299,7 @@ object OrbitEngine {
         if (semi != -1) {
             clean = clean.substring(0, semi)
         }
-        return clean.ifBlank { "Couldn't process that link. Please verify the URL." }
+        return clean.ifBlank { "Couldn't process that link. Please verify the URL." }.take(240)
     }
 
     fun openMediaFile(context: Context, file: File): Boolean {
