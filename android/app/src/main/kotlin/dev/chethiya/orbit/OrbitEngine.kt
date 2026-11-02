@@ -40,6 +40,10 @@ object OrbitEngine {
     var ffmpegReady = false
         private set
 
+    @Volatile
+    var ffmpegVersion = ""
+        private set
+
     private var initialized = false
 
     @Synchronized
@@ -59,6 +63,7 @@ object OrbitEngine {
             try {
                 FFmpeg.getInstance().init(appCtx)
                 ffmpegReady = true
+                ffmpegVersion = MediaTools.ffmpegVersion(appCtx)
             } catch (e: Exception) {
                 ffmpegReady = false
             }
@@ -110,8 +115,68 @@ object OrbitEngine {
         if (path.isBlank()) return false
         if (!path.startsWith("content://")) return File(path).exists()
         return try {
-            context.contentResolver.openFileDescriptor(Uri.parse(path), "r")?.use { true } ?: false
-        } catch (_: Exception) { false }
+            context.contentResolver.query(Uri.parse(path), arrayOf(MediaStore.MediaColumns._ID), null, null, null)
+                ?.use { it.count > 0 } ?: false
+        } catch (_: Exception) {
+            try {
+                context.contentResolver.openFileDescriptor(Uri.parse(path), "r")?.use { true } ?: false
+            } catch (_: Exception) { false }
+        }
+    }
+
+    /** A file name that every chat app and file manager accepts: no emoji, brackets or reserved characters. */
+    fun safeName(raw: String?, fallback: String): String {
+        val cleaned = (raw ?: "")
+            .replace(Regex("""[\\/:*?"<>|\[\]\u0000-\u001F]"""), " ")
+            .replace(Regex("[\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\uFE0E\\uFE0F\\uFEFF]"), "")
+            .replace(Regex("""[\uD800-\uDBFF][\uDC00-\uDFFF]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim(' ', '.')
+            .take(80)
+            .trim(' ', '.')
+        return cleaned.ifBlank { fallback }
+    }
+
+    private fun displayName(context: Context, uri: Uri): String? = try {
+        context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)
+            ?.use { if (it.moveToFirst()) it.getString(0) else null }
+    } catch (_: Exception) { null }
+
+    private fun vaultDir(context: Context): File = File(context.filesDir, "vault").apply { mkdirs() }
+
+    /** Moves a library file into app-private storage so the phone gallery cannot see it. Returns the new path. */
+    fun moveToVault(context: Context, path: String): String {
+        val name = if (path.startsWith("content://")) displayName(context, Uri.parse(path)) ?: "media_${System.currentTimeMillis()}.mp4"
+        else File(path).name
+        var target = File(vaultDir(context), name)
+        if (target.exists()) target = File(vaultDir(context), "${System.currentTimeMillis()}_$name")
+        if (path.startsWith("content://")) {
+            val input = context.contentResolver.openInputStream(Uri.parse(path))
+                ?: throw java.io.IOException("Could not read the file.")
+            try {
+                input.use { src -> target.outputStream().use { src.copyTo(it) } }
+            } catch (e: Exception) {
+                target.delete()
+                throw e
+            }
+        } else {
+            File(path).copyTo(target, overwrite = false)
+        }
+        deleteStoredMedia(context, path)
+        return target.absolutePath
+    }
+
+    /** Publishes a vaulted file back to the public library. Returns the new media path. */
+    fun restoreFromVault(context: Context, path: String): String {
+        val file = File(path)
+        if (!file.exists()) throw java.io.IOException("The vault file is missing.")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return publishMedia(context, file)
+        // Before Android 10 files live in a normal folder, so move it back there for the gallery to find.
+        val dir = currentSaveDir(context).apply { mkdirs() }
+        val target = File(dir, file.name)
+        file.copyTo(target, overwrite = true)
+        file.delete()
+        return publishMedia(context, target)
     }
 
     fun publishMedia(context: Context, file: File): String {
@@ -161,6 +226,22 @@ object OrbitEngine {
             if (file.exists() && !file.delete()) throw java.io.IOException("Could not delete ${file.name}.")
             MediaScannerConnection.scanFile(context, arrayOf(path), null, null)
         }
+    }
+
+    /** Path or content URI of the saved file for a download id (running job first, then history). */
+    fun findMediaPath(context: Context, id: String): String? {
+        jobsById[id]?.file?.takeIf { it.isNotBlank() }?.let { if (mediaExists(context, it)) return it }
+        val item = historyItem(context, id) ?: return null
+        return item.optString("file").takeIf { mediaExists(context, it) }
+    }
+
+    fun historyItem(context: Context, id: String): JSONObject? {
+        val arr = readHistory(context)
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            if (item.optString("id") == id) return item
+        }
+        return null
     }
 
     fun currentDefaultQuality(context: Context): String {
@@ -232,7 +313,10 @@ object OrbitEngine {
         file: String,
         size: Long,
         files: List<String> = emptyList(),
-        url: String = ""
+        url: String = "",
+        height: Int = 0,
+        codec: String = "",
+        shareReady: Boolean = false
     ) {
         val arr = readHistory(context)
         val next = JSONArray()
@@ -245,6 +329,9 @@ object OrbitEngine {
             put("quality", quality)
             put("file", file)
             put("size", size)
+            if (height > 0) put("height", height)
+            if (codec.isNotBlank()) put("codec", codec)
+            put("share_ready", shareReady)
             if (files.isNotEmpty()) put("files", JSONArray(files))
             put("t", System.currentTimeMillis() / 1000L)
         }
@@ -325,7 +412,9 @@ object OrbitEngine {
         var error: String = "",
         var isImage: Boolean = false,
         var directUrl: String = "",
-        var imageUrls: List<String> = emptyList()
+        var imageUrls: List<String> = emptyList(),
+        var shareReady: Boolean = true,
+        var stage: String = ""
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("id", id)
@@ -335,6 +424,8 @@ object OrbitEngine {
             put("thumb", thumb)
             put("quality", quality)
             put("state", state)
+            put("stage", stage)
+            put("shareReady", shareReady)
             put("percent", percent)
             put("speed", speed)
             put("eta", eta)
@@ -351,6 +442,67 @@ object OrbitEngine {
 
     val activeJobs = java.util.concurrent.CopyOnWriteArrayList<DownloadJob>()
     val jobsById = java.util.concurrent.ConcurrentHashMap<String, DownloadJob>()
+
+    // ---- Unfinished downloads survive the app process being killed ----------------------------
+    // Android (especially Xiaomi/Oppo/Vivo/Huawei skins) can kill Orbit while it is in the
+    // background. Every running job is recorded here and resumed when the service restarts.
+
+    private const val PENDING_KEY = "pending_jobs"
+    const val MAX_RESUME_ATTEMPTS = 3
+
+    @Synchronized
+    fun savePending(context: Context, job: DownloadJob, attempts: Int) {
+        val root = try { JSONObject(prefs(context).getString(PENDING_KEY, "{}") ?: "{}") } catch (_: Exception) { JSONObject() }
+        root.put(job.id, JSONObject().apply {
+            put("url", job.url)
+            put("title", job.title)
+            put("site", job.site)
+            put("thumb", job.thumb)
+            put("quality", job.quality)
+            put("isImage", job.isImage)
+            put("directUrl", job.directUrl)
+            put("shareReady", job.shareReady)
+            put("attempts", attempts)
+            put("imageUrls", JSONArray(job.imageUrls))
+        })
+        prefs(context).edit().putString(PENDING_KEY, root.toString()).apply()
+    }
+
+    @Synchronized
+    fun removePending(context: Context, id: String) {
+        val root = try { JSONObject(prefs(context).getString(PENDING_KEY, "{}") ?: "{}") } catch (_: Exception) { return }
+        if (root.has(id)) {
+            root.remove(id)
+            prefs(context).edit().putString(PENDING_KEY, root.toString()).apply()
+        }
+    }
+
+    @Synchronized
+    fun loadPending(context: Context): List<Pair<DownloadJob, Int>> {
+        val root = try { JSONObject(prefs(context).getString(PENDING_KEY, "{}") ?: "{}") } catch (_: Exception) { return emptyList() }
+        val out = mutableListOf<Pair<DownloadJob, Int>>()
+        for (id in root.keys().asSequence().toList()) {
+            val o = root.optJSONObject(id) ?: continue
+            val imgs = o.optJSONArray("imageUrls")
+            val urls = (0 until (imgs?.length() ?: 0)).mapNotNull { imgs?.optString(it)?.takeIf { s -> s.isNotBlank() } }
+            out += DownloadJob(
+                id = id,
+                url = o.optString("url"),
+                title = o.optString("title", "Downloading…"),
+                site = o.optString("site", "Video"),
+                thumb = o.optString("thumb"),
+                quality = o.optString("quality", "best"),
+                state = "queued",
+                isImage = o.optBoolean("isImage"),
+                directUrl = o.optString("directUrl"),
+                imageUrls = urls,
+                shareReady = o.optBoolean("shareReady", true)
+            ) to o.optInt("attempts", 0)
+        }
+        return out
+    }
+
+    fun currentShareReady(context: Context): Boolean = prefs(context).getBoolean("share_ready", true)
 
     data class CustomMediaInfo(
         val title: String,
