@@ -94,7 +94,8 @@ const showError = m => {
   card.hidden = false;
 };
 const svg = d => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
-const I = { play: "M8 5l11 7-11 7z", folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", lock: "M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zm-12 0V7a5 5 0 0 1 10 0v4", compress: "M4 14h6v6m10-10h-6V4m0 6 7-7M10 14l-7 7", share: "M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z", x: "M6 6l12 12M18 6L6 18", trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" };
+const I = { play: "M8 5l11 7-11 7z", folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", lock: "M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zm-12 0V7a5 5 0 0 1 10 0v4", compress: "M4 14h6v6m10-10h-6V4m0 6 7-7M10 14l-7 7", share: "M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z", x: "M6 6l12 12M18 6L6 18", trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3", dl: "M12 3v12m0 0l-4-4m4 4l4-4M4 20h16", retry: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" };
+const ACTIVE = ["queued", "downloading", "processing"];
 
 /* ---------------- views ---------------- */
 let cfg = { default_quality: "best", save_dir: "" };
@@ -104,6 +105,7 @@ function show(view) {
   $$(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + view));
   if (view === "library") loadLib();
   if (view === "settings") loadSettings();
+  if (view === "search") setTimeout(() => { const i = $("#searchInput"); if (i && !i.value) i.focus(); }, 60);
 }
 $("#nav").addEventListener("click", e => { const b = e.target.closest(".nav-btn"); if (b) show(b.dataset.view); });
 addEventListener("keydown", e => { if (e.ctrlKey && "123".includes(e.key)) { e.preventDefault(); show(["download", "library", "settings"][+e.key - 1]); } });
@@ -144,6 +146,7 @@ async function fetchInfo(e) {
 
     if (isImage) {
       $("#seg").hidden = true;
+      $("#shareRow").hidden = true;
       const count = d.count || (d.imageUrls ? d.imageUrls.length : 1);
       $("#quality").innerHTML = `<option value="image">Original Resolution</option>`;
       $("#quality").disabled = false;
@@ -151,14 +154,9 @@ async function fetchInfo(e) {
     } else {
       $("#seg").hidden = false;
       $("#dl").innerHTML = `<span>Download</span>${svg(I.dl)}`;
-      const hs = d.heights || [], opts = [["best", "Best available"]];
-      [2160, 1440, 1080, 720, 480].forEach(h => { if (hs.some(x => x >= h)) opts.push([String(h), h === 2160 ? "4K (2160p)" : h + "p"]); });
-      if (d.imageUrls && d.imageUrls.length > 0) {
-        opts.push(["photo", `Photos only (${d.imageUrls.length})`]);
-      }
-      $("#quality").innerHTML = opts.map(o => `<option value="${o[0]}">${o[1]}</option>`).join("");
-      const dq = cfg.default_quality;
-      if (dq === "audio") setKind("audio"); else { setKind("video"); if (opts.some(o => o[0] === dq)) $("#quality").value = dq; }
+      $("#shareReady").checked = cfg.share_ready !== false;
+      renderQualityOptions(cfg.default_quality);
+      setKind(cfg.default_quality === "audio" ? "audio" : "video");
     }
     $("#preview").hidden = false;
 
@@ -179,7 +177,37 @@ $("#form").addEventListener("submit", fetchInfo);
 function setKind(kind) {
   $$("#seg button").forEach(b => b.classList.toggle("on", b.dataset.kind === kind));
   $("#quality").disabled = kind === "audio";
+  $("#shareRow").hidden = kind === "audio" || !!(info && info.isImage);
 }
+
+/* Quality choices come from the formats the site really offers; the hint says what will happen to the codec. */
+function renderQualityOptions(keep) {
+  if (!info || info.isImage) return;
+  const share = $("#shareReady").checked;
+  const hs = info.heights || [], top = hs[0] || 0, h264 = info.h264Max || 0;
+  const opts = [];
+  if (!hs.length) opts.push(["best", "Original quality"]);
+  else if (share && h264) opts.push(["best", `Best · ${h264}p H.264`]);
+  else if (!share) opts.push(["best", `Maximum · ${top}p${info.maxCodec ? " " + info.maxCodec : ""}`]);
+  else opts.push(["best", "Best available"]);
+  [2160, 1440, 1080, 720, 480].forEach(h => {
+    if (!hs.some(x => x >= h)) return;
+    const label = h === 2160 ? "4K (2160p)" : h + "p";
+    opts.push([String(h), share && h264 && h > h264 ? `${label} · converted to H.264` : label]);
+  });
+  if (info.imageUrls && info.imageUrls.length > 0) opts.push(["photo", `Photos only (${info.imageUrls.length})`]);
+  const prevVal = keep || $("#quality").value;
+  $("#quality").innerHTML = opts.map(o => `<option value="${o[0]}">${esc(o[1])}</option>`).join("");
+  if (opts.some(o => o[0] === prevVal)) $("#quality").value = prevVal;
+
+  const modern = ["VP9", "AV1", "HEVC"].includes(info.maxCodec || "");
+  $("#shareHint").textContent = share
+    ? (h264 && top > h264
+        ? `H.264 reaches ${h264}p on this video. Higher resolutions are converted to H.264 after download, which takes longer.`
+        : "H.264 + AAC. Plays in WeChat, WhatsApp and Telegram.")
+    : (modern ? `Original ${info.maxCodec} file. Some chat apps cannot play it.` : "Original file, no conversion.");
+}
+$("#shareReady").addEventListener("change", () => { triggerHaptic(); renderQualityOptions(); });
 $("#seg").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setKind(b.dataset.kind); });
 
 /* ---------------- clipboard, paste and drop ---------------- */
@@ -236,6 +264,7 @@ $("#dl").onclick = async () => {
       directUrl: isImage ? (info.directUrl || info.thumbnail || "") : (info.directUrl || ""),
       imageUrls: isImage ? (info.imageUrls || []) : [],
       quality,
+      shareReady: $("#shareReady").checked,
       type: isImage ? "image" : "video",
       title: info.title,
       site: info.site,
@@ -251,11 +280,21 @@ $("#dl").onclick = async () => {
 /* ---------------- queue ---------------- */
 const rows = new Map(), prev = {};
 function actions(j) {
-  const b = (act, label, ic, cls = "") => `<button class="iconbtn ${cls}" data-act="${act}" title="${label}">${svg(ic)}${label ? `<span>${label}</span>` : ""}</button>`;
-  if (j.state === "downloading" || j.state === "processing") return b("cancel", "Cancel", I.x, "danger sq");
+  const b = (act, label, ic, cls = "") => `<button class="iconbtn ${cls}" data-act="${act}" title="${label || "Remove"}" aria-label="${label || "Remove"}">${svg(ic)}${label ? `<span>${label}</span>` : ""}</button>`;
+  if (ACTIVE.includes(j.state)) return b("cancel", "Cancel", I.x, "danger sq");
   const isImg = j.isImage || j.quality === "image" || j.quality === "photo";
-  if (j.state === "done") return b("open", isImg ? "Open" : "Play", I.play, "primary") + b("show", "Folder", I.folder) + b("dismiss", "", I.x, "sq");
-  return b("dismiss", "", I.x, "sq");
+  if (j.state === "done") return b("open", isImg ? "Open" : "Play", I.play, "primary") + b("share", "Share", I.share) + b("dismiss", "", I.x, "sq");
+  if (j.quality === "convert") return b("dismiss", "", I.x, "sq");
+  return b("retry", "Retry", I.retry, "primary") + b("dismiss", "", I.x, "sq");
+}
+function queueSub(j, isImg) {
+  const pct = Math.round(j.percent || 0);
+  if (j.state === "queued") return j.stage || "Waiting to start…";
+  if (j.state === "downloading") return j.stage || `${pct}%  ·  ${j.speed || (isImg ? "saving" : "starting")}${j.eta ? "  ·  ETA " + j.eta : ""}`;
+  if (j.state === "processing") return j.stage || "Merging and finishing…";
+  if (j.state === "done") return `Saved  ·  ${fmtSize(j.size)}${j.stage ? "  ·  " + j.stage : ""}`;
+  if (j.state === "cancelled") return "Cancelled";
+  return j.error || "Failed";
 }
 function renderQueue(list) {
   const ul = $("#queue"), ids = new Set(list.map(j => j.id));
@@ -270,30 +309,26 @@ function renderQueue(list) {
     li.className = "q " + j.state;
     li.querySelector(".ico").style.cssText = icoStyle(j.site, j.url, j.thumb);
     li.querySelector(".ico").setAttribute("aria-label", j.site || "Media");
-    li.querySelector(".q-title").textContent = j.title || "Downloading…";
+    const isConvert = j.quality === "convert";
+    li.querySelector(".q-title").textContent = (isConvert ? "Converting · " : "") + (j.title || "Downloading…");
     const isImg = j.isImage || j.quality === "image" || j.quality === "photo";
-    const q = isImg ? "Photo" : (QLABEL[j.quality] || "");
-    li.querySelector(".q-sub").textContent =
-      j.state === "downloading" ? `${Math.round(j.percent)}%  ·  ${j.speed || (isImg ? "saving" : "starting")}${j.eta ? "  ·  ETA " + j.eta : ""}` :
-      j.state === "processing" ? "Merging and finishing…" :
-      j.state === "done" ? `Saved  ·  ${fmtSize(j.size)}` :
-      j.state === "cancelled" ? "Cancelled" : (j.error || "Failed");
-    li.querySelector(".bar i").style.width = j.percent + "%";
+    li.querySelector(".q-sub").textContent = queueSub(j, isImg);
+    li.querySelector(".bar i").style.width = (j.state === "queued" ? 0 : j.percent) + "%";
     const act = li.querySelector(".q-act");
     if (act.dataset.state !== j.state) { act.innerHTML = actions(j); act.dataset.state = j.state; }
     if (ul.children[i] !== li) ul.insertBefore(li, ul.children[i] || null);
-    if (prev[j.id] && prev[j.id] !== "done" && j.state === "done") toast("Saved: " + (j.title || j.file));
-    if (prev[j.id] && prev[j.id] !== "error" && j.state === "error") toast("A download failed");
+    if (prev[j.id] && prev[j.id] !== "done" && j.state === "done") toast((isConvert ? "Converted: " : "Saved: ") + (j.title || j.file));
+    if (prev[j.id] && prev[j.id] !== "error" && j.state === "error") toast(j.error || "A download failed");
     prev[j.id] = j.state;
   });
-  const active = list.filter(j => j.state === "downloading" || j.state === "processing").length;
+  const active = list.filter(j => ACTIVE.includes(j.state)).length;
   $("#qBadge").hidden = !active; $("#qBadge").textContent = active;
   $("#qEmpty").hidden = list.length > 0;
-  $("#clearDone").hidden = !list.some(j => !["downloading", "processing"].includes(j.state));
+  $("#clearDone").hidden = !list.some(j => !ACTIVE.includes(j.state));
 }
 let polling = false;
 async function poll() {
-  if (polling) return; polling = true;
+  if (polling || document.hidden) return; polling = true;
   try { renderQueue(await api("/api/jobs")); } catch {} finally { polling = false; }
 }
 setInterval(poll, 800); poll();
@@ -303,18 +338,15 @@ $("#queue").addEventListener("click", async e => {
   triggerHaptic();
   const id = b.closest("li").dataset.id;
   try {
-    if (b.dataset.act === "cancel") await api("/api/cancel/" + id, {});
-    if (b.dataset.act === "dismiss") await api("/api/dismiss/" + id, {});
     const li = b.closest("li");
-    const isVault = li.dataset.vault === "true";
     const title = li.querySelector(".q-title")?.textContent || "Media";
-    if (b.dataset.act === "player") { openInAppPlayer(id, title, "video"); return; }
-    if (b.dataset.act === "compress") { compressMedia(id); return; }
-    if (b.dataset.act === "vault") { toggleVaultItem(id, isVault); return; }
-    if (b.dataset.act === "open") await api("/api/open/" + id, {});
-    if (b.dataset.act === "share") await api("/api/share/" + id, {});
-    if (b.dataset.act === "show") await api("/api/reveal/" + id, {});
-  } catch { toast("That file isn't there any more"); }
+    const act = b.dataset.act;
+    if (act === "cancel") await api("/api/cancel/" + id, {});
+    if (act === "dismiss") await api("/api/dismiss/" + id, {});
+    if (act === "retry") { await api("/api/retry/" + id, {}); toast("Trying again"); }
+    if (act === "open") openInAppPlayer(id, title, "video");
+    if (act === "share") { openSheet(id, title); return; }
+  } catch (err) { toast(err.message || "That file isn't there any more"); }
   poll();
 });
 $("#clearDone").onclick = async () => {
@@ -347,10 +379,13 @@ async function loadLib() {
   if ($("#libClear")) $("#libClear").hidden = !list.length;
 
   $("#lib").innerHTML = list.map(e => {
-    const kind = e.quality === "image" || e.quality === "photo" ? "Photo" : (QLABEL[e.quality] || "Best");
-    const isVid = kind !== "Photo" && kind !== "Audio";
+    const isPhoto = e.quality === "image" || e.quality === "photo";
+    const isAudio = e.quality === "audio";
+    const kind = isPhoto ? "Photo" : isAudio ? "MP3" : (e.height ? e.height + "p" : (QLABEL[e.quality] || "Video"));
+    const codec = !isPhoto && !isAudio && e.codec ? e.codec : "";
+    const ready = !isPhoto && !isAudio && e.share_ready === true;
     return `
-    <li class="lib-card ${e.exists ? "" : "gone"}" data-id="${esc(e.id)}" data-vault="${e.vault ? "true" : "false"}" data-title="${esc(e.title)}">
+    <li class="lib-card ${e.exists ? "" : "gone"}" data-id="${esc(e.id)}" data-vault="${e.vault ? "true" : "false"}" data-title="${esc(e.title)}" data-photo="${isPhoto}">
       <div class="lib-card-top" data-act="player">
         <div class="lib-card-thumb">
           ${icoHtml(e.site, e.url, e.thumb)}
@@ -362,29 +397,27 @@ async function loadLib() {
             <span class="lib-meta-pill ${e.exists ? "saved" : "missing"}">${e.exists ? "Saved" : "Missing"}</span>
             <span class="lib-meta-tag">${fmtSize(e.size)}</span>
             <span class="lib-meta-tag">${kind}</span>
-            ${e.vault ? '<span class="lib-meta-tag vault">🔒 Vault</span>' : ""}
+            ${codec ? `<span class="lib-meta-tag">${esc(codec)}</span>` : ""}
+            ${ready ? '<span class="lib-meta-tag ok">Share-ready</span>' : ""}
+            ${e.vault ? '<span class="lib-meta-tag vault">Vault</span>' : ""}
           </div>
         </div>
       </div>
       <div class="lib-card-actions">
-        <button class="lib-act-btn primary" data-act="player" title="Play Video">
+        <button class="lib-act-btn primary" data-act="player" title="${isPhoto ? "Open" : "Play"}">
           ${svg(I.play)}
-          <span>Play</span>
+          <span>${isPhoto ? "Open" : "Play"}</span>
         </button>
-        <button class="lib-act-btn" data-act="share" title="Share Media">
+        <button class="lib-act-btn" data-act="share" title="Share or convert">
           ${svg(I.share)}
           <span>Share</span>
         </button>
-        ${isVid ? `<button class="lib-act-btn" data-act="compress" title="Compress for WeChat / Chat Apps">
-          ${svg(I.compress)}
-          <span>Compress</span>
-        </button>` : ""}
-        <button class="lib-act-btn" data-act="vault" title="${e.vault ? "Restore to Public Gallery" : "Lock to Private Vault"}">
+        <button class="lib-act-btn" data-act="vault" title="${e.vault ? "Restore to the gallery" : "Hide in the private vault"}">
           ${svg(I.lock)}
           <span>${e.vault ? "Restore" : "Vault"}</span>
         </button>
-        <button class="lib-act-btn danger" data-act="remove" title="Delete File">
-          ${svg(I.x)}
+        <button class="lib-act-btn danger" data-act="remove" title="Delete file">
+          ${svg(I.trash)}
           <span>Delete</span>
         </button>
       </div>
@@ -403,25 +436,17 @@ $("#lib").addEventListener("click", async e => {
   const act = btn ? btn.dataset.act : null;
 
   // If clicked top card area -> launch In-App Player!
-  if (!act && e.target.closest(".lib-card-top")) {
-    triggerHaptic();
-    openInAppPlayer(id, title, "video");
-    return;
-  }
   if (!act) return;
 
   triggerHaptic();
   try {
     if (act === "player") {
-      openInAppPlayer(id, title, "video");
+      if (card.dataset.photo === "true") await api("/api/open/" + id, {});
+      else openInAppPlayer(id, title, "video");
       return;
     }
     if (act === "share") {
-      await api("/api/share/" + id, {});
-      return;
-    }
-    if (act === "compress") {
-      compressMedia(id);
+      openSheet(id, title);
       return;
     }
     if (act === "vault") {
@@ -433,7 +458,7 @@ $("#lib").addEventListener("click", async e => {
       return;
     }
     if (act === "remove") {
-      if (!confirm("Permanently delete this file from your device storage?")) return;
+      if (!confirm("Delete this file from your device? This cannot be undone.")) return;
       await api("/api/history/" + id, undefined, "DELETE");
       toast("File deleted from device");
       loadLib();
@@ -467,6 +492,9 @@ function applySettings(s) {
   });
   if ($("#setAutoDownload")) {
     $("#setAutoDownload").checked = Boolean(s.auto_download);
+  }
+  if ($("#setShareReady")) {
+    $("#setShareReady").checked = s.share_ready !== false;
   }
 }
 async function checkBatteryOpt() {
@@ -503,6 +531,8 @@ async function loadSettings() {
     checkBatteryOpt();
     if ($("#aAppVer")) $("#aAppVer").textContent = "v" + (s.version || "1.0.4");
     $("#aVer").textContent = s.yt_dlp; $("#aFf").textContent = s.ffmpeg ? "Ready" : "Missing";
+    if ($("#aFfSub")) $("#aFfSub").textContent = s.ffmpeg_version ? "FFmpeg " + s.ffmpeg_version : "FFmpeg";
+    if ($("#aBuild")) $("#aBuild").textContent = s.build || "Release build";
     if (s.has_update) {
       if ($("#setUpdateInfo")) $("#setUpdateInfo").textContent = `Update available: ${s.latest_version} (Current: v${s.version})`;
       if ($("#setUpdateNow")) $("#setUpdateNow").hidden = false;
@@ -518,6 +548,17 @@ if ($("#setAutoDownload")) {
       applySettings(await api("/api/settings", { auto_download: e.target.checked }));
       toast(e.target.checked ? "Automatic download enabled" : "Automatic download disabled");
     } catch (err) {
+      toast("Couldn't update setting: " + err.message);
+    }
+  };
+}
+if ($("#setShareReady")) {
+  $("#setShareReady").onchange = async e => {
+    try {
+      applySettings(await api("/api/settings", { share_ready: e.target.checked }));
+      toast(e.target.checked ? "Videos will be saved share-ready (H.264)" : "Videos keep their original codec");
+    } catch (err) {
+      e.target.checked = !e.target.checked;
       toast("Couldn't update setting: " + err.message);
     }
   };
@@ -717,7 +758,7 @@ setTimeout(() => checkUpdate(false), 2500);
 
 
 /* ==========================================================================
-   Orbit v1.0.17 Features: Themes, In-App Player, Vault, AI Assistant, Sniffer
+   Themes, in-app player, private vault, search and share sheet
    ========================================================================== */
 
 /* ---------------- 1. Themes & Accent Palette ---------------- */
@@ -805,35 +846,10 @@ $$(".speed-pill").forEach(p => {
   });
 });
 
-$("#playerShareBtn")?.addEventListener("click", async () => {
-  if (currentPlayerId) {
-    try {
-      await api("/api/share/" + currentPlayerId, {});
-    } catch (e) {
-      toast("Share failed: " + e.message);
-    }
-  }
+$("#playerShareBtn")?.addEventListener("click", () => {
+  if (currentPlayerId) openSheet(currentPlayerId, playerTitle ? playerTitle.textContent : "");
 });
 
-$("#playerCompressBtn")?.addEventListener("click", async () => {
-  if (currentPlayerId) {
-    compressMedia(currentPlayerId);
-  }
-});
-
-/* ---------------- 3. Compress for WeChat & Chat Apps ---------------- */
-async function compressMedia(id) {
-  triggerHaptic();
-  toast("Compressing video for WeChat (<25MB, H.264)...");
-  try {
-    const res = await api("/api/compress/" + id, {}, "POST");
-    toast("Video successfully compressed for WeChat!");
-    loadLib();
-    if (res && res.id) openInAppPlayer(res.id, res.title || "Compressed Video", "video");
-  } catch (err) {
-    toast("Compression note: " + (err.message || "Ready to send"));
-  }
-}
 
 /* ---------------- 4. Private Vault (PIN Locked + .nomedia) ---------------- */
 let currentLibTab = "all"; // "all" or "vault"
@@ -921,148 +937,149 @@ async function toggleVaultItem(id, currentVaultStatus) {
   }
 }
 
-/* ---------------- 6. Real Orbit AI Assistant ---------------- */
-const aiChatBox = $("#aiChatBox");
-const aiInput = $("#aiInput");
-const aiSendBtn = $("#aiSend");
-const aiClearBtn = $("#aiClearChat");
+/* ---------------- 5. Search (results come straight from YouTube) ---------------- */
+const searchForm = $("#searchForm");
+const searchInput = $("#searchInput");
+const searchResults = $("#searchResults");
 
-function appendAiMessage(role, htmlContent, results = []) {
-  if (!aiChatBox) return;
-  const msgDiv = document.createElement("div");
-  msgDiv.className = "ai-msg " + role;
-
-  if (role === "bot") {
-    const avatar = document.createElement("div");
-    avatar.className = "ai-avatar";
-    avatar.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>`;
-    msgDiv.appendChild(avatar);
-  }
-
-  const bubbleDiv = document.createElement("div");
-  bubbleDiv.className = "ai-bubble";
-  bubbleDiv.innerHTML = htmlContent;
-
-  if (results && results.length > 0) {
-    const resGrid = document.createElement("div");
-    resGrid.className = "ai-result-grid";
-    resGrid.innerHTML = results.map(r => `
-      <div class="ai-result-card">
-        <img class="ai-result-thumb" src="${esc(r.thumb)}" alt="${esc(r.title)}" onerror="this.src='/icons/youtube.svg'" loading="lazy" />
-        <div class="ai-result-info">
-          <div class="ai-result-title" title="${esc(r.title)}">${esc(r.title)}</div>
-          <div class="ai-result-meta">
-            <span>${esc(r.uploader || "YouTube")}</span>
-            ${r.duration ? `<span>· ${esc(r.duration)}</span>` : ""}
-          </div>
-          <div class="ai-result-actions">
-            <button class="ai-dl-btn primary" data-url="${esc(r.url)}" data-title="${esc(r.title)}" data-q="best">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>
-              <span>Download</span>
-            </button>
-            <button class="ai-dl-btn" data-url="${esc(r.url)}" data-title="${esc(r.title)}" data-q="audio">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-              <span>MP3</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    `).join("");
-    bubbleDiv.appendChild(resGrid);
-  }
-
-  msgDiv.appendChild(bubbleDiv);
-  aiChatBox.appendChild(msgDiv);
-  aiChatBox.scrollTop = aiChatBox.scrollHeight;
+function searchEmpty(title, sub) {
+  const box = $("#searchEmpty");
+  box.hidden = false;
+  box.querySelector("p").textContent = title;
+  box.querySelector(".empty-sub").textContent = sub;
 }
 
-async function processAiQuery(query) {
+async function runSearch(query) {
   const q = String(query || "").trim();
   if (!q) return;
-  appendAiMessage("user", esc(q));
-  aiChatBox.scrollTop = aiChatBox.scrollHeight;
-
-  const thinkingMsg = document.createElement("div");
-  thinkingMsg.className = "ai-msg bot";
-  thinkingMsg.id = "aiThinking";
-  thinkingMsg.innerHTML = `
-    <div class="ai-avatar"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg></div>
-    <div class="ai-bubble" style="color: var(--dim); font-style: italic;">Orbit AI is searching live...</div>
-  `;
-  aiChatBox.appendChild(thinkingMsg);
-  aiChatBox.scrollTop = aiChatBox.scrollHeight;
-
+  searchInput.value = q;
+  searchInput.blur();
+  $("#searchEmpty").hidden = true;
+  searchResults.innerHTML = "";
+  $("#searchSkeleton").hidden = false;
+  $("#searchGo").disabled = true;
   try {
-    const resp = await api("/api/ai/query", { query: q });
-    $("#aiThinking")?.remove();
-    if (resp && resp.text) {
-      appendAiMessage("bot", resp.text, resp.results || []);
+    const r = await api("/api/search", { query: q });
+    const list = r.results || [];
+    if (!list.length) {
+      searchEmpty("No results", "Try different keywords, or paste a link on the Download tab.");
     } else {
-      appendAiMessage("bot", "Could not complete the search. Please try again.");
+      searchResults.innerHTML = list.map(v => `
+        <li class="sr-card">
+          <div class="sr-thumb"><img src="${esc(v.thumb)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">${v.duration ? `<span class="dur">${esc(v.duration)}</span>` : ""}</div>
+          <div class="sr-info">
+            <h4 class="sr-title">${esc(v.title)}</h4>
+            <p class="sr-meta">${esc(v.uploader || "YouTube")}</p>
+            <div class="sr-actions" data-url="${esc(v.url)}" data-title="${esc(v.title)}" data-thumb="${esc(v.thumb)}">
+              <button type="button" class="ghost-btn primary" data-act="dl">${svg(I.dl)}<span>Download</span></button>
+              <button type="button" class="ghost-btn" data-act="mp3"><span>MP3</span></button>
+              <button type="button" class="ghost-btn" data-act="opts"><span>Options</span></button>
+            </div>
+          </div>
+        </li>`).join("");
     }
   } catch (err) {
-    $("#aiThinking")?.remove();
-    appendAiMessage("bot", "Error connecting to Orbit AI: " + (err.message || "Network error"));
+    searchEmpty("Search failed", err.message || "Check your connection and try again.");
+  } finally {
+    $("#searchSkeleton").hidden = true;
+    $("#searchGo").disabled = false;
   }
-  aiChatBox.scrollTop = aiChatBox.scrollHeight;
 }
 
-aiSendBtn?.addEventListener("click", () => {
-  const val = aiInput?.value;
-  if (!val) return;
-  aiInput.value = "";
-  processAiQuery(val);
+searchForm?.addEventListener("submit", e => { e.preventDefault(); triggerHaptic(); runSearch(searchInput.value); });
+$("#searchChips")?.addEventListener("click", e => {
+  const c = e.target.closest(".chip");
+  if (c) { triggerHaptic(); runSearch(c.dataset.q); }
 });
-
-aiInput?.addEventListener("keydown", e => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    aiSendBtn?.click();
-  }
-});
-
-aiClearBtn?.addEventListener("click", () => {
+searchResults?.addEventListener("click", async e => {
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const box = btn.closest(".sr-actions");
+  const { url, title, thumb } = box.dataset;
   triggerHaptic();
-  if (aiChatBox) {
-    aiChatBox.innerHTML = `
-      <div class="ai-msg bot">
-        <div class="ai-avatar"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg></div>
-        <div class="ai-bubble">Chat cleared. Ask me to find any video, topic, or song!</div>
-      </div>
-    `;
-  }
-});
-
-aiChatBox?.addEventListener("click", async e => {
-  const sugBtn = e.target.closest(".ai-sug-chip");
-  if (sugBtn) {
-    triggerHaptic();
-    processAiQuery(sugBtn.dataset.query);
+  if (btn.dataset.act === "opts") {
+    show("download");
+    urlEl.value = url;
+    fetchInfo();
     return;
   }
+  btn.disabled = true;
+  try {
+    await api("/api/download", { url, title, thumb, site: "YouTube", quality: btn.dataset.act === "mp3" ? "audio" : "best" });
+    btn.querySelector("span").textContent = "Queued";
+    toast("Added to the download queue");
+    poll();
+  } catch (err) {
+    btn.disabled = false;
+    toast(err.message || "Couldn't start the download");
+  }
+});
 
-  const dlBtn = e.target.closest(".ai-dl-btn");
-  if (dlBtn) {
-    triggerHaptic();
-    const url = dlBtn.dataset.url;
-    const title = dlBtn.dataset.title;
-    const quality = dlBtn.dataset.q || "best";
-    if (!url) return;
-    try {
-      dlBtn.textContent = "Starting...";
-      dlBtn.disabled = true;
-      await api("/api/download", {
-        url: url,
-        quality: quality,
-        title: title
-      });
-      toast("Orbit: Download started in background!");
-      dlBtn.textContent = "Queued ✓";
-    } catch (err) {
-      toast("Download error: " + err.message);
-      dlBtn.textContent = "Retry";
-      dlBtn.disabled = false;
+/* ---------------- 6. Share & convert sheet ---------------- */
+const sheet = $("#sheet");
+function closeSheet() { sheet.hidden = true; $("#sheetBody").innerHTML = ""; }
+$("#sheetClose").addEventListener("click", closeSheet);
+sheet.addEventListener("click", e => { if (e.target === sheet) closeSheet(); });
+
+async function openSheet(id, title) {
+  triggerHaptic();
+  let item = null, apps = {};
+  try { item = (await api("/api/history")).find(x => x.id === id) || null; } catch {}
+  try { apps = await api("/api/apps"); } catch {}
+  const q = item ? item.quality : "";
+  const isMedia = item && q !== "image" && q !== "photo";
+  const isVideo = isMedia && q !== "audio";
+
+  $("#sheetTitle").textContent = "Share";
+  $("#sheetSub").textContent = (item && item.title) || title || "";
+
+  let note = "";
+  if (isVideo) {
+    if (item.share_ready === true) {
+      note = `<div class="sheet-note ok">${esc([item.codec, item.height ? item.height + "p" : ""].filter(Boolean).join(" · "))} · plays in WeChat, WhatsApp and Telegram.</div>`;
+    } else if (item.codec) {
+      note = `<div class="sheet-note warn">${esc([item.codec, item.height ? item.height + "p" : ""].filter(Boolean).join(" · "))} · some chat apps cannot play this. Make a share-ready copy first.</div>`;
+    } else {
+      note = `<div class="sheet-note">Format not checked. If a chat app cannot play this file, make a share-ready copy below.</div>`;
     }
+  }
+  const targets = [["wechat", "WeChat", "com.tencent.mm"], ["whatsapp", "WhatsApp", "com.whatsapp"], ["telegram", "Telegram", "org.telegram.messenger"]]
+    .filter(t => apps[t[0]]);
+  const appBtns = targets.map(t => `<button type="button" class="sheet-app" data-pkg="${t[2]}">${t[1]}</button>`).join("")
+    + `<button type="button" class="sheet-app more" data-pkg="">More apps</button>`;
+  const convert = isVideo ? `
+    <div class="sheet-sep">Make a copy</div>
+    <button type="button" class="sheet-opt" data-mode="share" ${item.share_ready === true ? "disabled" : ""}>
+      <b>Share-ready (H.264 + AAC)</b>
+      <small>${item.share_ready === true ? "This video already plays everywhere." : "Same resolution, high quality. Can take several minutes on a phone."}</small>
+    </button>
+    <button type="button" class="sheet-opt" data-mode="chat">
+      <b>Smaller copy for chats</b>
+      <small>Up to 720p with a lower bitrate, for apps that limit file size.</small>
+    </button>` : "";
+  $("#sheetBody").innerHTML = note + `<div class="sheet-apps">${appBtns}</div>` + convert;
+  $("#sheetBody").dataset.id = id;
+  sheet.hidden = false;
+}
+
+$("#sheetBody").addEventListener("click", async e => {
+  const id = $("#sheetBody").dataset.id;
+  const app = e.target.closest(".sheet-app");
+  const opt = e.target.closest(".sheet-opt");
+  triggerHaptic();
+  try {
+    if (app) {
+      closeSheet();
+      await api("/api/share/" + id, app.dataset.pkg ? { pkg: app.dataset.pkg } : {});
+    } else if (opt && !opt.disabled) {
+      closeSheet();
+      await api("/api/convert/" + id, { mode: opt.dataset.mode });
+      toast("Converting in the background");
+      show("download");
+      poll();
+    }
+  } catch (err) {
+    toast(err.message || "That didn't work");
   }
 });
 

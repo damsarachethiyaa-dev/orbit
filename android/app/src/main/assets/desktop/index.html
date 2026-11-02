@@ -48,11 +48,11 @@
         <span>Library</span>
       </button>
 
-      <button class="nav-btn" data-view="assistant">
+      <button class="nav-btn" data-view="search">
         <span class="nav-icon-wrap">
-          <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
         </span>
-        <span>Orbit AI</span>
+        <span>Search</span>
       </button>
       <button class="nav-btn" data-view="settings">
         <span class="nav-icon-wrap">
@@ -187,6 +187,11 @@
               <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>
             </button>
           </div>
+          <label class="share-toggle" id="shareRow">
+            <input type="checkbox" id="shareReady" checked>
+            <span class="share-box" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+            <span class="share-copy"><b>Share-ready MP4</b><small id="shareHint">H.264 + AAC. Plays in WeChat, WhatsApp and Telegram.</small></span>
+          </label>
         </div>
       </article>
 
@@ -212,38 +217,38 @@
 
     
 
-    <!-- ORBIT AI ASSISTANT VIEW -->
-    <section class="view" id="v-assistant">
-      <header class="head ai-header">
-        <div class="ai-header-top">
-          <h1>Orbit AI</h1>
-          <p class="head-sub">Smart video search, YouTube finder &amp; download assistant</p>
-        </div>
-        <button class="ghost-btn" id="aiClearChat" style="height: 32px; padding: 0 12px; font-size: 0.72rem;">Clear Chat</button>
+    <!-- SEARCH VIEW -->
+    <section class="view" id="v-search">
+      <header class="head">
+        <h1>Search</h1>
+        <p class="head-sub">Find a video on YouTube, then download it in one tap.</p>
       </header>
-      <div class="ai-view">
-        <div class="ai-chat-box" id="aiChatBox">
-          <div class="ai-msg bot">
-            <div class="ai-avatar">
-              <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
-            </div>
-            <div class="ai-bubble">
-              Hello! I'm <b>Orbit AI</b>. Ask me to search for any video, find music on YouTube, or give you advice on downloading and formatting.
-              <div class="ai-suggestions-grid">
-                <button class="ai-sug-chip" data-query="Top relaxing lofi study music">🎧 Relaxing Lofi Beats</button>
-                <button class="ai-sug-chip" data-query="How to compress video under 25MB for WeChat">📱 WeChat 25MB Tips</button>
-                <button class="ai-sug-chip" data-query="Best 4K drone nature footage">🌄 4K Nature Videos</button>
-                <button class="ai-sug-chip" data-query="How to send 1080p video on WhatsApp without compression">💬 WhatsApp HD Tricks</button>
-              </div>
-            </div>
-          </div>
+      <form class="search-bar" id="searchForm" autocomplete="off">
+        <svg class="f-ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="searchInput" type="search" placeholder="Search videos or songs" enterkeyhint="search" spellcheck="false" aria-label="Search videos">
+        <button type="submit" class="solid" id="searchGo"><span>Search</span></button>
+      </form>
+      <div class="search-chips" id="searchChips">
+        <button type="button" class="chip" data-q="lofi study music">Lofi study music</button>
+        <button type="button" class="chip" data-q="4k nature documentary">4K nature</button>
+        <button type="button" class="chip" data-q="cooking recipes">Cooking</button>
+        <button type="button" class="chip" data-q="workout music mix">Workout mix</button>
+      </div>
+      <div class="skeleton" id="searchSkeleton" hidden>
+        <i class="s-thumb"></i>
+        <div class="s-lines"><i></i><i></i><i></i></div>
+      </div>
+      <ul class="search-results" id="searchResults"></ul>
+      <div class="empty" id="searchEmpty">
+        <div class="orb">
+          <svg viewBox="0 0 64 64">
+            <path d="M47.47 25.93A20.5 20.5 0 1 1 28.07 6.53" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+            <circle class="orbit-dot2" cx="41.5" cy="12.5" r="5" fill="#FFFFFF"/>
+            <circle fill="currentColor" cx="27" cy="27" r="4"/>
+          </svg>
         </div>
-        <div class="ai-input-bar">
-          <input type="text" class="ai-input" id="aiInput" placeholder="Search videos or ask Orbit AI..." autocomplete="off" />
-          <button class="solid primary" id="aiSend" aria-label="Send">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-          </button>
-        </div>
+        <p>Search YouTube</p>
+        <span class="empty-sub">Results come straight from YouTube. Nothing is generated or guessed.</span>
       </div>
     </section>
 
@@ -315,7 +320,7 @@
     <section class="view" id="v-settings">
       <header class="head">
         <h1>Settings</h1>
-        <p class="head-sub">Storage paths, default quality, and engine diagnostics</p>
+        <p class="head-sub">Quality, sharing, storage and engine details</p>
       </header>
 
       <div class="set-group">
@@ -365,6 +370,20 @@
           </div>
         </div>
 
+        <div class="set-card share-ready-card">
+          <div class="set-card-icon">
+            <svg viewBox="0 0 24 24"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 6l-4-4-4 4M12 2v14"/></svg>
+          </div>
+          <div class="set-card-body">
+            <h4>Share-ready MP4</h4>
+            <p class="dim">Save as H.264 + AAC so videos play in WeChat, WhatsApp, Telegram, iPhone and TVs. Turn off to keep the original codec (VP9/AV1) at the highest resolution.</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setShareReady">
+            <span class="slider"></span>
+          </label>
+        </div>
+
         <div class="set-card auto-download-card">
           <div class="set-card-icon">
             <svg viewBox="0 0 24 24"><path d="M12 2v13M12 15l-4-4M12 15l4-4M2 17l.62 2.48A2 2 0 0 0 4.56 21h14.88a2 2 0 0 0 1.94-1.52L22 17"/></svg>
@@ -404,8 +423,8 @@
           </div>
           <div class="quality-chip-grid" id="setQualityGrid">
             <button type="button" class="q-chip on" data-val="best">
-              <div class="q-chip-top"><span class="q-res">4K / Max</span></div>
-              <span class="q-desc">Highest available</span>
+              <div class="q-chip-top"><span class="q-res">Best</span></div>
+              <span class="q-desc">Highest the site offers</span>
             </button>
             <button type="button" class="q-chip" data-val="1080">
               <div class="q-chip-top"><span class="q-res">1080p</span></div>
@@ -421,7 +440,7 @@
             </button>
             <button type="button" class="q-chip" data-val="audio">
               <div class="q-chip-top"><span class="q-res">Audio Only</span></div>
-              <span class="q-desc">Soundtrack 320k</span>
+              <span class="q-desc">MP3, best quality</span>
             </button>
           </div>
           <select id="setQuality" hidden>
@@ -452,7 +471,7 @@
           </div>
           <div class="set-card-body">
             <h4>App Releases</h4>
-            <p class="dim" id="setUpdateInfo">Orbit v1.0.6 — Up to date</p>
+            <p class="dim" id="setUpdateInfo">Checking for updates…</p>
           </div>
           <div class="set-card-actions">
             <button class="ghost-btn" id="setCheckUpdate">Check Now</button>
@@ -466,23 +485,23 @@
         <div class="stat-grid">
           <div class="stat-card">
             <span class="stat-tag">App Version</span>
-            <b class="stat-val" id="aAppVer">v1.0.6</b>
-            <span class="stat-sub">Signed Android Release</span>
+            <b class="stat-val" id="aAppVer">v1.0.20</b>
+            <span class="stat-sub" id="aBuild">Release build</span>
           </div>
           <div class="stat-card">
             <span class="stat-tag">Core Engine</span>
             <b class="stat-val highlight" id="aVer">yt-dlp</b>
-            <span class="stat-sub">Bundled Native Lib</span>
+            <span class="stat-sub">yt-dlp, auto-updated</span>
           </div>
           <div class="stat-card">
-            <span class="stat-tag">Media Remuxer</span>
+            <span class="stat-tag">Converter</span>
             <b class="stat-val highlight" id="aFf">Ready</b>
-            <span class="stat-sub">FFmpeg v5.1+</span>
+            <span class="stat-sub" id="aFfSub">FFmpeg</span>
           </div>
           <div class="stat-card">
-            <span class="stat-tag">Codecs</span>
-            <b class="stat-val">MP4 / MP3</b>
-            <span class="stat-sub">AV1, VP9, H264, AAC</span>
+            <span class="stat-tag">Output</span>
+            <b class="stat-val">H.264 · AAC</b>
+            <span class="stat-sub">MP4 and MP3</span>
           </div>
         </div>
         <p class="legal-note">Download only content that you own or have permission to save. DRM protected and private media cannot be downloaded.</p>
@@ -497,7 +516,6 @@
     <div class="player-header">
       <span class="player-title" id="playerTitle">Now Playing</span>
       <div class="player-header-actions">
-        <button class="ghost-btn primary" id="playerCompressBtn" style="height: 32px; padding: 0 12px; font-size: 0.72rem;">Compress for WeChat</button>
         <button class="iconbtn sq" id="playerCloseBtn" aria-label="Close Player"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
     </div>
@@ -513,7 +531,7 @@
         <button class="speed-pill" data-speed="1.5">1.5x</button>
         <button class="speed-pill" data-speed="2.0">2.0x</button>
       </div>
-      <button class="ghost-btn primary" id="playerShareBtn" style="height: 32px; padding: 0 14px;">Share Video</button>
+      <button class="ghost-btn primary" id="playerShareBtn" style="height: 32px; padding: 0 14px;">Share</button>
     </div>
   </div>
 </div>
@@ -524,6 +542,17 @@
     <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>
   </div>
   <span class="bubble-text" id="floatBubbleText">Download Copied Link</span>
+</div>
+
+<!-- SHARE / CONVERT SHEET -->
+<div class="sheet-backdrop" id="sheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-grip"></div>
+    <h3 id="sheetTitle">Share</h3>
+    <p class="sheet-sub" id="sheetSub"></p>
+    <div class="sheet-body" id="sheetBody"></div>
+    <button type="button" class="ghost-btn sheet-close" id="sheetClose">Close</button>
+  </div>
 </div>
 
 <div class="toast" id="toast" role="status"></div>
