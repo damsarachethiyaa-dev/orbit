@@ -863,9 +863,13 @@ def run_job(jid: str, url: str, quality: str):
             # guarantees a .mp4 container; the remuxer copies streams, it never re-encodes
             opts["postprocessors"] = [{"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}]
     if quality == "audio":
-        opts.pop("merge_output_format")
-        opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3",
-                                   "preferredquality": "192"}]
+        opts.pop("merge_output_format", None)
+        opts["writethumbnail"] = True
+        opts["postprocessors"] = [
+            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "320"},
+            {"key": "FFmpegMetadata", "add_metadata": True},
+            {"key": "EmbedThumbnail", "already_have_thumbnail": False},
+        ]
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             meta = ydl.extract_info(url, download=True)
@@ -980,6 +984,18 @@ def reveal(jid):
     desktop_only()
     j = jobs.get(jid)
     p = Path(j["path"]) if j and j.get("path") else entry_path(jid)
+    if not p.exists():
+        abort(404)
+    explorer_select(p)
+    return jsonify(ok=True)
+
+
+@app.post("/api/share/<hid>")
+def share_file(hid):
+    """Reveal and select a finished file for sharing."""
+    desktop_only()
+    j = jobs.get(hid)
+    p = Path(j["path"]) if j and j.get("path") else entry_path(hid)
     if not p.exists():
         abort(404)
     explorer_select(p)

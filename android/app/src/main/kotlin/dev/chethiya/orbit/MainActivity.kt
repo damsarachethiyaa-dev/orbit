@@ -222,6 +222,15 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(startUrl)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::webView.isInitialized) {
+            webView.post {
+                webView.evaluateJavascript("if (window.checkClip) window.checkClip();", null)
+            }
+        }
+    }
+
     private fun handleNavigation(uri: Uri, isForMainFrame: Boolean): Boolean {
         if (isForMainFrame && uri.scheme == "https" && uri.host == "orbit.local" &&
             (uri.path == "/desktop/index.html" || uri.path == "/")) return false
@@ -396,6 +405,11 @@ class MainActivity : AppCompatActivity() {
             path.startsWith("/api/open/") -> {
                 val id = path.removePrefix("/api/open/")
                 openMediaById(id)
+                JSONObject().put("ok", true)
+            }
+            path.startsWith("/api/share/") -> {
+                val id = path.removePrefix("/api/share/")
+                shareMediaById(id)
                 JSONObject().put("ok", true)
             }
             path.startsWith("/api/reveal/") -> {
@@ -711,6 +725,30 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent.createChooser(intent, "Open media"))
             } catch (_: Exception) {
                 openDownloadsFolder()
+            }
+        }
+    }
+
+    private fun shareMediaById(id: String) {
+        val path = findFileForId(id) ?: throw IllegalArgumentException("File not found on device.")
+        val ext = if (path.startsWith("content://")) "" else File(path).extension.lowercase()
+        val mime = when (ext) {
+            "mp3", "m4a", "opus", "wav" -> "audio/*"
+            "mp4", "mkv", "webm" -> "video/*"
+            "jpg", "jpeg", "png", "webp", "gif" -> "image/*"
+            else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+        }
+        runOnUiThread {
+            try {
+                val uri = OrbitEngine.mediaUri(this, path)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = contentResolver.getType(uri) ?: mime
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(Intent.createChooser(intent, "Share media"))
+            } catch (e: Exception) {
+                Toast.makeText(applicationContext, "Share failed: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }

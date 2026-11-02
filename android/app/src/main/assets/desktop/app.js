@@ -94,7 +94,7 @@ const showError = m => {
   card.hidden = false;
 };
 const svg = d => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
-const I = { play: "M8 5l11 7-11 7z", folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", x: "M6 6l12 12M18 6L6 18", trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" };
+const I = { play: "M8 5l11 7-11 7z", folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", share: "M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z", x: "M6 6l12 12M18 6L6 18", trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" };
 
 /* ---------------- views ---------------- */
 let cfg = { default_quality: "best", save_dir: "" };
@@ -197,6 +197,7 @@ async function checkClip() {
     if (u && u !== lastClip && u !== urlEl.value.trim()) { lastClip = u; $("#clipUrl").textContent = u; $("#clip").hidden = false; }
   } catch {}
 }
+window.checkClip = checkClip;
 addEventListener("focus", checkClip);
 $("#clipUse").onclick = () => { urlEl.value = lastClip; $("#clip").hidden = true; fetchInfo(); };
 $("#clipX").onclick = () => { $("#clip").hidden = true; };
@@ -305,6 +306,7 @@ $("#queue").addEventListener("click", async e => {
     if (b.dataset.act === "cancel") await api("/api/cancel/" + id, {});
     if (b.dataset.act === "dismiss") await api("/api/dismiss/" + id, {});
     if (b.dataset.act === "open") await api("/api/open/" + id, {});
+    if (b.dataset.act === "share") await api("/api/share/" + id, {});
     if (b.dataset.act === "show") await api("/api/reveal/" + id, {});
   } catch { toast("That file isn't there any more"); }
   poll();
@@ -330,7 +332,7 @@ async function loadLib() {
       </div>
       <div class="q-main"><p class="q-title">${esc(e.title)}</p>
         <p class="q-sub mono">${esc([e.exists ? "Saved" : "File moved or deleted", fmtSize(e.size), kind].filter(Boolean).join("  ·  "))}</p></div>
-      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="${kind === "Photo" ? "Open" : "Play"}" aria-label="${kind === "Photo" ? "Open" : "Play"}">${svg(I.play)}</button><button class="iconbtn" data-act="show" title="Open folder" aria-label="Open folder">${svg(I.folder)}</button>` : ""}
+      <div class="q-act">${e.exists ? `<button class="iconbtn primary" data-act="open" title="${kind === "Photo" ? "Open" : "Play"}" aria-label="${kind === "Photo" ? "Open" : "Play"}">${svg(I.play)}</button><button class="iconbtn" data-act="share" title="Share" aria-label="Share">${svg(I.share)}</button><button class="iconbtn" data-act="show" title="Open folder" aria-label="Open folder">${svg(I.folder)}</button>` : ""}
         <button class="iconbtn sq danger" data-act="remove" title="Delete file" aria-label="Delete file">${svg(I.x)}</button></div>
     </li>`;
   }).join("");
