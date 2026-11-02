@@ -23,7 +23,7 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
 import updater  # Windows in-app updater helper
 
-APP_VERSION = "1.0.18"
+APP_VERSION = "1.0.19"
 GITHUB_REPO = "damsarachethiyaa-dev/orbit"
 
 DESKTOP = os.environ.get("ORBIT_DESKTOP") == "1"
@@ -1147,6 +1147,81 @@ def battery_status():
 @app.post("/api/battery/request")
 def battery_request():
     return jsonify(ok=True)
+
+
+@app.post("/api/ai/query")
+def ai_query_endpoint():
+    data = request.get_json(silent=True) or {}
+    q = str(data.get("query") or "").strip()
+    if not q:
+        return jsonify(type="text", text="Please enter a search topic or question.", results=[])
+
+    q_lower = q.lower()
+    if "wechat" in q_lower or "compress" in q_lower:
+        return jsonify(
+            type="guide",
+            text="<b>WeChat Video Sharing & Compression Guide:</b><br>"
+                 "• <b>25MB Limit:</b> WeChat caps direct video transfers at 25MB.<br>"
+                 "• <b>Optimal Settings:</b> Standard H.264 video with AAC audio and faststart header.<br>"
+                 "• <b>1-Tap in Orbit:</b> Open your Library or the In-App Player and tap <b>Compress</b> to automatically transcode the video under 25MB.",
+            results=[]
+        )
+    if "whatsapp" in q_lower:
+        return jsonify(
+            type="guide",
+            text="<b>WhatsApp HD Video Guide:</b><br>"
+                 "• Standard video messages are compressed by WhatsApp and capped at 16MB.<br>"
+                 "• <b>Pro Tip:</b> Send your downloaded video as a <b>Document</b> instead of Gallery media to preserve full uncompressed 1080p/4K resolution up to 2GB!",
+            results=[]
+        )
+
+    results = []
+    try:
+        search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(q)}"
+        req = urllib.request.Request(search_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            html = r.read().decode("utf-8", errors="ignore")
+        m = re.search(r"var ytInitialData = ({.*?});</script>", html)
+        if m:
+            data_json = json.loads(m.group(1))
+            contents = data_json.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", [])
+            for section in contents:
+                items = section.get("itemSectionRenderer", {}).get("contents", [])
+                for item in items:
+                    vr = item.get("videoRenderer")
+                    if vr:
+                        vid = vr.get("videoId")
+                        if not vid:
+                            continue
+                        title = vr.get("title", {}).get("runs", [{}])[0].get("text", "Video")
+                        channel = vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
+                        duration = vr.get("lengthText", {}).get("simpleText", "")
+                        results.append({
+                            "title": title,
+                            "uploader": channel,
+                            "duration": duration,
+                            "url": f"https://www.youtube.com/watch?v={vid}",
+                            "thumb": f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+                        })
+                        if len(results) >= 5:
+                            break
+                if len(results) >= 5:
+                    break
+    except Exception:
+        pass
+
+    if results:
+        return jsonify(
+            type="search",
+            text=f"Found real top video matches for <b>{json.dumps(q)}</b>:",
+            results=results
+        )
+    else:
+        return jsonify(
+            type="text",
+            text=f"No video streams found for "{q}". Try different search keywords.",
+            results=[]
+        )
 
 
 # ---------------------------------------------------------------- in-app auto-updater

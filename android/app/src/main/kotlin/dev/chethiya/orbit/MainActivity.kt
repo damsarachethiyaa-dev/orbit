@@ -437,6 +437,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 JSONObject().put("ok", true)
             }
+            path == "/api/ai/query" -> handleAiQuery(body.optString("query"))
             path == "/api/info" -> fetchVideoInfo(body.optString("url"))
             path == "/api/download" -> startDownloadJob(body)
             path == "/api/jobs" -> {
@@ -1135,6 +1136,97 @@ class MainActivity : AppCompatActivity() {
         OrbitEngine.writeHistory(applicationContext, arr)
         MediaScannerConnection.scanFile(applicationContext, arrayOf(file.absolutePath, targetFile.absolutePath), null, null)
         return JSONObject().put("ok", true)
+    }
+
+    private fun handleAiQuery(rawQuery: String): JSONObject {
+        val q = rawQuery.trim()
+        if (q.isBlank()) {
+            return JSONObject().put("type", "text").put("text", "Please enter a search topic or question.")
+        }
+        val qLower = q.lowercase(java.util.Locale.ROOT)
+
+        if (qLower.contains("wechat") || qLower.contains("compress")) {
+            return JSONObject()
+                .put("type", "guide")
+                .put("text", "<b>WeChat Video Sharing & Compression Guide:</b><br>" +
+                        "• <b>25MB Limit:</b> WeChat caps direct video transfers at 25MB.<br>" +
+                        "• <b>Optimal Settings:</b> Standard H.264 video with AAC audio and faststart header.<br>" +
+                        "• <b>1-Tap in Orbit:</b> Open your Library or the In-App Player and tap <b>Compress</b> to automatically transcode the video under 25MB.")
+                .put("results", JSONArray())
+        }
+        if (qLower.contains("whatsapp")) {
+            return JSONObject()
+                .put("type", "guide")
+                .put("text", "<b>WhatsApp HD Video Guide:</b><br>" +
+                        "• Standard video messages are compressed by WhatsApp and capped at 16MB.<br>" +
+                        "• <b>Pro Tip:</b> Send your downloaded video as a <b>Document</b> instead of Gallery media to preserve full uncompressed 1080p/4K resolution up to 2GB!")
+                .put("results", JSONArray())
+        }
+
+        val resultsArr = JSONArray()
+        try {
+            val searchUrl = "https://www.youtube.com/results?search_query=" + java.net.URLEncoder.encode(q, "UTF-8")
+            val conn = (java.net.URL(searchUrl).openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 8000
+                readTimeout = 8000
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            }
+            val html = conn.inputStream.bufferedReader().use { it.readText() }
+            val pattern = java.util.regex.Pattern.compile("""var ytInitialData = (\{.*?\});</script>""")
+            val matcher = pattern.matcher(html)
+            if (matcher.find()) {
+                val jsonStr = matcher.group(1)
+                val root = JSONObject(jsonStr)
+                val contents = root.optJSONObject("contents")
+                    ?.optJSONObject("twoColumnSearchResultsRenderer")
+                    ?.optJSONObject("primaryContents")
+                    ?.optJSONObject("sectionListRenderer")
+                    ?.optJSONArray("contents")
+
+                if (contents != null) {
+                    var count = 0
+                    for (i in 0 until contents.length()) {
+                        val section = contents.optJSONObject(i) ?: continue
+                        val items = section.optJSONObject("itemSectionRenderer")?.optJSONArray("contents") ?: continue
+                        for (j in 0 until items.length()) {
+                            val item = items.optJSONObject(j) ?: continue
+                            val vr = item.optJSONObject("videoRenderer") ?: continue
+                            val vid = vr.optString("videoId")
+                            if (vid.isNullOrBlank()) continue
+
+                            val titleRuns = vr.optJSONObject("title")?.optJSONArray("runs")
+                            val title = titleRuns?.optJSONObject(0)?.optString("text") ?: "Video"
+                            val channelRuns = vr.optJSONObject("ownerText")?.optJSONArray("runs")
+                            val channel = channelRuns?.optJSONObject(0)?.optString("text") ?: ""
+                            val duration = vr.optJSONObject("lengthText")?.optString("simpleText") ?: ""
+
+                            val obj = JSONObject()
+                            obj.put("title", title)
+                            obj.put("uploader", channel)
+                            obj.put("duration", duration)
+                            obj.put("url", "https://www.youtube.com/watch?v=$vid")
+                            obj.put("thumb", "https://i.ytimg.com/vi/$vid/hqdefault.jpg")
+                            resultsArr.put(obj)
+                            count++
+                            if (count >= 5) break
+                        }
+                        if (count >= 5) break
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        return if (resultsArr.length() > 0) {
+            JSONObject()
+                .put("type", "search")
+                .put("text", "Found real top video matches for <b>${JSONObject.quote(q).removeSurrounding("\"")}</b>:")
+                .put("results", resultsArr)
+        } else {
+            JSONObject()
+                .put("type", "text")
+                .put("text", "No video streams found for \"$q\". Try different search keywords.")
+                .put("results", JSONArray())
+        }
     }
 
 }
