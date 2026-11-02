@@ -418,6 +418,110 @@ input:checked + .slider::before { transform: translateX(20px); background: #000;
 .pin-dot.filled { animation: popIn 0.25s var(--spring); }
 .empty .orb { animation: float 4s ease-in-out infinite; }
 
+/* ---------------- motion, round 2: every corner ---------------- */
+@property --ang { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+@keyframes spinAng { to { --ang: 360deg; } }
+@keyframes spinFull { to { transform: rotate(360deg); } }
+@keyframes dropIn { from { opacity: 0; transform: translateY(-14px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes slideNext { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes slidePrev { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+@keyframes rippleOut { from { transform: scale(0); opacity: 0.4; } to { transform: scale(1); opacity: 0; } }
+@keyframes nudge { 0%, 88%, 100% { transform: none; } 92% { transform: translateX(-6px); } 96% { transform: translateX(3px); } }
+@keyframes wobble { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
+@keyframes ringSlow { 0% { box-shadow: 0 0 0 0 var(--accent-glow); } 100% { box-shadow: 0 0 0 22px transparent; } }
+@keyframes breathe { 50% { transform: scale(1.06); } }
+@keyframes gradShift { to { background-position: 200% 0; } }
+
+/* screens slide in from the tapped side */
+.main[data-dir="next"] .view.on { animation: slideNext 0.42s var(--spring) both; }
+.main[data-dir="prev"] .view.on { animation: slidePrev 0.42s var(--spring) both; }
+
+/* tap ripple */
+.fx { position: relative; overflow: hidden; }
+.ripple { position: absolute; border-radius: 50%; background: currentColor; opacity: 0; pointer-events: none; animation: rippleOut 0.6s ease-out; }
+.solid .ripple, .btn-fetch .ripple { background: #000; }
+
+/* top bar and logo */
+.app-topbar { transition: background 0.3s, box-shadow 0.3s, backdrop-filter 0.3s; position: relative; z-index: 5; }
+.app-topbar.scrolled { background: rgba(0, 0, 0, 0.78); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 1px 0 var(--line); }
+.brand-orbit .orbit-dot { transform-box: view-box; transform-origin: 27px 27px; animation: spinFull 7s linear infinite; }
+.topbar-title { animation: slideRight 0.6s var(--spring) both 0.1s; }
+.orb svg .orbit-dot2 { transform-box: view-box; transform-origin: 27px 27px; animation: spinFull 9s linear infinite; }
+
+/* hero card: rotating accent glow along the border */
+.download-panel { position: relative; }
+.download-panel::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1.5px; pointer-events: none; background: conic-gradient(from var(--ang), transparent 0 72%, var(--accent) 88%, transparent 100%); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); animation: spinAng 5s linear infinite; }
+
+/* inputs */
+.f-ico, .search-bar .f-ico { transition: stroke 0.25s, transform 0.3s var(--spring); }
+.field:focus-within .f-ico, .search-bar:focus-within .f-ico { stroke: var(--accent); transform: scale(1.18) rotate(-8deg); }
+.field input::placeholder, .search-bar input::placeholder { transition: opacity 0.25s, transform 0.25s; }
+.field input:focus::placeholder, .search-bar input:focus::placeholder { opacity: 0.4; transform: translateX(6px); }
+.select-chevron { transition: transform 0.3s var(--spring), stroke 0.2s; }
+.custom-select-wrap:focus-within .select-chevron { transform: rotate(180deg); stroke: var(--accent); }
+.share-toggle { transition: border-color 0.25s, background 0.25s, transform 0.15s; }
+.share-toggle:active { transform: scale(0.985); }
+.share-toggle:has(input:checked) { border-color: var(--accent-border); background: var(--accent-soft); }
+.share-toggle input:checked + .share-box { animation: popIn 0.35s var(--spring); }
+
+/* switches */
+.slider::before { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.2s; }
+.switch:active .slider::before { width: 28px; }
+.switch:active input:checked + .slider::before { transform: translateX(14px); }
+
+/* banners, alerts, bubble */
+.clip, .update-banner { animation: dropIn 0.45s var(--spring) both; }
+.error-card { animation: dropIn 0.45s var(--spring) both; }
+.error-ico { animation: wobble 0.6s 0.4s ease-in-out; }
+.float-bubble { animation: rise 0.35s var(--spring), nudge 5s 2.5s ease-in-out infinite; }
+.bubble-icon { animation: ringSlow 2s ease-out infinite; }
+.ub-fill { background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: gradShift 1.4s linear infinite; background-color: var(--accent); }
+
+/* selection states */
+.q-chip { transition: transform 0.2s var(--spring), border-color 0.25s, background 0.25s; }
+.q-chip.on { animation: popIn 0.35s var(--spring); }
+.theme-chip.on .theme-swatch { animation: ringSlow 1.8s ease-out infinite; }
+.lib-seg-btn.on, .seg button.on { animation: popIn 0.3s var(--spring); }
+.set-card-icon { transition: transform 0.3s var(--spring); }
+.set-card:active .set-card-icon { transform: scale(1.12) rotate(-6deg); }
+.stat-card { transition: transform 0.25s var(--spring), border-color 0.25s; }
+.stat-card:active { transform: scale(0.97); border-color: var(--accent-border); }
+
+/* library / queue / search extras */
+.lib-card { transition: transform 0.25s var(--spring), border-color 0.25s; }
+.lib-card:active { transform: scale(0.985); }
+.lib-meta-pill.saved { animation: breathe 3s ease-in-out infinite; }
+.lib-play-badge { animation: breathe 2.6s ease-in-out infinite; }
+.lib-act-btn svg { transition: transform 0.3s var(--spring); }
+.lib-act-btn:active svg { transform: scale(1.3) rotate(-8deg); }
+.q { transition: transform 0.25s var(--spring), border-color 0.3s, background 0.3s; }
+.q.done { border-color: var(--accent-border); }
+.q.done .ico { animation: popIn 0.5s var(--spring); }
+.q.cancelled { opacity: 0.7; }
+.sr-card { transition: transform 0.25s var(--spring); }
+.sr-card:active { transform: scale(0.985); }
+.sr-actions .ghost-btn svg { animation: nudge 4s ease-in-out infinite; }
+.search-chips .chip { animation: slideRight 0.4s var(--spring) both; }
+.search-chips .chip:nth-child(2) { animation-delay: 60ms; } .search-chips .chip:nth-child(3) { animation-delay: 120ms; } .search-chips .chip:nth-child(4) { animation-delay: 180ms; }
+.supported-platforms .ico { animation: popIn 0.5s var(--spring) both; }
+.supported-platforms .ico:nth-child(2) { animation-delay: 80ms; } .supported-platforms .ico:nth-child(3) { animation-delay: 160ms; }
+.clip-icon { animation: breathe 2.4s ease-in-out infinite; }
+
+/* vault */
+.vault-icon-circle { animation: ringSlow 2.4s ease-out infinite, popIn 0.5s var(--spring); }
+.pin-num { transition: transform 0.12s, background 0.15s, color 0.15s; }
+
+/* player and sheet */
+.player-header, .player-footer { animation: rise 0.45s var(--spring) both 0.1s; }
+.sheet-grip { animation: breathe 2.4s ease-in-out infinite; }
+.sheet-sub { animation: rise 0.4s var(--spring) both 0.05s; }
+.sheet h3 { animation: slideRight 0.4s var(--spring) both; }
+
+/* section headers */
+.section-title, .q-head .link-btn, .about-label { animation: slideRight 0.45s var(--spring) both; }
+.legal-note, .head-sub, .lib-header .head-sub { animation: rise 0.5s var(--spring) both 0.1s; }
+.empty-sub, .empty p { animation: rise 0.5s var(--spring) both 0.15s; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
