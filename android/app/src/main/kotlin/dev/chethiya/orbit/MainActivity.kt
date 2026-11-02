@@ -65,6 +65,9 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var ffmpegReady = false
 
+    @Volatile
+    private var destroyed = false
+
     @Volatile private var hasUpdate = false
     @Volatile private var latestVersion = BuildConfig.VERSION_NAME
     @Volatile private var releaseName = ""
@@ -92,6 +95,7 @@ class MainActivity : AppCompatActivity() {
 
         requestStoragePermissionsIfNeeded()
         initEngineAsync()
+        resumeInterruptedDownloads()
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -170,21 +174,13 @@ class MainActivity : AppCompatActivity() {
                         val id = path.removePrefix("stream/").substringBefore("/")
                         val filePath = findFileForId(id)
                         if (filePath != null) {
-                            val f = File(filePath)
-                            if (f.exists()) {
-                                val ext = f.extension.lowercase()
-                                val mime = when (ext) {
-                                    "mp3", "m4a", "wav" -> "audio/" + ext
-                                    else -> "video/mp4"
-                                }
-                                val h = mutableMapOf(
-                                    "Accept-Ranges" to "bytes",
-                                    "Content-Type" to mime,
-                                    "Access-Control-Allow-Origin" to "https://orbit.local"
-                                )
-                                return WebResourceResponse(mime, null, 200, "OK", h, f.inputStream())
-                            }
+                            streamMedia(filePath, request.requestHeaders?.get("Range"))?.let { return it }
                         }
+                        return WebResourceResponse(
+                            "text/plain", "UTF-8", 404, "Not Found",
+                            mapOf("Access-Control-Allow-Origin" to "https://orbit.local"),
+                            ByteArrayInputStream("File not found".toByteArray())
+                        )
                     }
                     return try {
                         val stream = assets.open(path)
@@ -246,10 +242,99 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::webView.isInitialized) {
+        if (::webView.isInitialized && !isDestroyed) {
             webView.post {
-                webView.evaluateJavascript("if (window.checkClip) window.checkClip(); if (window.loadJobs) window.loadJobs();", null)
+                webView.evaluateJavascript("if (window.checkClip) window.checkClip(); if (window.poll) window.poll();", null)
             }
+        }
+    }
+
+    override fun onDestroy() {
+        destroyed = true
+        if (::webView.isInitialized) {
+            (webView.parent as? android.view.ViewGroup)?.removeView(webView)
+            webView.stopLoading()
+            webView.destroy()
+        }
+        executor.shutdown()
+        super.onDestroy()
+    }
+
+    /** Streams a saved file (plain path or MediaStore/FileProvider URI) to the in-app player with HTTP Range support. */
+    private fun streamMedia(path: String, rangeHeader: String?): WebResourceResponse? {
+        return try {
+            val uri = if (path.startsWith("content://")) Uri.parse(path) else Uri.fromFile(File(path))
+            val afd = contentResolver.openAssetFileDescriptor(uri, "r") ?: return null
+            val total = afd.length
+            val ext = (if (path.startsWith("content://")) "" else File(path).extension).lowercase()
+            val mime = when {
+                ext == "mp3" -> "audio/mpeg"
+                ext == "m4a" -> "audio/mp4"
+                ext == "webm" -> "video/webm"
+                ext == "mkv" -> "video/x-matroska"
+                else -> contentResolver.getType(uri)?.takeIf { it.isNotBlank() && it != "application/octet-stream" } ?: "video/mp4"
+            }
+            var start = 0L
+            var end = if (total > 0) total - 1 else Long.MAX_VALUE
+            var partial = false
+            val m = Regex("""bytes=(\d*)-(\d*)""").find(rangeHeader.orEmpty())
+            if (m != null && total > 0) {
+                val s = m.groupValues[1]
+                val e = m.groupValues[2]
+                if (s.isNotEmpty()) {
+                    start = s.toLong().coerceAtMost(total - 1)
+                    if (e.isNotEmpty()) end = e.toLong().coerceAtMost(total - 1)
+                } else if (e.isNotEmpty()) {
+                    start = (total - e.toLong()).coerceAtLeast(0)
+                }
+                partial = true
+            }
+            val length = if (total > 0) end - start + 1 else -1L
+            val input = afd.createInputStream()
+            var skipped = 0L
+            while (skipped < start) {
+                val n = input.skip(start - skipped)
+                if (n <= 0) break
+                skipped += n
+            }
+            val body = object : java.io.FilterInputStream(input) {
+                private var left = length
+                override fun read(): Int {
+                    if (left == 0L) return -1
+                    val b = super.read()
+                    if (b >= 0 && left > 0) left--
+                    return b
+                }
+                override fun read(b: ByteArray, off: Int, len: Int): Int {
+                    if (left == 0L) return -1
+                    val n = super.read(b, off, if (left > 0) minOf(len.toLong(), left).toInt() else len)
+                    if (n > 0 && left > 0) left -= n
+                    return n
+                }
+                override fun close() {
+                    try { super.close() } finally { try { afd.close() } catch (_: Exception) {} }
+                }
+            }
+            val headers = mutableMapOf(
+                "Accept-Ranges" to "bytes",
+                "Access-Control-Allow-Origin" to "https://orbit.local",
+                "Content-Type" to mime
+            )
+            if (length >= 0) headers["Content-Length"] = length.toString()
+            if (partial) headers["Content-Range"] = "bytes $start-$end/$total"
+            WebResourceResponse(mime, null, if (partial) 206 else 200, if (partial) "Partial Content" else "OK", headers, body)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun resumeInterruptedDownloads() {
+        if (OrbitEngine.loadPending(this).isEmpty()) return
+        val intent = Intent(this, DownloadService::class.java).apply { action = DownloadService.ACTION_RESUME }
+        try {
+            ContextCompat.startForegroundService(this, intent)
+        } catch (_: Exception) {
+            // The system will restart the service on its own; nothing is lost.
         }
     }
 
@@ -385,10 +470,11 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     JSONObject().put("__error", e.message ?: "Request failed")
                 }
+                if (destroyed) return@execute
                 val jsonQuoted = JSONObject.quote(responseObj.toString())
                 val cbQuoted = JSONObject.quote(cbId)
                 webView.post {
-                    webView.evaluateJavascript("window[$cbQuoted] && window[$cbQuoted]($jsonQuoted);", null)
+                    if (!destroyed) webView.evaluateJavascript("window[$cbQuoted] && window[$cbQuoted]($jsonQuoted);", null)
                 }
             }
         }
@@ -437,9 +523,11 @@ class MainActivity : AppCompatActivity() {
                 }
                 JSONObject().put("ok", true)
             }
-            path == "/api/ai/query" -> handleAiQuery(body.optString("query"))
+            path == "/api/search" || path == "/api/ai/query" -> searchVideos(body.optString("query"))
+            path == "/api/apps" -> installedShareTargets()
             path == "/api/info" -> fetchVideoInfo(body.optString("url"))
             path == "/api/download" -> startDownloadJob(body)
+            path.startsWith("/api/retry/") -> retryJob(path.removePrefix("/api/retry/"))
             path == "/api/jobs" -> {
                 val arr = JSONArray()
                 for (j in OrbitEngine.activeJobs) arr.put(j.toJson())
@@ -462,13 +550,10 @@ class MainActivity : AppCompatActivity() {
             }
             path.startsWith("/api/share/") -> {
                 val id = path.removePrefix("/api/share/")
-                shareMediaById(id)
+                shareMediaById(id, body.optString("pkg").ifBlank { null })
                 JSONObject().put("ok", true)
             }
-            path.startsWith("/api/compress/") -> {
-                val id = path.removePrefix("/api/compress/")
-                compressMediaForChat(id)
-            }
+            path.startsWith("/api/convert/") -> startConversion(path.removePrefix("/api/convert/"), body.optString("mode", "share"))
             path.startsWith("/api/vault/hide/") -> {
                 val id = path.removePrefix("/api/vault/hide/")
                 toggleVaultItem(id, true)
@@ -521,10 +606,13 @@ class MainActivity : AppCompatActivity() {
                 "Pictures/Orbit · Movies/Orbit · Music/Orbit" else currentSaveDir().absolutePath)
             put("default_quality", currentDefaultQuality())
             put("auto_download", prefs().getBoolean("auto_download", false))
+            put("share_ready", OrbitEngine.currentShareReady(this@MainActivity))
             put("version", BuildConfig.VERSION_NAME)
-            put("yt_dlp", ytDlpVersion)
-            put("engine_ready", engineReady)
-            put("ffmpeg", ffmpegReady)
+            put("build", if (BuildConfig.DEBUG) "Review build" else "Release build")
+            put("yt_dlp", OrbitEngine.ytDlpVersion)
+            put("engine_ready", OrbitEngine.engineReady)
+            put("ffmpeg", OrbitEngine.ffmpegReady)
+            put("ffmpeg_version", OrbitEngine.ffmpegVersion)
             put("has_update", hasUpdate)
             put("latest_version", latestVersion)
         }
@@ -537,6 +625,9 @@ class MainActivity : AppCompatActivity() {
         }
         if (body.has("auto_download")) {
             edit.putBoolean("auto_download", body.optBoolean("auto_download", false))
+        }
+        if (body.has("share_ready")) {
+            edit.putBoolean("share_ready", body.optBoolean("share_ready", true))
         }
         if (body.has("save_dir")) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -577,7 +668,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun customInfoToJson(c: OrbitEngine.CustomMediaInfo): JSONObject {
         val isImg = c.mediaType == "image"
-        val heightsArr = if (isImg) JSONArray() else JSONArray().put(1080).put(720).put(480)
+        // Direct streams arrive as one file with no quality ladder, so none is offered (it used to list 1080/720/480).
+        val heightsArr = JSONArray()
         val imgArr = JSONArray()
         if (isImg) {
             c.imageUrls.forEach { imgArr.put(it) }
@@ -639,16 +731,29 @@ class MainActivity : AppCompatActivity() {
         }
 
         val heightsSet = sortedSetOf<Int>(Comparator.reverseOrder())
+        var h264Max = 0
+        val codecByHeight = HashMap<Int, String>()
         info.formats?.forEach { fmt ->
             val h = fmt.height
-            val vcodec = fmt.vcodec ?: ""
-            if (h >= 240 && vcodec != "none") {
+            val vcodec = (fmt.vcodec ?: "").lowercase(Locale.ROOT)
+            if (h >= 240 && vcodec != "none" && vcodec.isNotBlank()) {
                 heightsSet.add(h)
+                if (vcodec.startsWith("avc") || vcodec.startsWith("h264")) h264Max = maxOf(h264Max, h)
+                else if (!codecByHeight.containsKey(h) || codecByHeight[h] == "") {
+                    codecByHeight[h] = when {
+                        vcodec.startsWith("vp9") || vcodec.startsWith("vp09") -> "VP9"
+                        vcodec.startsWith("av01") || vcodec.startsWith("av1") -> "AV1"
+                        vcodec.startsWith("hev") || vcodec.startsWith("hvc") || vcodec.startsWith("h265") -> "HEVC"
+                        else -> vcodec.uppercase(Locale.ROOT)
+                    }
+                }
             }
         }
         if (heightsSet.isEmpty()) {
             heightsSet.addAll(listOf(1080, 720, 480))
         }
+        val maxHeight = heightsSet.first()
+        val maxCodec = codecByHeight[maxHeight] ?: if (h264Max == maxHeight) "H.264" else ""
 
         val rawSite = info.extractorKey ?: info.extractor ?: try {
             Uri.parse(url).host?.removePrefix("www.")?.substringBefore(".") ?: "Media"
@@ -667,6 +772,8 @@ class MainActivity : AppCompatActivity() {
             put("duration", info.duration)
             put("thumbnail", thumb)
             put("heights", heightsArr)
+            put("h264Max", h264Max)
+            put("maxCodec", maxCodec)
             put("directUrl", "")
             put("imageUrls", JSONArray())
             put("type", "video")
@@ -699,6 +806,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val shareReady = if (body.has("shareReady")) body.optBoolean("shareReady", true) else OrbitEngine.currentShareReady(this)
         val id = UUID.randomUUID().toString().substring(0, 8)
         val job = OrbitEngine.DownloadJob(
             id = id,
@@ -707,46 +815,84 @@ class MainActivity : AppCompatActivity() {
             site = site,
             thumb = thumb,
             quality = quality,
-            state = "downloading",
+            state = "queued",
             isImage = isImage,
             directUrl = directUrl,
-            imageUrls = imgList
+            imageUrls = imgList,
+            shareReady = shareReady
         )
-        OrbitEngine.activeJobs.add(0, job)
-        OrbitEngine.jobsById[id] = job
-
-        val serviceIntent = Intent(this, DownloadService::class.java).apply {
-            action = DownloadService.ACTION_START_DOWNLOAD
-            putExtra(DownloadService.EXTRA_JOB_ID, id)
-            putExtra(DownloadService.EXTRA_URL, rawUrl)
-            putExtra(DownloadService.EXTRA_DIRECT_URL, directUrl)
-            putExtra(DownloadService.EXTRA_QUALITY, quality)
-            putExtra(DownloadService.EXTRA_TITLE, title)
-            putExtra(DownloadService.EXTRA_SITE, site)
-            putExtra(DownloadService.EXTRA_THUMB, thumb)
-            putExtra(DownloadService.EXTRA_IS_IMAGE, isImage)
-            putStringArrayListExtra(DownloadService.EXTRA_IMAGE_URLS, imgList)
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ContextCompat.startForegroundService(this, serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
-
+        launchJob(job)
         return JSONObject().put("id", id)
     }
 
-    private fun cancelJob(id: String) {
-        val job = OrbitEngine.jobsById[id]
-        if (job != null) {
-            job.state = "cancelled"
+    /** Registers [job] and hands it to the foreground service. A failure to start is shown on the job itself. */
+    private fun launchJob(job: OrbitEngine.DownloadJob) {
+        OrbitEngine.activeJobs.add(0, job)
+        OrbitEngine.jobsById[job.id] = job
+        val serviceIntent = Intent(this, DownloadService::class.java).apply {
+            action = DownloadService.ACTION_START_DOWNLOAD
+            putExtra(DownloadService.EXTRA_JOB_ID, job.id)
+            putExtra(DownloadService.EXTRA_URL, job.url)
+            putExtra(DownloadService.EXTRA_DIRECT_URL, job.directUrl)
+            putExtra(DownloadService.EXTRA_QUALITY, job.quality)
+            putExtra(DownloadService.EXTRA_TITLE, job.title)
+            putExtra(DownloadService.EXTRA_SITE, job.site)
+            putExtra(DownloadService.EXTRA_THUMB, job.thumb)
+            putExtra(DownloadService.EXTRA_IS_IMAGE, job.isImage)
+            putExtra(DownloadService.EXTRA_SHARE_READY, job.shareReady)
+            putStringArrayListExtra(DownloadService.EXTRA_IMAGE_URLS, ArrayList(job.imageUrls))
         }
+        try {
+            ContextCompat.startForegroundService(this, serviceIntent)
+        } catch (e: Exception) {
+            job.state = "error"
+            job.error = "Android blocked the background download. Keep Orbit open and tap retry."
+        }
+    }
+
+    private fun retryJob(id: String): JSONObject {
+        val old = OrbitEngine.jobsById[id] ?: throw IllegalArgumentException("That download is no longer in the list.")
+        dismissJob(id)
+        val job = OrbitEngine.DownloadJob(
+            id = UUID.randomUUID().toString().substring(0, 8),
+            url = old.url, title = old.title, site = old.site, thumb = old.thumb, quality = old.quality,
+            state = "queued", isImage = old.isImage, directUrl = old.directUrl, imageUrls = old.imageUrls,
+            shareReady = old.shareReady
+        )
+        launchJob(job)
+        return JSONObject().put("id", job.id)
+    }
+
+    private fun startConversion(sourceId: String, mode: String): JSONObject {
+        if (OrbitEngine.findMediaPath(this, sourceId) == null) {
+            throw IllegalArgumentException("The original file is no longer on this device.")
+        }
+        if (!OrbitEngine.ffmpegReady) throw IllegalArgumentException("The video converter is still starting. Try again in a few seconds.")
+        val intent = Intent(this, DownloadService::class.java).apply {
+            action = DownloadService.ACTION_CONVERT
+            putExtra(DownloadService.EXTRA_SOURCE_ID, sourceId)
+            putExtra(DownloadService.EXTRA_MODE, mode)
+        }
+        try {
+            ContextCompat.startForegroundService(this, intent)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("Android blocked the background task. Keep Orbit open and try again.")
+        }
+        return JSONObject().put("ok", true)
+    }
+
+    private fun cancelJob(id: String) {
+        OrbitEngine.jobsById[id]?.state = "cancelled"
+        OrbitEngine.removePending(this, id)
         val cancelIntent = Intent(this, DownloadService::class.java).apply {
             action = DownloadService.ACTION_CANCEL_DOWNLOAD
             putExtra(DownloadService.EXTRA_JOB_ID, id)
         }
-        startService(cancelIntent)
+        try {
+            ContextCompat.startForegroundService(this, cancelIntent)
+        } catch (_: Exception) {
+            // Service is not running, so there is nothing left to stop.
+        }
     }
 
     private fun dismissJob(id: String) {
@@ -756,19 +902,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun findFileForId(id: String): String? {
-        OrbitEngine.jobsById[id]?.file?.takeIf { it.isNotBlank() }?.let { path ->
-            if (OrbitEngine.mediaExists(this, path)) return path
-        }
-        val arr = readHistory()
-        for (i in 0 until arr.length()) {
-            val item = arr.optJSONObject(i) ?: continue
-            if (item.optString("id") == id) {
-                val path = item.optString("file")
-                if (OrbitEngine.mediaExists(this, path)) return path
-            }
-        }
-        return null
+    private fun findFileForId(id: String): String? = OrbitEngine.findMediaPath(this, id)
+
+    private val shareTargets = linkedMapOf(
+        "wechat" to "com.tencent.mm",
+        "whatsapp" to "com.whatsapp",
+        "telegram" to "org.telegram.messenger"
+    )
+
+    private fun isInstalled(pkg: String): Boolean = try {
+        packageManager.getPackageInfo(pkg, 0)
+        true
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun installedShareTargets(): JSONObject {
+        val o = JSONObject()
+        shareTargets.forEach { (name, pkg) -> o.put(name, isInstalled(pkg)) }
+        return o
     }
 
     private fun openMediaById(id: String) {
@@ -785,7 +937,8 @@ class MainActivity : AppCompatActivity() {
                 val uri = OrbitEngine.mediaUri(this, path)
                 val intent = Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(uri, contentResolver.getType(uri) ?: mime)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    clipData = ClipData.newRawUri("", uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 startActivity(Intent.createChooser(intent, "Open media"))
             } catch (_: Exception) {
@@ -794,26 +947,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun shareMediaById(id: String) {
+    /** Shares a saved file. With [pkg] it goes straight to that app (WeChat, WhatsApp, Telegram); otherwise the system sheet. */
+    private fun shareMediaById(id: String, pkg: String? = null) {
         val path = findFileForId(id) ?: throw IllegalArgumentException("File not found on device.")
+        if (pkg != null && pkg !in shareTargets.values) throw IllegalArgumentException("Unsupported share target.")
         val ext = if (path.startsWith("content://")) "" else File(path).extension.lowercase()
         val mime = when (ext) {
-            "mp3", "m4a", "opus", "wav" -> "audio/*"
-            "mp4", "mkv", "webm" -> "video/*"
-            "jpg", "jpeg", "png", "webp", "gif" -> "image/*"
+            "mp3" -> "audio/mpeg"
+            "m4a" -> "audio/mp4"
+            "opus", "wav" -> "audio/*"
+            "mp4", "m4v" -> "video/mp4"
+            "mkv" -> "video/x-matroska"
+            "webm" -> "video/webm"
+            "jpg", "jpeg" -> "image/jpeg"
+            "png", "webp", "gif" -> "image/*"
             else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
         }
         runOnUiThread {
             try {
                 val uri = OrbitEngine.mediaUri(this, path)
+                val type = contentResolver.getType(uri)?.takeIf { it.isNotBlank() && it != "application/octet-stream" } ?: mime
                 val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = contentResolver.getType(uri) ?: mime
+                    this.type = type
                     putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    clipData = ClipData.newRawUri("", uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    if (pkg != null) setPackage(pkg)
                 }
-                startActivity(Intent.createChooser(intent, "Share media"))
+                if (pkg != null) {
+                    startActivity(intent)
+                } else {
+                    startActivity(Intent.createChooser(intent, "Share"))
+                }
             } catch (e: Exception) {
-                Toast.makeText(applicationContext, "Share failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(applicationContext, "Couldn't open the share target: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1053,180 +1220,99 @@ class MainActivity : AppCompatActivity() {
         return OrbitEngine.cleanErrorMessage(raw)
     }
 
-    private fun compressMediaForChat(id: String): JSONObject {
-        val path = findFileForId(id) ?: throw IllegalArgumentException("File not found on device.")
-        val inputFile = File(path)
-        if (!inputFile.exists()) throw IllegalArgumentException("Source file missing.")
-        val saveDir = currentSaveDir()
-        val outName = "[WeChat]_${inputFile.nameWithoutExtension}.mp4"
-        val outFile = File(saveDir, outName)
-
-        val ffmpegBin = listOf(
-            File(applicationInfo.nativeLibraryDir, "libffmpeg.so"),
-            File(noBackupFilesDir, "youtubedl-android/packages/ffmpeg/ffmpeg")
-        ).firstOrNull { it.exists() }
-
-        val outId = UUID.randomUUID().toString().substring(0, 8)
-        if (ffmpegBin != null) {
-            try {
-                val cmd = listOf(
-                    ffmpegBin.absolutePath,
-                    "-y",
-                    "-i", inputFile.absolutePath,
-                    "-vf", "scale=-2:720",
-                    "-c:v", "libx264",
-                    "-crf", "28",
-                    "-preset", "faster",
-                    "-c:a", "aac",
-                    "-b:a", "128k",
-                    "-movflags", "+faststart",
-                    outFile.absolutePath
-                )
-                val proc = ProcessBuilder(cmd).redirectErrorStream(true).start()
-                proc.waitFor(45, TimeUnit.SECONDS)
-            } catch (_: Exception) {
-                inputFile.copyTo(outFile, overwrite = true)
-            }
-        } else {
-            inputFile.copyTo(outFile, overwrite = true)
-        }
-
-        val publishedPath = OrbitEngine.publishMedia(applicationContext, outFile)
-        OrbitEngine.addHistoryItem(
-            context = applicationContext,
-            id = outId,
-            title = "[WeChat] ${inputFile.nameWithoutExtension}",
-            site = "WeChat",
-            thumb = "",
-            quality = "video",
-            file = publishedPath,
-            size = outFile.length()
-        )
-        return JSONObject().apply {
-            put("ok", true)
-            put("id", outId)
-            put("title", "[WeChat] ${inputFile.nameWithoutExtension}")
-        }
-    }
-
     private fun toggleVaultItem(id: String, hide: Boolean): JSONObject {
         val path = findFileForId(id) ?: throw IllegalArgumentException("File not found.")
-        val file = File(path)
-        if (!file.exists()) throw IllegalArgumentException("Source file does not exist.")
-
-        val vaultDir = File(OrbitEngine.defaultSaveDir(this), ".vault").apply {
-            mkdirs()
-            File(this, ".nomedia").createNewFile()
-        }
-        val targetDir = if (hide) vaultDir else currentSaveDir()
-        val targetFile = File(targetDir, file.name)
-        if (file.absolutePath != targetFile.absolutePath) {
-            file.renameTo(targetFile)
-        }
+        val newPath = if (hide) OrbitEngine.moveToVault(applicationContext, path)
+        else OrbitEngine.restoreFromVault(applicationContext, path)
 
         val arr = readHistory()
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
             if (item.optString("id") == id) {
-                item.put("file", targetFile.absolutePath)
+                item.put("file", newPath)
                 item.put("vault", hide)
+                item.remove("files")
                 break
             }
         }
         OrbitEngine.writeHistory(applicationContext, arr)
-        MediaScannerConnection.scanFile(applicationContext, arrayOf(file.absolutePath, targetFile.absolutePath), null, null)
+        OrbitEngine.jobsById[id]?.file = newPath
         return JSONObject().put("ok", true)
     }
 
-    private fun handleAiQuery(rawQuery: String): JSONObject {
+    /** Video search powered by yt-dlp's own YouTube search, with a page-scrape fallback. */
+    private fun searchVideos(rawQuery: String): JSONObject {
         val q = rawQuery.trim()
-        if (q.isBlank()) {
-            return JSONObject().put("type", "text").put("text", "Please enter a search topic or question.")
-        }
-        val qLower = q.lowercase(java.util.Locale.ROOT)
+        if (q.isBlank()) throw IllegalArgumentException("Type something to search for.")
+        initLatch.await(30, TimeUnit.SECONDS)
 
-        if (qLower.contains("wechat") || qLower.contains("compress")) {
-            return JSONObject()
-                .put("type", "guide")
-                .put("text", "<b>WeChat Video Sharing & Compression Guide:</b><br>" +
-                        "• <b>25MB Limit:</b> WeChat caps direct video transfers at 25MB.<br>" +
-                        "• <b>Optimal Settings:</b> Standard H.264 video with AAC audio and faststart header.<br>" +
-                        "• <b>1-Tap in Orbit:</b> Open your Library or the In-App Player and tap <b>Compress</b> to automatically transcode the video under 25MB.")
-                .put("results", JSONArray())
-        }
-        if (qLower.contains("whatsapp")) {
-            return JSONObject()
-                .put("type", "guide")
-                .put("text", "<b>WhatsApp HD Video Guide:</b><br>" +
-                        "• Standard video messages are compressed by WhatsApp and capped at 16MB.<br>" +
-                        "• <b>Pro Tip:</b> Send your downloaded video as a <b>Document</b> instead of Gallery media to preserve full uncompressed 1080p/4K resolution up to 2GB!")
-                .put("results", JSONArray())
-        }
-
-        val resultsArr = JSONArray()
+        val results = JSONArray()
         try {
-            val searchUrl = "https://www.youtube.com/results?search_query=" + java.net.URLEncoder.encode(q, "UTF-8")
-            val conn = (java.net.URL(searchUrl).openConnection() as java.net.HttpURLConnection).apply {
+            val req = YoutubeDLRequest("ytsearch8:$q").apply {
+                addOption("--flat-playlist")
+                addOption("--dump-json")
+                addOption("--socket-timeout", "15")
+                addOption("--no-warnings")
+            }
+            val out = YoutubeDL.getInstance().execute(req).out
+            for (line in out.lines()) {
+                if (!line.trim().startsWith("{")) continue
+                val o = try { JSONObject(line) } catch (_: Exception) { continue }
+                val vid = o.optString("id")
+                if (vid.isBlank()) continue
+                val secs = o.optDouble("duration", 0.0).toInt()
+                results.put(JSONObject().apply {
+                    put("title", o.optString("title", "Video"))
+                    put("uploader", o.optString("channel").ifBlank { o.optString("uploader") })
+                    put("duration", if (secs > 0) formatDuration(secs) else "")
+                    put("url", o.optString("url").takeIf { it.startsWith("http") } ?: "https://www.youtube.com/watch?v=$vid")
+                    put("thumb", "https://i.ytimg.com/vi/$vid/hqdefault.jpg")
+                })
+            }
+        } catch (_: Exception) {
+            // fall through to the HTML fallback
+        }
+        if (results.length() == 0) scrapeYoutubeSearch(q, results)
+        return JSONObject().put("query", q).put("results", results)
+    }
+
+    private fun formatDuration(secs: Int): String {
+        val h = secs / 3600
+        val m = secs % 3600 / 60
+        val s = secs % 60
+        return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, s) else String.format(Locale.US, "%d:%02d", m, s)
+    }
+
+    private fun scrapeYoutubeSearch(q: String, into: JSONArray) {
+        try {
+            val conn = (URL("https://www.youtube.com/results?search_query=" + URLEncoder.encode(q, "UTF-8")).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000
                 readTimeout = 8000
                 setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                setRequestProperty("Accept-Language", "en-US,en;q=0.9")
             }
             val html = conn.inputStream.bufferedReader().use { it.readText() }
-            val pattern = java.util.regex.Pattern.compile("""var ytInitialData = (\{.*?\});</script>""")
-            val matcher = pattern.matcher(html)
-            if (matcher.find()) {
-                val jsonStr = matcher.group(1)
-                val root = JSONObject(jsonStr)
-                val contents = root.optJSONObject("contents")
-                    ?.optJSONObject("twoColumnSearchResultsRenderer")
-                    ?.optJSONObject("primaryContents")
-                    ?.optJSONObject("sectionListRenderer")
-                    ?.optJSONArray("contents")
-
-                if (contents != null) {
-                    var count = 0
-                    for (i in 0 until contents.length()) {
-                        val section = contents.optJSONObject(i) ?: continue
-                        val items = section.optJSONObject("itemSectionRenderer")?.optJSONArray("contents") ?: continue
-                        for (j in 0 until items.length()) {
-                            val item = items.optJSONObject(j) ?: continue
-                            val vr = item.optJSONObject("videoRenderer") ?: continue
-                            val vid = vr.optString("videoId")
-                            if (vid.isNullOrBlank()) continue
-
-                            val titleRuns = vr.optJSONObject("title")?.optJSONArray("runs")
-                            val title = titleRuns?.optJSONObject(0)?.optString("text") ?: "Video"
-                            val channelRuns = vr.optJSONObject("ownerText")?.optJSONArray("runs")
-                            val channel = channelRuns?.optJSONObject(0)?.optString("text") ?: ""
-                            val duration = vr.optJSONObject("lengthText")?.optString("simpleText") ?: ""
-
-                            val obj = JSONObject()
-                            obj.put("title", title)
-                            obj.put("uploader", channel)
-                            obj.put("duration", duration)
-                            obj.put("url", "https://www.youtube.com/watch?v=$vid")
-                            obj.put("thumb", "https://i.ytimg.com/vi/$vid/hqdefault.jpg")
-                            resultsArr.put(obj)
-                            count++
-                            if (count >= 5) break
-                        }
-                        if (count >= 5) break
-                    }
+            val matcher = java.util.regex.Pattern.compile("""var ytInitialData = (\{.*?\});</script>""").matcher(html)
+            if (!matcher.find()) return
+            val sections = JSONObject(matcher.group(1)!!)
+                .optJSONObject("contents")?.optJSONObject("twoColumnSearchResultsRenderer")
+                ?.optJSONObject("primaryContents")?.optJSONObject("sectionListRenderer")?.optJSONArray("contents") ?: return
+            for (i in 0 until sections.length()) {
+                val items = sections.optJSONObject(i)?.optJSONObject("itemSectionRenderer")?.optJSONArray("contents") ?: continue
+                for (j in 0 until items.length()) {
+                    val vr = items.optJSONObject(j)?.optJSONObject("videoRenderer") ?: continue
+                    val vid = vr.optString("videoId").takeIf { it.isNotBlank() } ?: continue
+                    into.put(JSONObject().apply {
+                        put("title", vr.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: "Video")
+                        put("uploader", vr.optJSONObject("ownerText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text") ?: "")
+                        put("duration", vr.optJSONObject("lengthText")?.optString("simpleText") ?: "")
+                        put("url", "https://www.youtube.com/watch?v=$vid")
+                        put("thumb", "https://i.ytimg.com/vi/$vid/hqdefault.jpg")
+                    })
+                    if (into.length() >= 8) return
                 }
             }
         } catch (_: Exception) {}
-
-        return if (resultsArr.length() > 0) {
-            JSONObject()
-                .put("type", "search")
-                .put("text", "Found real top video matches for <b>${JSONObject.quote(q).removeSurrounding("\"")}</b>:")
-                .put("results", resultsArr)
-        } else {
-            JSONObject()
-                .put("type", "text")
-                .put("text", "No video streams found for \"$q\". Try different search keywords.")
-                .put("results", JSONArray())
-        }
     }
 
 }
