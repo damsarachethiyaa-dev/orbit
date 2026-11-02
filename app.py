@@ -102,7 +102,7 @@ def remux_to_mp4(path: Path) -> Path:
         import subprocess
         subprocess.run(
             [str(Path(FFMPEG) / "ffmpeg.exe"), "-y", "-loglevel", "error", "-i", str(path),
-             "-c", "copy", "-movflags", "+faststart", str(target)],
+             "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart", str(target)],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=0x08000000 if os.name == "nt" else 0,
         )
@@ -390,7 +390,7 @@ def resolve_tiktok(url: str):
                     "count": len(images),
                     "heights": []
                 }
-            play_url = data.get("hdplay") or data.get("play") or ""
+            play_url = data.get("play") or data.get("hdplay") or ""
             if play_url:
                 return {
                     "title": title,

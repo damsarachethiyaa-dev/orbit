@@ -775,7 +775,8 @@ class DownloadService : Service() {
                 }
                 // Full quality stays full quality: resolution is never traded away, but an
                 // MP4/H.264 stream wins at the same size and the result is always a .mp4.
-                addOption("--format-sort", "res,ext:mp4:m4a")
+                addOption("--format-sort", "res,ext:mp4:m4a,codec:avc:m4a")
+                addOption("--postprocessor-args", "Merger:-movflags +faststart")
                 addOption("--merge-output-format", "mp4")
                 addOption("--remux-video", "mp4")
             }
