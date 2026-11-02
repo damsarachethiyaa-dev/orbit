@@ -23,7 +23,7 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
 import updater  # Windows in-app updater helper
 
-APP_VERSION = "1.0.17"
+APP_VERSION = "1.0.18"
 GITHUB_REPO = "damsarachethiyaa-dev/orbit"
 
 DESKTOP = os.environ.get("ORBIT_DESKTOP") == "1"
@@ -1137,6 +1137,16 @@ def open_folder():
 def clipboard():
     desktop_only()
     return jsonify(text=read_clipboard().strip()[:2000])
+
+
+@app.get("/api/battery/status")
+def battery_status():
+    return jsonify(ignored=True)
+
+
+@app.post("/api/battery/request")
+def battery_request():
+    return jsonify(ok=True)
 
 
 # ---------------------------------------------------------------- in-app auto-updater

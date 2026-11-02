@@ -398,10 +398,38 @@ function applySettings(s) {
     $("#setAutoDownload").checked = Boolean(s.auto_download);
   }
 }
+async function checkBatteryOpt() {
+  const card = $("#setBatteryCard");
+  const btn = $("#btnBatteryOpt");
+  const desc = $("#setBatteryDesc");
+  if (!btn) return;
+  try {
+    const res = await api("/api/battery/status");
+    if (res && res.ignored) {
+      btn.textContent = "Unrestricted";
+      btn.classList.add("primary");
+      btn.disabled = true;
+      if (desc) desc.textContent = "Active: WakeLock & unrestricted background downloading enabled.";
+    } else {
+      btn.textContent = "Allow";
+      btn.classList.remove("primary");
+      btn.disabled = false;
+      btn.onclick = async () => {
+        triggerHaptic();
+        await api("/api/battery/request", {});
+        setTimeout(checkBatteryOpt, 2000);
+      };
+    }
+  } catch (_) {
+    if (card) card.style.display = "none";
+  }
+}
+
 async function loadSettings() {
   try {
     const s = await api("/api/settings");
     applySettings(s);
+    checkBatteryOpt();
     if ($("#aAppVer")) $("#aAppVer").textContent = "v" + (s.version || "1.0.4");
     $("#aVer").textContent = s.yt_dlp; $("#aFf").textContent = s.ffmpeg ? "Ready" : "Missing";
     if (s.has_update) {
