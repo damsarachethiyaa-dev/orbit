@@ -23,7 +23,7 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
 import updater  # Windows in-app updater helper
 
-APP_VERSION = "1.0.15"
+APP_VERSION = "1.0.16"
 GITHUB_REPO = "damsarachethiyaa-dev/orbit"
 
 DESKTOP = os.environ.get("ORBIT_DESKTOP") == "1"
