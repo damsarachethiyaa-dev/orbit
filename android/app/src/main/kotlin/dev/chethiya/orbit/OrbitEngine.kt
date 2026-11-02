@@ -427,7 +427,7 @@ object OrbitEngine {
                                 )
                             }
                         }
-                        val playUrl = data.optString("hdplay").ifBlank { data.optString("play") }
+                        val playUrl = data.optString("play").ifBlank { data.optString("hdplay") }
                         if (playUrl.isNotBlank()) {
                             return CustomMediaInfo(
                                 title = title,
