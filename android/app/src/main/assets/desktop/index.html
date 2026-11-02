@@ -19,9 +19,8 @@
         <circle class="orbit-dot" cx="41.5" cy="12.5" r="6" fill="#FFFFFF"/>
         <circle fill="currentColor" cx="27" cy="27" r="5"/>
       </svg>
-      <span class="topbar-copy"><b class="topbar-title">Orbit</b><small>MEDIA DOWNLOADER</small></span>
+      <span class="topbar-copy"><b class="topbar-title">Orbit</b></span>
     </div>
-    <span class="status-chip" id="engineStatus" role="status"><i></i><span>ENGINE STARTING</span></span>
   </header>
 
   <!-- Sidebar (Desktop) / Bottom Navigation Dock (Mobile) -->
@@ -86,13 +85,12 @@
     <!-- DOWNLOAD VIEW -->
     <section class="view on" id="v-download">
       <header class="head">
-        <p class="eyebrow">YOUR MEDIA, OFFLINE</p>
-        <h1>Save what you love<span class="title-dot">.</span></h1>
-        <p class="head-sub">Paste a link to download videos, photos, or audio.</p>
+        <h1>Download</h1>
+        <p class="head-sub">Save videos, photos, and audio from a link.</p>
       </header>
 
       <div class="download-panel">
-        <div class="panel-heading"><span>01 / ADD A LINK</span><span>FAST &amp; SIMPLE</span></div>
+        <div class="panel-heading"><span>New download</span></div>
       <form class="composer" id="form" autocomplete="off">
         <div class="field">
           <svg class="f-ico" viewBox="0 0 24 24"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
@@ -107,7 +105,12 @@
           <svg viewBox="0 0 24 24"><path d="M5 12h14m-5-5l5 5-5 5"/></svg>
         </button>
       </form>
-        <p class="composer-hint">YouTube <span>·</span> Instagram <span>·</span> TikTok <span>·</span> and more</p>
+        <div class="supported-platforms" aria-label="Supported platforms">
+          <span class="ico" role="img" aria-label="YouTube" style="--i:url(/icons/youtube.svg)"></span>
+          <span class="ico" role="img" aria-label="Instagram" style="--i:url(/icons/instagram.svg)"></span>
+          <span class="ico" role="img" aria-label="TikTok" style="--i:url(/icons/tiktok.svg)"></span>
+          <span>Works with these and more sites</span>
+        </div>
       </div>
 
       <!-- Clipboard Auto-Detect Banner -->
@@ -181,7 +184,7 @@
       </article>
 
       <div class="q-head">
-        <h3 class="section-title">Active Queue</h3>
+        <h3 class="section-title">Recent downloads</h3>
         <button class="link-btn" id="clearDone" hidden>Clear finished</button>
       </div>
 
@@ -204,7 +207,6 @@
     <section class="view" id="v-library">
       <header class="head row-head">
         <div>
-          <p class="eyebrow">DOWNLOADED MEDIA</p>
           <h1>Library</h1>
           <p class="head-sub" id="libCount">Saved on your device storage</p>
         </div>
@@ -227,7 +229,6 @@
     <!-- SETTINGS VIEW -->
     <section class="view" id="v-settings">
       <header class="head">
-        <p class="eyebrow">MAKE IT YOURS</p>
         <h1>Settings</h1>
         <p class="head-sub">Storage paths, default quality, and engine diagnostics</p>
       </header>
@@ -247,7 +248,7 @@
           </div>
         </div>
 
-        <div class="set-card">
+        <div class="set-card auto-download-card">
           <div class="set-card-icon">
             <svg viewBox="0 0 24 24"><path d="M12 2v13M12 15l-4-4M12 15l4-4M2 17l.62 2.48A2 2 0 0 0 4.56 21h14.88a2 2 0 0 0 1.94-1.52L22 17"/></svg>
           </div>

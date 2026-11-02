@@ -530,7 +530,8 @@ class DownloadService : Service() {
                 quality = "photo",
                 file = savedPaths.first(),
                 size = totalBytesAll,
-                files = savedPaths
+                files = savedPaths,
+                url = job.url
             )
 
             runCatching {
@@ -691,7 +692,8 @@ class DownloadService : Service() {
                 thumb = job.thumb,
                 quality = job.quality,
                 file = savedPath,
-                size = size
+                size = size,
+                url = job.url
             )
 
             runCatching { showCompletedNotification(notifId, job.title, savedPath, outputFile.name) }
@@ -840,7 +842,8 @@ class DownloadService : Service() {
                 thumb = job.thumb,
                 quality = job.quality,
                 file = savedPath,
-                size = size
+                size = size,
+                url = job.url
             )
 
             job.file = savedPath

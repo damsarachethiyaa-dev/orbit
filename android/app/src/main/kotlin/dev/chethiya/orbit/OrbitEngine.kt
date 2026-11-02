@@ -231,7 +231,8 @@ object OrbitEngine {
         quality: String,
         file: String,
         size: Long,
-        files: List<String> = emptyList()
+        files: List<String> = emptyList(),
+        url: String = ""
     ) {
         val arr = readHistory(context)
         val next = JSONArray()
@@ -239,6 +240,7 @@ object OrbitEngine {
             put("id", id)
             put("title", title)
             put("site", site)
+            put("url", url)
             put("thumb", thumb)
             put("quality", quality)
             put("file", file)
@@ -329,6 +331,7 @@ object OrbitEngine {
             put("id", id)
             put("title", title)
             put("site", site)
+            put("url", url)
             put("thumb", thumb)
             put("quality", quality)
             put("state", state)

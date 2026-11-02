@@ -14,13 +14,31 @@ const BRANDS = {
   douyin: ["douyin", "#010101"], kuaishou: ["kuaishou", "#ff4400"], kwai: ["kuaishou", "#ff4400"],
 };
 const BRAND_KEYS = Object.keys(BRANDS).sort((a, b) => b.length - a.length);
-function brand(site) {
+const BRAND_DOMAINS = [
+  [/^(?:.+\.)?(?:tiktok\.com|tiktokcdn\.com|muscdn\.com)$/, "tiktok"],
+  [/^(?:.+\.)?(?:instagram\.com|cdninstagram\.com)$/, "instagram"],
+  [/^(?:.+\.)?(?:youtube\.com|youtu\.be|ytimg\.com)$/, "youtube"],
+  [/^(?:.+\.)?(?:facebook\.com|fb\.watch)$/, "facebook"],
+  [/^(?:.+\.)?(?:twitter\.com|x\.com|twimg\.com)$/, "twitter"],
+  [/^(?:.+\.)?pinterest\.com$/, "pinterest"],
+  [/^(?:.+\.)?reddit\.com$/, "reddit"],
+  [/^(?:.+\.)?vimeo\.com$/, "vimeo"],
+];
+function brand(site, url = "", thumb = "") {
   const k = String(site || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const hit = BRAND_KEYS.find(b => b.length <= 2 ? k === b : k.startsWith(b));   // short keys must match exactly ("x" is not "xvideos")
-  return hit ? BRANDS[hit] : null;
+  if (hit) return BRANDS[hit];
+  for (const source of [url, thumb]) {
+    try {
+      const host = new URL(source).hostname.toLowerCase();
+      const domain = BRAND_DOMAINS.find(([pattern]) => pattern.test(host));
+      if (domain) return BRANDS[domain[1]];
+    } catch {}
+  }
+  return null;
 }
-const icoStyle = site => { const b = brand(site); return b ? `--i:url(/icons/${b[0]}.svg);` : "--i:url(/desktop/video.svg);"; };
-const icoHtml = site => `<span class="ico" role="img" aria-label="${esc(site || "Media")}" style="${icoStyle(site)}"></span>`;
+const icoStyle = (site, url, thumb) => { const b = brand(site, url, thumb); return b ? `--i:url(/icons/${b[0]}.svg);` : "--i:url(/desktop/video.svg);"; };
+const icoHtml = (site, url, thumb) => `<span class="ico" role="img" aria-label="${esc(site || "Media")}" style="${icoStyle(site, url, thumb)}"></span>`;
 
 /* ---------------- helpers ---------------- */
 const fmtTime = s => { if (!s) return ""; const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = Math.floor(s % 60); return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); };
@@ -245,10 +263,12 @@ function renderQueue(list) {
     let li = rows.get(j.id);
     if (!li) {
       li = document.createElement("li"); li.dataset.id = j.id;
-      li.innerHTML = `${icoHtml(j.site)}<div class="q-main"><p class="q-title"></p><p class="q-sub mono"></p><div class="bar"><i></i></div></div><div class="q-act"></div>`;
+      li.innerHTML = `${icoHtml(j.site, j.url, j.thumb)}<div class="q-main"><p class="q-title"></p><p class="q-sub mono"></p><div class="bar"><i></i></div></div><div class="q-act"></div>`;
       rows.set(j.id, li);
     }
     li.className = "q " + j.state;
+    li.querySelector(".ico").style.cssText = icoStyle(j.site, j.url, j.thumb);
+    li.querySelector(".ico").setAttribute("aria-label", j.site || "Media");
     li.querySelector(".q-title").textContent = j.title || "Downloading…";
     const isImg = j.isImage || j.quality === "image" || j.quality === "photo";
     const q = isImg ? "Photo" : (QLABEL[j.quality] || "");
@@ -306,7 +326,7 @@ async function loadLib() {
     return `
     <li class="l${e.exists ? "" : " gone"}" data-id="${esc(e.id)}">
       <div class="thumb-wrap">
-        ${icoHtml(e.site)}
+        ${icoHtml(e.site, e.url, e.thumb)}
       </div>
       <div class="q-main"><p class="q-title">${esc(e.title)}</p>
         <p class="q-sub mono">${esc([e.exists ? "Saved" : "File moved or deleted", fmtSize(e.size), kind].filter(Boolean).join("  ·  "))}</p></div>
@@ -355,22 +375,10 @@ function applySettings(s) {
     $("#setAutoDownload").checked = Boolean(s.auto_download);
   }
 }
-let engineChecks = 0;
-let engineTimer = null;
 async function loadSettings() {
   try {
     const s = await api("/api/settings");
     applySettings(s);
-    const engineStatus = $("#engineStatus");
-    if (engineStatus) {
-      const ready = Boolean(s.engine_ready);
-      engineStatus.classList.toggle("ready", ready);
-      engineStatus.classList.toggle("warning", !ready && engineChecks >= 12);
-      engineStatus.querySelector("span").textContent = ready ? "ENGINE READY" : engineChecks >= 12 ? "ENGINE UNAVAILABLE" : "ENGINE STARTING";
-      if (!ready && engineChecks++ < 12 && !engineTimer) {
-        engineTimer = setTimeout(() => { engineTimer = null; loadSettings(); }, 2500);
-      }
-    }
     if ($("#aAppVer")) $("#aAppVer").textContent = "v" + (s.version || "1.0.4");
     $("#aVer").textContent = s.yt_dlp; $("#aFf").textContent = s.ffmpeg ? "Ready" : "Missing";
     if (s.has_update) {
