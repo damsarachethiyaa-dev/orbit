@@ -28,6 +28,7 @@ if not exist "%~dp0dist" mkdir "%~dp0dist"
 python -m PyInstaller --noconfirm --clean --onedir --contents-directory _internal --windowed ^
   --name Orbit --icon "%~dp0orbit.ico" --version-file "%~dp0version_info.txt" ^
   --distpath "%~dp0dist" --workpath "%~dp0build" --specpath "%~dp0build" ^
+  --paths . ^
   --add-data "%~dp0static;static" ^
   --add-binary "%FFMPEG_DIR%ffmpeg.exe;bin" --add-binary "%FFMPEG_DIR%ffprobe.exe;bin" ^
   --collect-submodules yt_dlp --collect-all webview ^

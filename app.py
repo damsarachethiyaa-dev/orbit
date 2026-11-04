@@ -1219,7 +1219,7 @@ def ai_query_endpoint():
     else:
         return jsonify(
             type="text",
-            text=f"No video streams found for "{q}". Try different search keywords.",
+            text=f'No video streams found for "{q}". Try different search keywords.',
             results=[]
         )
 
