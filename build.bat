@@ -22,7 +22,9 @@ if not exist "%FFMPEG_DIR%ffmpeg.exe" (
     goto :fail
 )
 
-if exist "%~dp0dist" rmdir /s /q "%~dp0dist"
+if exist "%~dp0dist\Orbit" rmdir /s /q "%~dp0dist\Orbit"
+if exist "%~dp0dist\Orbit-Setup.exe" del /q "%~dp0dist\Orbit-Setup.exe"
+if not exist "%~dp0dist" mkdir "%~dp0dist"
 python -m PyInstaller --noconfirm --clean --onedir --contents-directory _internal --windowed ^
   --name Orbit --icon "%~dp0orbit.ico" --version-file "%~dp0version_info.txt" ^
   --distpath "%~dp0dist" --workpath "%~dp0build" --specpath "%~dp0build" ^

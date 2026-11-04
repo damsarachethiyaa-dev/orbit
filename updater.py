@@ -60,6 +60,7 @@ if (Test-Process $ParentPid) {
   Write-Log "Orbit is still running, closing it"
   try { Stop-Process -Id $ParentPid -Force -ErrorAction Stop } catch { Write-Log ("could not close Orbit: " + $_.Exception.Message) }
 }
+try { Get-Process Orbit -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } catch { }
 Start-Sleep -Milliseconds 700
 Write-Log "Orbit closed"
 
@@ -77,6 +78,9 @@ try {
   $head = [System.Text.Encoding]::ASCII.GetString($buffer, 0, $read)
   $isSetup = $head.Contains("Nullsoft")
 } catch { Write-Log ("could not inspect the download: " + $_.Exception.Message) }
+if (-not $isSetup) {
+  $isSetup = ($Installer -like "*setup*" -or $Installer -like "*install*")
+}
 
 $installed = $false
 
@@ -127,7 +131,8 @@ if ($isSetup) {
 # 4. bring Orbit back
 if ($Relaunch -and (Test-Path -LiteralPath $Relaunch)) {
   if ($installed) { try { Unblock-File -LiteralPath $Relaunch -ErrorAction SilentlyContinue } catch { } }
-  try { Start-Process -FilePath $Relaunch -ErrorAction Stop; Write-Log "Orbit started again" }
+  $workDir = Split-Path -Parent $Relaunch
+  try { Start-Process -FilePath $Relaunch -WorkingDirectory $workDir -ErrorAction Stop; Write-Log "Orbit started again" }
   catch { Write-Log ("could not start Orbit: " + $_.Exception.Message) }
 } else {
   Write-Log "no executable to start again"
@@ -156,11 +161,13 @@ def log_line(log_path: Path, message: str) -> None:
 
 def is_nsis_setup(path: Path) -> bool:
     """True when the file is a Nullsoft (NSIS) installer, i.e. the Setup exe."""
+    if "setup" in path.name.lower() or "install" in path.name.lower():
+        return True
     try:
         with open(path, "rb") as fh:
             return b"Nullsoft" in fh.read(131072)
     except OSError:
-        return False
+        return True
 
 
 def installed_exe(current_exe: Path, frozen: bool) -> Path | None:
