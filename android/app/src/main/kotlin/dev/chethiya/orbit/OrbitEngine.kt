@@ -166,6 +166,21 @@ object OrbitEngine {
         return target.absolutePath
     }
 
+    /** Copies any readable media into the vault and leaves the original alone. */
+    fun copyUriToVault(context: Context, uri: Uri): File {
+        val name = displayName(context, uri) ?: "media_${System.currentTimeMillis()}"
+        var target = File(vaultDir(context), name)
+        if (target.exists()) target = File(vaultDir(context), "${System.currentTimeMillis()}_$name")
+        val input = context.contentResolver.openInputStream(uri) ?: throw java.io.IOException("Could not read the file.")
+        try {
+            input.use { src -> target.outputStream().use { src.copyTo(it) } }
+        } catch (ex: Exception) {
+            target.delete()
+            throw ex
+        }
+        return target
+    }
+
     /** Publishes a vaulted file back to the public library. Returns the new media path. */
     fun restoreFromVault(context: Context, path: String): String {
         val file = File(path)
@@ -230,6 +245,7 @@ object OrbitEngine {
 
     /** Path or content URI of the saved file for a download id (running job first, then history). */
     fun findMediaPath(context: Context, id: String): String? {
+        if (MediaLibrary.isDeviceId(id)) return MediaLibrary.deviceUri(id)?.toString()
         jobsById[id]?.file?.takeIf { it.isNotBlank() }?.let { if (mediaExists(context, it)) return it }
         val item = historyItem(context, id) ?: return null
         return item.optString("file").takeIf { mediaExists(context, it) }
@@ -277,7 +293,13 @@ object OrbitEngine {
     fun clearHistory(context: Context) = writeHistory(context, JSONArray())
 
     @Synchronized
-    fun deleteHistoryItem(context: Context, id: String) {
+    /** Removes the entry and its files. Returns files Android wouldn't let Orbit delete itself (made before a reinstall). */
+    fun deleteHistoryItem(context: Context, id: String): List<String> {
+        val blocked = ArrayList<String>()
+        val remove = { p: String ->
+            try { deleteStoredMedia(context, p) } catch (_: SecurityException) { if (mediaExists(context, p)) blocked.add(p) }
+            Unit
+        }
         val arr = readHistory(context)
         val next = JSONArray()
         for (i in 0 until arr.length()) {
@@ -288,18 +310,19 @@ object OrbitEngine {
             }
             val paths = item.optJSONArray("files")
             if (paths != null && paths.length() > 0) {
-                for (j in 0 until paths.length()) deleteStoredMedia(context, paths.optString(j))
+                for (j in 0 until paths.length()) remove(paths.optString(j))
             } else {
                 val path = item.optString("file")
                 if (path.isNotBlank()) {
                     val legacyAlbum = if (path.startsWith("content://")) emptyList() else
                         File(path).parentFile?.listFiles()?.filter { it.isFile && it.name.contains("[$id]") }
                             ?.map { it.absolutePath }.orEmpty()
-                    (legacyAlbum.ifEmpty { listOf(path) }).forEach { deleteStoredMedia(context, it) }
+                    (legacyAlbum.ifEmpty { listOf(path) }).forEach { remove(it) }
                 }
             }
         }
         writeHistory(context, next)
+        return blocked
     }
 
     @Synchronized
@@ -353,6 +376,13 @@ object OrbitEngine {
     }
 
     fun cleanErrorMessage(raw: String?): String {
+        if (raw != null && raw.contains("reddit", true) || raw != null && raw.contains("Account authentication is required", true)) {
+            return "Reddit now blocks downloads unless you are signed in, so Orbit can't save this one."
+        }
+        if (raw != null && raw.contains("vimeo", true) && raw.contains("logged-in", true) || raw != null && raw.contains("web client only works when logged-in", true)) {
+            return "Vimeo only allows this video when signed in, so Orbit can't save it."
+        }
+        if (raw != null && raw.contains("DRM protected", true)) return "This video is DRM protected, so it can't be downloaded."
         if (raw.isNullOrBlank()) return "Couldn't fetch that link. Please check the URL and try again."
         var clean = raw.lines().lastOrNull { it.contains("ERROR:") } ?: raw.lines().lastOrNull { it.isNotBlank() } ?: raw
         clean = clean.replace(Regex("""^.*ERROR:\s*(\[[^\]]+\]\s*[^:]+:\s*)?"""), "").trim()
@@ -599,6 +629,73 @@ object OrbitEngine {
             }
         } catch (_: Exception) {}
         return null
+    }
+
+    /* Notification history: what really happened to each download, kept across app restarts (newest 100). */
+    private fun noticesFile(context: Context) = File(context.filesDir, "notices.json")
+
+    @Synchronized
+    fun readNotices(context: Context): JSONArray = try {
+        val f = noticesFile(context)
+        if (f.exists()) JSONArray(f.readText()) else JSONArray()
+    } catch (_: Exception) { JSONArray() }
+
+    @Synchronized
+    fun addNotice(context: Context, id: String, state: String, title: String, body: String) {
+        val old = readNotices(context)
+        val next = JSONArray()
+        next.put(JSONObject().put("id", id).put("state", state).put("title", title).put("body", body)
+            .put("t", System.currentTimeMillis() / 1000L).put("read", false))
+        for (i in 0 until minOf(old.length(), 99)) {
+            val o = old.optJSONObject(i) ?: continue
+            if (!(o.optString("id") == id && o.optString("state") == state)) next.put(o)
+        }
+        try { noticesFile(context).writeText(next.toString()) } catch (_: Exception) {}
+    }
+
+    @Synchronized
+    fun markNoticesRead(context: Context) {
+        val a = readNotices(context)
+        for (i in 0 until a.length()) a.optJSONObject(i)?.put("read", true)
+        try { noticesFile(context).writeText(a.toString()) } catch (_: Exception) {}
+    }
+
+    @Synchronized
+    fun clearNotices(context: Context) { noticesFile(context).delete() }
+
+    /** Public Vimeo videos: the embed page carries the HLS stream that yt-dlp's login-walled web client no longer reaches. */
+    fun resolveVimeo(rawUrl: String): CustomMediaInfo? {
+        val m = Regex("""vimeo\.com/(?:video/|channels/[^/]+/|groups/[^/]+/videos/)?(\d+)(?:/([0-9a-f]{6,}))?""", RegexOption.IGNORE_CASE).find(rawUrl) ?: return null
+        val hash = m.groupValues[2].ifBlank { Regex("""[?&]h=([0-9a-f]+)""").find(rawUrl)?.groupValues?.get(1).orEmpty() }
+        return try {
+            val page = "https://player.vimeo.com/video/${m.groupValues[1]}" + if (hash.isNotBlank()) "?h=$hash" else ""
+            val conn = (java.net.URL(page).openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 10000
+                readTimeout = 15000
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36")
+            }
+            if (conn.responseCode != 200) { conn.disconnect(); return null }
+            val html = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            conn.disconnect()
+            val at = html.indexOf("playerConfig")
+            if (at < 0) return null
+            val cfg = org.json.JSONTokener(html.substring(html.indexOf('{', at))).nextValue() as? JSONObject ?: return null
+            val hls = cfg.optJSONObject("request")?.optJSONObject("files")?.optJSONObject("hls") ?: return null
+            val cdns = hls.optJSONObject("cdns") ?: return null
+            val cdn = cdns.optJSONObject(hls.optString("default_cdn")) ?: cdns.keys().asSequence().mapNotNull { cdns.optJSONObject(it) }.firstOrNull() ?: return null
+            val stream = cdn.optString("url").takeIf { it.isNotBlank() } ?: return null
+            val video = cfg.optJSONObject("video")
+            CustomMediaInfo(
+                title = video?.optString("title").orEmpty().ifBlank { "Vimeo video" },
+                site = "Vimeo",
+                uploader = video?.optJSONObject("owner")?.optString("name").orEmpty(),
+                duration = video?.optInt("duration", 0) ?: 0,
+                thumbnail = video?.optJSONObject("thumbs")?.let { t -> t.optString("base").ifBlank { t.optString("1280") } }.orEmpty(),
+                directVideoUrl = stream,
+                imageUrls = emptyList(),
+                mediaType = "video"
+            )
+        } catch (_: Exception) { null }
     }
 
     fun resolveTwitter(rawUrl: String): CustomMediaInfo? {
