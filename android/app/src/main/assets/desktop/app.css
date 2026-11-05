@@ -66,7 +66,7 @@ svg[fill="none"] { fill: none; }
 @keyframes popIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: none; } }
 
 /* ---------------- shell ---------------- */
-.app { display: flex; flex-direction: column; height: 100%; max-width: 640px; margin: 0 auto; background: var(--bg); position: relative; }
+.app { display: flex; flex-direction: column; height: 100%; background: var(--bg); position: relative; }
 .main { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 0 calc(104px + var(--safe-bottom)); }
 .main::-webkit-scrollbar { display: none; }
 .view { display: none; }
@@ -159,7 +159,7 @@ body.viewing .toast { bottom: calc(150px + var(--safe-bottom)); z-index: 120; }
 /* ---------------- Photos: memories ---------------- */
 .memories { display: flex; gap: 9px; padding: 8px var(--gutter) 22px; overflow-x: auto; scroll-snap-type: x proximity; scroll-padding-left: var(--gutter); }
 .memories::-webkit-scrollbar { display: none; }
-.mem { position: relative; flex: none; width: 42.5vw; max-width: 270px; aspect-ratio: 0.75; border-radius: 26px; overflow: hidden; background: var(--surface); scroll-snap-align: start; text-align: left; }
+.mem { position: relative; flex: none; width: min(42.5vw, 205px); aspect-ratio: 0.75; border-radius: 26px; overflow: hidden; background: var(--surface); scroll-snap-align: start; text-align: left; }
 .mem .thumb { position: absolute; inset: 0; }
 .mem::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.55) 100%); pointer-events: none; }
 .mem-label { position: absolute; left: 0; right: 0; bottom: 16px; z-index: 2; padding: 0 12px; text-align: center; color: #fff; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5); }
@@ -226,7 +226,7 @@ body.selecting .fast-scroll, body[data-view="settings"] .fast-scroll { display: 
 .sec-head { display: flex; align-items: center; justify-content: space-between; padding: 22px 18px 10px; }
 .sec-head h2 { font-size: 1.12rem; font-weight: 500; }
 .sec-link { color: var(--fg); font-size: 0.9rem; font-weight: 500; }
-.pinned { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 0 var(--gutter); }
+.pinned { display: grid; grid-template-columns: repeat(4, minmax(0, 118px)); gap: 8px; padding: 0 var(--gutter); }
 .pin-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; aspect-ratio: 0.8; border-radius: 22px; background: var(--surface); padding: 10px 2px 12px; }
 .pin-tile:active { background: var(--surface-active); }
 .pin-circle { width: 66%; aspect-ratio: 1; border-radius: 50%; background: #000; display: flex; align-items: center; justify-content: center; color: var(--fg); }
@@ -239,8 +239,8 @@ body.selecting .fast-scroll, body[data-view="settings"] .fast-scroll { display: 
 .hrail { display: flex; gap: 10px; padding: 0 var(--gutter); overflow-x: auto; scroll-snap-type: x proximity; scroll-padding-left: var(--gutter); }
 .hrail::-webkit-scrollbar { display: none; }
 .hrail.wrap { flex-wrap: wrap; overflow: visible; }
-.hrail.wrap .dev-card { width: calc((100% - 20px) / 3); }
-.dev-card { position: relative; flex: none; width: 36vw; max-width: 210px; aspect-ratio: 0.72; border-radius: 30px; overflow: hidden; background: var(--surface); scroll-snap-align: start; }
+.hrail.wrap .dev-card { width: min(calc((100% - 20px) / 3), 180px); }
+.dev-card { position: relative; flex: none; width: min(36vw, 180px); aspect-ratio: 0.72; border-radius: 30px; overflow: hidden; background: var(--surface); scroll-snap-align: start; }
 .dev-card .thumb { position: absolute; inset: 0; }
 .dev-card::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0.08) 40%, rgba(0, 0, 0, 0.6) 100%); pointer-events: none; }
 .dc-label { position: absolute; left: 6px; right: 6px; bottom: 14px; z-index: 2; text-align: center; color: #fff; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
@@ -561,6 +561,40 @@ body.viewing .app { visibility: hidden; }
 .lock-card .empty-t svg { width: 44px; height: 44px; margin-bottom: 28px; }
 .lock-card::after { display: none; }
 .lock-card .dc-label { text-shadow: none; }
+
+/* ---------------- wide screens and landscape ---------------- */
+#v-download, #v-search, #v-settings { max-width: 720px; margin-left: auto; margin-right: auto; }
+@media (orientation: landscape) and (max-height: 600px) {
+  .topbar { padding-top: calc(4px + var(--safe-top)); padding-bottom: 2px; }
+  .mem { width: 132px; border-radius: 20px; }
+  .mem-label b { font-size: 0.86rem; }
+  .mem-label { bottom: 10px; }
+  .memories { padding-bottom: 12px; }
+  .dev-card { width: 132px; border-radius: 22px; }
+  .pinned { grid-template-columns: repeat(4, minmax(0, 96px)); }
+  .pin-tile { gap: 6px; padding: 6px 2px 8px; border-radius: 18px; }
+  .pin-label { font-size: 0.72rem; }
+  .sec-head { padding-top: 14px; }
+  .dock { bottom: calc(8px + var(--safe-bottom)); }
+  .fast-scroll { top: 56px; }
+  /* viewer: the picture gets the whole screen, the bars float over it */
+  .v-stage { position: absolute; inset: 0; }
+  .v-top { position: absolute; left: 0; right: 0; top: 0; height: calc(54px + var(--safe-top)); background: linear-gradient(180deg, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0)); }
+  .v-date { top: calc(6px + var(--safe-top)); }
+  .v-bottom { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(0deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0)); }
+  .v-actions { max-width: 560px; margin: 0 auto; padding: 0 4px 2px; }
+  .v-act { flex-direction: row; justify-content: center; gap: 8px; padding: 9px 0; }
+  .v-act svg { width: 20px; height: 20px; }
+  .v-overlay { bottom: 46px; padding: 0; background: none; }
+  .v-controls { height: 36px; padding: 0 12px; }
+  .v-seek { height: 30px; margin: 0 22px; }
+  .v-seek-fill { top: 12px; height: 6px; }
+  .v-seek-rest { top: 9px; height: 12px; }
+  .v-seek-knob { height: 28px; top: 1px; }
+  .viewer.hide-ui .v-top, .viewer.hide-ui .v-bottom { background: none; }
+  .pin-numpad { grid-template-columns: repeat(3, 56px); gap: 8px; }
+  .pin-num { height: 56px; font-size: 1.2rem; }
+}
 
 /* ---------------- floating bubble ---------------- */
 .float-bubble { position: fixed; left: 50%; bottom: calc(92px + var(--safe-bottom)); z-index: 70; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: calc(100% - 32px); padding: 8px 18px 8px 8px; border-radius: 26px; background: var(--accent); color: var(--on-accent); box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5); animation: rise 0.25s var(--spring); }
