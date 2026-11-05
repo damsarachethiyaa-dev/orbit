@@ -21,6 +21,10 @@ import android.webkit.JavascriptInterface
 import android.webkit.JsResult
 import android.webkit.MimeTypeMap
 import android.webkit.WebChromeClient
+import android.widget.FrameLayout
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import android.provider.MediaStore
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -78,6 +82,36 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var updateError = ""
     @Volatile private var readyToInstall = false
     @Volatile private var downloadedApkPath = ""
+
+    private lateinit var orbitPlayer: OrbitPlayer
+
+    /** Newest request first, so what is on screen decodes before what was scrolled past. */
+    private val thumbPool = java.util.concurrent.ThreadPoolExecutor(
+        4, 4, 30, TimeUnit.SECONDS,
+        object : java.util.concurrent.LinkedBlockingDeque<Runnable>() {
+            override fun offer(e: Runnable): Boolean = offerFirst(e)
+        }
+    )
+
+    /** Hands WebView a response straight away; bytes arrive when the decode finishes, and closing cancels it. */
+    private class FutureStream(private val task: java.util.concurrent.Future<ByteArray?>) : java.io.InputStream() {
+        private var inner: ByteArrayInputStream? = null
+        private fun src(): ByteArrayInputStream = inner ?: ByteArrayInputStream(
+            try { task.get() ?: ByteArray(0) } catch (_: Exception) { ByteArray(0) }
+        ).also { inner = it }
+        override fun read(): Int = src().read()
+        override fun read(b: ByteArray, off: Int, len: Int): Int = src().read(b, off, len)
+        override fun close() { task.cancel(true) }
+    }
+
+    private var rootLayout: FrameLayout? = null
+
+    /** System "move to trash / delete" confirmation for photos and videos Orbit didn't create. */
+    private val mediaRequest = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
+        if (::webView.isInitialized) {
+            webView.evaluateJavascript("window.onMediaRequest && window.onMediaRequest(${res.resultCode == RESULT_OK});", null)
+        }
+    }
 
     private val speedRegex = Regex("""at\s+([0-9.]+[KMGTP]?i?B/s)""", RegexOption.IGNORE_CASE)
 
@@ -170,6 +204,19 @@ class MainActivity : AppCompatActivity() {
                     if (path.isEmpty() || path == "index.html") {
                         path = "desktop/index.html"
                     }
+                    if (path.startsWith("thumb/")) {
+                        val id = path.removePrefix("thumb/").substringBefore("/")
+                        val size = uri.getQueryParameter("s")?.toIntOrNull() ?: 384
+                        // WebView asks for intercepts one at a time, so the decode must happen off this thread.
+                        val task = thumbPool.submit(java.util.concurrent.Callable<ByteArray?> {
+                            findFileForId(id)?.let { MediaLibrary.thumbnail(applicationContext, id, it, size) }
+                        })
+                        return WebResourceResponse(
+                            "image/jpeg", null, 200, "OK",
+                            mapOf("Cache-Control" to "public, max-age=604800", "Access-Control-Allow-Origin" to "https://orbit.local"),
+                            FutureStream(task)
+                        )
+                    }
                     if (path.startsWith("stream/")) {
                         val id = path.removePrefix("stream/").substringBefore("/")
                         val filePath = findFileForId(id)
@@ -218,14 +265,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        setContentView(webView)
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        root.addView(webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        rootLayout = root
+        orbitPlayer = OrbitPlayer(this, root, webView)
+        setContentView(root)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (webView.canGoBack()) {
-                    webView.goBack()
-                } else {
-                    moveTaskToBack(true)
+                // Let the web UI close the viewer / selection / sub-screen first.
+                webView.evaluateJavascript("(window.orbitBack ? window.orbitBack() : false)") { handled ->
+                    if (handled != "true") moveTaskToBack(true)
                 }
             }
         })
@@ -244,7 +295,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (::webView.isInitialized && !isDestroyed) {
             webView.post {
-                webView.evaluateJavascript("if (window.checkClip) window.checkClip(); if (window.poll) window.poll();", null)
+                webView.evaluateJavascript("if (window.checkClip) window.checkClip(); if (window.poll) window.poll(); if (window.onOrbitResume) window.onOrbitResume();", null)
             }
         }
     }
@@ -272,6 +323,10 @@ class MainActivity : AppCompatActivity() {
                 ext == "m4a" -> "audio/mp4"
                 ext == "webm" -> "video/webm"
                 ext == "mkv" -> "video/x-matroska"
+                ext == "jpg" || ext == "jpeg" -> "image/jpeg"
+                ext == "png" -> "image/png"
+                ext == "webp" -> "image/webp"
+                ext == "gif" -> "image/gif"
                 else -> contentResolver.getType(uri)?.takeIf { it.isNotBlank() && it != "application/octet-stream" } ?: "video/mp4"
             }
             var start = 0L
@@ -405,12 +460,97 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             perms.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        if (mediaPermissionState() == "none") perms.addAll(mediaPermissions())
         val missing = perms.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, missing.toTypedArray(), 1001)
         }
+    }
+
+    private fun mediaPermissions(): List<String> = when {
+        Build.VERSION.SDK_INT >= 34 -> listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+        else -> listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+
+    private fun granted(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+
+    /** "full", "partial" (Android 14+ "selected photos only") or "none". */
+    private fun mediaPermissionState(): String = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && granted(Manifest.permission.READ_MEDIA_IMAGES) && granted(Manifest.permission.READ_MEDIA_VIDEO) -> "full"
+        Build.VERSION.SDK_INT >= 34 && granted(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) -> "partial"
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU && granted(Manifest.permission.READ_EXTERNAL_STORAGE) -> "full"
+        else -> "none"
+    }
+
+    /** Asks for access; once Android has stopped showing the prompt, opens Orbit's settings page instead. */
+    private fun requestMediaAccess() {
+        runOnUiThread {
+            val perms = mediaPermissions()
+            val first = perms.first()
+            val asked = prefs().getBoolean("media_asked", false)
+            if (asked && mediaPermissionState() == "none" && !ActivityCompat.shouldShowRequestPermissionRationale(this, first)) {
+                startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            } else {
+                prefs().edit().putBoolean("media_asked", true).apply()
+                ActivityCompat.requestPermissions(this, perms.toTypedArray(), 1002)
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (::webView.isInitialized) webView.evaluateJavascript("window.onOrbitResume && window.onOrbitResume();", null)
+    }
+
+    private fun jsonIds(body: JSONObject): List<String> {
+        val a = body.optJSONArray("ids") ?: return emptyList()
+        return (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() }
+    }
+
+    /** Sends device photos / videos to the system trash. Android shows its own confirmation. */
+    private fun trashDeviceMedia(ids: List<String>, delete: Boolean): JSONObject {
+        val uris = ids.mapNotNull { MediaLibrary.deviceUri(it) }
+        if (uris.isEmpty()) return JSONObject().put("done", true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val pi = if (delete) MediaStore.createDeleteRequest(contentResolver, uris) else MediaStore.createTrashRequest(contentResolver, uris, true)
+            runOnUiThread { mediaRequest.launch(IntentSenderRequest.Builder(pi.intentSender).build()) }
+            return JSONObject().put("pending", true)
+        }
+        uris.forEach { try { contentResolver.delete(it, null, null) } catch (_: Exception) {} }
+        return JSONObject().put("done", true)
+    }
+
+    /** Takes items back out of the phone's trash. Android shows its own confirmation. */
+    private fun restoreDeviceMedia(ids: List<String>): JSONObject {
+        val uris = ids.mapNotNull { MediaLibrary.deviceUri(it) }
+        if (uris.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return JSONObject().put("done", true)
+        val pi = MediaStore.createTrashRequest(contentResolver, uris, false)
+        runOnUiThread { mediaRequest.launch(IntentSenderRequest.Builder(pi.intentSender).build()) }
+        return JSONObject().put("pending", true)
+    }
+
+    /** Copies device items into the private vault, then asks Android to remove the public originals. */
+    private fun hideDeviceMedia(ids: List<String>): JSONObject {
+        var moved = 0
+        val done = ArrayList<String>()
+        for (id in ids) {
+            val uri = MediaLibrary.deviceUri(id) ?: continue
+            val file = OrbitEngine.copyUriToVault(applicationContext, uri)
+            OrbitEngine.addHistoryItem(
+                applicationContext, id = UUID.randomUUID().toString().substring(0, 8), title = file.name, site = "This phone",
+                thumb = "", quality = if (id.startsWith("m_i_")) "image" else "best", file = file.absolutePath, size = file.length()
+            )
+            val arr = readHistory()
+            arr.optJSONObject(0)?.put("vault", true)
+            OrbitEngine.writeHistory(applicationContext, arr)
+            moved++
+            done.add(id)
+        }
+        val res = trashDeviceMedia(done, true)
+        return res.put("moved", moved)
     }
 
     private fun initEngineAsync() {
@@ -449,6 +589,25 @@ class MainActivity : AppCompatActivity() {
     private fun readHistory(): JSONArray = OrbitEngine.readHistory(applicationContext)
 
     inner class OrbitBridge {
+        @JavascriptInterface
+        fun playerOpen(id: String, audioOnly: Boolean) {
+            val path = findFileForId(id)
+            runOnUiThread {
+                if (path != null) orbitPlayer.open(path, audioOnly)
+                else webView.evaluateJavascript("window.orbitPlayerEvent && window.orbitPlayerEvent({ev:'error',msg:'missing'});", null)
+            }
+        }
+        @JavascriptInterface fun playerStop() { runOnUiThread { orbitPlayer.stop() } }
+        @JavascriptInterface fun playerClose() { runOnUiThread { orbitPlayer.close() } }
+        @JavascriptInterface fun viewerOpen(open: Boolean) { runOnUiThread { orbitPlayer.setViewerOpen(open) } }
+        @JavascriptInterface fun playerPlay() { runOnUiThread { orbitPlayer.play() } }
+        @JavascriptInterface fun playerPause() { runOnUiThread { orbitPlayer.pause() } }
+        @JavascriptInterface fun playerSeek(ms: Double, scrubbing: Boolean) { runOnUiThread { orbitPlayer.seek(ms.toLong(), scrubbing) } }
+        @JavascriptInterface fun playerRate(rate: Double) { runOnUiThread { orbitPlayer.setRate(rate.toFloat()) } }
+        @JavascriptInterface fun playerMuted(muted: Boolean) { runOnUiThread { orbitPlayer.setMuted(muted) } }
+        @JavascriptInterface fun playerRect(l: Int, t: Int, w: Int, h: Int) { runOnUiThread { orbitPlayer.setRect(l, t, w, h) } }
+        @JavascriptInterface fun playerOffset(dx: Double, dy: Double) { runOnUiThread { orbitPlayer.setOffset(dx.toFloat(), dy.toFloat()) } }
+
         @JavascriptInterface
         fun haptic() {
             runOnUiThread {
@@ -524,6 +683,20 @@ class MainActivity : AppCompatActivity() {
                 JSONObject().put("ok", true)
             }
             path == "/api/search" || path == "/api/ai/query" -> searchVideos(body.optString("query"))
+            path == "/api/notices" -> JSONObject().put("items", OrbitEngine.readNotices(applicationContext))
+                .put("enabled", androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled())
+            path == "/api/notices/read" -> { OrbitEngine.markNoticesRead(applicationContext); JSONObject().put("ok", true) }
+            path == "/api/notices/clear" -> { OrbitEngine.clearNotices(applicationContext); JSONObject().put("ok", true) }
+            path == "/api/notices/settings" -> {
+                runOnUiThread {
+                    startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName))
+                }
+                JSONObject().put("ok", true)
+            }
+            path == "/api/ai/status" -> aiStatus()
+            path == "/api/ai/key" -> aiSaveKey(body.optString("key"))
+            path == "/api/ai/key/remove" -> { prefs().edit().remove("gemini_key").remove("gemini_model").apply(); aiStatus() }
+            path == "/api/ai/chat" -> aiChat(body)
             path == "/api/apps" -> installedShareTargets()
             path == "/api/info" -> fetchVideoInfo(body.optString("url"))
             path == "/api/download" -> startDownloadJob(body)
@@ -548,6 +721,15 @@ class MainActivity : AppCompatActivity() {
                 openMediaById(id)
                 JSONObject().put("ok", true)
             }
+            path == "/api/media/permission" -> JSONObject().put("state", mediaPermissionState())
+            path == "/api/media/request" -> { requestMediaAccess(); JSONObject().put("ok", true) }
+            path == "/api/media/list" -> if (mediaPermissionState() == "none") JSONArray() else MediaLibrary.list(applicationContext, readHistory())
+            path == "/api/media/trash" -> trashDeviceMedia(jsonIds(body), false)
+            path == "/api/media/trashed" -> if (mediaPermissionState() == "none") JSONArray() else MediaLibrary.listTrashed(applicationContext)
+            path == "/api/media/restore" -> restoreDeviceMedia(jsonIds(body))
+            path == "/api/media/purge" -> trashDeviceMedia(jsonIds(body), true)
+            path == "/api/media/vault" -> hideDeviceMedia(jsonIds(body))
+            path == "/api/share-many" -> { shareMany(jsonIds(body)); JSONObject().put("ok", true) }
             path.startsWith("/api/share/") -> {
                 val id = path.removePrefix("/api/share/")
                 shareMediaById(id, body.optString("pkg").ifBlank { null })
@@ -579,6 +761,8 @@ class MainActivity : AppCompatActivity() {
                     val exists = OrbitEngine.mediaExists(this, filePath)
                     val copy = JSONObject(item.toString())
                     copy.put("exists", exists)
+                    val q = copy.optString("quality")
+                    if (exists && q != "image" && q != "photo") copy.put("dur", MediaLibrary.durationOf(applicationContext, filePath))
                     out.put(copy)
                 }
                 out
@@ -589,8 +773,12 @@ class MainActivity : AppCompatActivity() {
             }
             path.startsWith("/api/history/") && method == "DELETE" -> {
                 val id = path.removePrefix("/api/history/")
-                OrbitEngine.deleteHistoryItem(applicationContext, id)
-                JSONObject().put("ok", true)
+                val blocked = OrbitEngine.deleteHistoryItem(applicationContext, id)
+                if (blocked.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val pi = MediaStore.createDeleteRequest(contentResolver, blocked.map { Uri.parse(it) })
+                    runOnUiThread { mediaRequest.launch(IntentSenderRequest.Builder(pi.intentSender).build()) }
+                    JSONObject().put("pending", true)
+                } else JSONObject().put("ok", true)
             }
             path == "/api/update/check" -> checkForUpdates()
             path == "/api/update/download" || path == "/api/update/start" -> startUpdateDownload()
@@ -709,7 +897,8 @@ class MainActivity : AppCompatActivity() {
             return customInfoToJson(twInfo)
         }
 
-        val req = YoutubeDLRequest(url).apply {
+        val vimeo = OrbitEngine.resolveVimeo(url)
+        val req = YoutubeDLRequest(vimeo?.directVideoUrl ?: url).apply {
             addOption("--no-playlist")
             addOption("--socket-timeout", "20")
         }
@@ -723,7 +912,10 @@ class MainActivity : AppCompatActivity() {
             if (videoFallback != null) {
                 return customInfoToJson(videoFallback)
             }
-            val fallbackImg = OrbitEngine.resolveSocialAndWebImage(url)
+            val host = try { Uri.parse(url).host.orEmpty().lowercase(Locale.ROOT) } catch (_: Exception) { "" }
+            val videoOnlySite = listOf("youtube.", "youtu.be", "twitch.", "vimeo.", "dailymotion.", "soundcloud.", "bilibili.", "rumble.", "kick.com", "odysee.", "twitter.com", "x.com")
+                .any { host.contains(it) }
+            val fallbackImg = if (videoOnlySite) null else OrbitEngine.resolveSocialAndWebImage(url)
             if (fallbackImg != null && fallbackImg.imageUrls.isNotEmpty()) {
                 return customInfoToJson(fallbackImg)
             }
@@ -749,10 +941,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        if (heightsSet.isEmpty()) {
-            heightsSet.addAll(listOf(1080, 720, 480))
-        }
-        val maxHeight = heightsSet.first()
+        // Sound-only sources (SoundCloud and the like) have formats but no video track at all.
+        val audioOnly = !info.formats.isNullOrEmpty() && heightsSet.isEmpty() &&
+            info.formats!!.none { (it.vcodec ?: "").lowercase(Locale.ROOT).let { v -> v.isNotBlank() && v != "none" } }
+        val maxHeight = heightsSet.firstOrNull() ?: 0
         val maxCodec = codecByHeight[maxHeight] ?: if (h264Max == maxHeight) "H.264" else ""
 
         val rawSite = info.extractorKey ?: info.extractor ?: try {
@@ -766,17 +958,18 @@ class MainActivity : AppCompatActivity() {
         heightsSet.forEach { heightsArr.put(it) }
 
         return JSONObject().apply {
-            put("title", info.title ?: "Untitled video")
-            put("site", rawSite)
-            put("uploader", info.uploader ?: "")
-            put("duration", info.duration)
-            put("thumbnail", thumb)
+            put("title", vimeo?.title ?: info.title ?: "Untitled video")
+            put("site", vimeo?.site ?: rawSite)
+            put("uploader", vimeo?.uploader ?: info.uploader ?: "")
+            put("duration", vimeo?.duration ?: info.duration)
+            put("thumbnail", vimeo?.thumbnail?.ifBlank { null } ?: thumb)
             put("heights", heightsArr)
             put("h264Max", h264Max)
             put("maxCodec", maxCodec)
             put("directUrl", "")
             put("imageUrls", JSONArray())
             put("type", "video")
+            put("audioOnly", audioOnly)
         }
     }
 
@@ -904,6 +1097,66 @@ class MainActivity : AppCompatActivity() {
 
     private fun findFileForId(id: String): String? = OrbitEngine.findMediaPath(this, id)
 
+    /** Every file behind an id: a photo album download has several. */
+    private fun allPathsFor(id: String): List<String> {
+        val item = if (MediaLibrary.isDeviceId(id)) null else OrbitEngine.historyItem(this, id)
+        val files = item?.optJSONArray("files")
+        val list = if (files != null && files.length() > 0) (0 until files.length()).map { files.optString(it) }.filter { OrbitEngine.mediaExists(this, it) } else emptyList()
+        return list.ifEmpty { listOfNotNull(findFileForId(id)) }
+    }
+
+    private fun mimeForPath(path: String): String {
+        val ext = if (path.startsWith("content://")) "" else File(path).extension.lowercase()
+        return when (ext) {
+            "mp3" -> "audio/mpeg"
+            "m4a" -> "audio/mp4"
+            "opus", "wav" -> "audio/*"
+            "mp4", "m4v" -> "video/mp4"
+            "mkv" -> "video/x-matroska"
+            "webm" -> "video/webm"
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "webp" -> "image/webp"
+            "gif" -> "image/gif"
+            else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+        }
+    }
+
+    /** The system share sheet for one or many items (always carries the read grant, so every app can open them). */
+    private fun shareMany(ids: List<String>, pkg: String? = null) {
+        val paths = ids.flatMap { allPathsFor(it) }
+        if (paths.isEmpty()) throw IllegalArgumentException("File not found on device.")
+        if (pkg != null && pkg !in shareTargets.values) throw IllegalArgumentException("Unsupported share target.")
+        runOnUiThread {
+            try {
+                val uris = ArrayList(paths.map { OrbitEngine.mediaUri(this, it) })
+                val types = paths.indices.map { i ->
+                    contentResolver.getType(uris[i])?.takeIf { it.isNotBlank() && it != "application/octet-stream" } ?: mimeForPath(paths[i])
+                }
+                val type = when {
+                    types.distinct().size == 1 -> types[0]
+                    types.map { it.substringBefore('/') }.distinct().size == 1 -> types[0].substringBefore('/') + "/*"
+                    else -> "*/*"
+                }
+                val intent = if (uris.size == 1) Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris[0])
+                else Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                intent.type = type
+                val clip = ClipData.newRawUri("", uris[0])
+                uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+                intent.clipData = clip
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                if (pkg != null) {
+                    intent.setPackage(pkg)
+                    startActivity(intent)
+                } else {
+                    startActivity(Intent.createChooser(intent, if (uris.size == 1) "Share" else "Share ${uris.size} items"))
+                }
+            } catch (e: Exception) {
+                Toast.makeText(applicationContext, "Couldn't share: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private val shareTargets = linkedMapOf(
         "wechat" to "com.tencent.mm",
         "whatsapp" to "com.whatsapp",
@@ -947,43 +1200,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Shares a saved file. With [pkg] it goes straight to that app (WeChat, WhatsApp, Telegram); otherwise the system sheet. */
-    private fun shareMediaById(id: String, pkg: String? = null) {
-        val path = findFileForId(id) ?: throw IllegalArgumentException("File not found on device.")
-        if (pkg != null && pkg !in shareTargets.values) throw IllegalArgumentException("Unsupported share target.")
-        val ext = if (path.startsWith("content://")) "" else File(path).extension.lowercase()
-        val mime = when (ext) {
-            "mp3" -> "audio/mpeg"
-            "m4a" -> "audio/mp4"
-            "opus", "wav" -> "audio/*"
-            "mp4", "m4v" -> "video/mp4"
-            "mkv" -> "video/x-matroska"
-            "webm" -> "video/webm"
-            "jpg", "jpeg" -> "image/jpeg"
-            "png", "webp", "gif" -> "image/*"
-            else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
-        }
-        runOnUiThread {
-            try {
-                val uri = OrbitEngine.mediaUri(this, path)
-                val type = contentResolver.getType(uri)?.takeIf { it.isNotBlank() && it != "application/octet-stream" } ?: mime
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    this.type = type
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    clipData = ClipData.newRawUri("", uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    if (pkg != null) setPackage(pkg)
-                }
-                if (pkg != null) {
-                    startActivity(intent)
-                } else {
-                    startActivity(Intent.createChooser(intent, "Share"))
-                }
-            } catch (e: Exception) {
-                Toast.makeText(applicationContext, "Couldn't open the share target: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    private fun shareMediaById(id: String, pkg: String? = null) = shareMany(listOf(id), pkg)
 
     private fun openDownloadsFolder() {
         runOnUiThread {
@@ -1238,6 +1455,131 @@ class MainActivity : AppCompatActivity() {
         OrbitEngine.writeHistory(applicationContext, arr)
         OrbitEngine.jobsById[id]?.file = newPath
         return JSONObject().put("ok", true)
+    }
+
+    /* ---------------- AI helper (Google Gemini, your own key, stored only on this phone) ---------------- */
+    private val geminiBase = "https://generativelanguage.googleapis.com/v1beta"
+
+    private fun geminiRequest(key: String, path: String, payload: JSONObject?): JSONObject {
+        val conn = (URL("$geminiBase/$path").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 15000
+            readTimeout = 60000
+            setRequestProperty("x-goog-api-key", key)
+            setRequestProperty("Content-Type", "application/json")
+            if (payload != null) {
+                requestMethod = "POST"
+                doOutput = true
+                outputStream.use { it.write(payload.toString().toByteArray()) }
+            }
+        }
+        val code = conn.responseCode
+        val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.readText().orEmpty()
+        if (code !in 200..299) {
+            val msg = try { JSONObject(text).optJSONObject("error")?.optString("message") } catch (_: Exception) { null }
+            throw IllegalArgumentException(msg?.takeIf { it.isNotBlank() } ?: "Gemini returned an error (HTTP $code).")
+        }
+        return JSONObject(text)
+    }
+
+    /** Asks Google which models this key can use and picks the newest stable Flash, so model retirements don't break the app. */
+    private fun geminiPickModel(key: String): String {
+        val models = geminiRequest(key, "models?pageSize=200", null).optJSONArray("models") ?: JSONArray()
+        val usable = ArrayList<String>()
+        for (i in 0 until models.length()) {
+            val m = models.optJSONObject(i) ?: continue
+            val methods = m.optJSONArray("supportedGenerationMethods") ?: continue
+            if ((0 until methods.length()).none { methods.optString(it) == "generateContent" }) continue
+            val name = m.optString("name").removePrefix("models/")
+            if (name.startsWith("gemini-")) usable.add(name)
+        }
+        val banned = Regex("lite|image|tts|live|audio|embedding|vision|exp|preview|thinking|robotics|computer")
+        val version = { n: String -> Regex("""gemini-(\d+(?:\.\d+)?)""").find(n)?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0 }
+        val best = usable.filter { it.contains("flash") && !banned.containsMatchIn(it) }.maxByOrNull { version(it) }
+            ?: usable.filter { it.contains("flash") }.maxByOrNull { version(it) }
+            ?: usable.maxByOrNull { version(it) }
+        return best ?: throw IllegalArgumentException("This API key has no Gemini text models available.")
+    }
+
+    private fun aiStatus(): JSONObject {
+        val key = prefs().getString("gemini_key", "").orEmpty()
+        return JSONObject().put("hasKey", key.isNotBlank()).put("model", prefs().getString("gemini_model", "").orEmpty())
+    }
+
+    /** The key is checked against Google before it is saved. It is never sent back to the page. */
+    private fun aiSaveKey(raw: String): JSONObject {
+        val key = raw.trim()
+        if (key.isBlank()) throw IllegalArgumentException("Paste your Gemini API key first.")
+        val model = geminiPickModel(key)
+        prefs().edit().putString("gemini_key", key).putString("gemini_model", model).apply()
+        return aiStatus()
+    }
+
+    private fun aiChat(body: JSONObject): JSONObject {
+        val key = prefs().getString("gemini_key", "").orEmpty()
+        if (key.isBlank()) throw IllegalArgumentException("Add your Gemini API key in Settings first.")
+        var model = prefs().getString("gemini_model", "").orEmpty()
+        if (model.isBlank()) { model = geminiPickModel(key); prefs().edit().putString("gemini_model", model).apply() }
+
+        val contents = JSONArray()
+        val msgs = body.optJSONArray("messages") ?: JSONArray()
+        for (i in 0 until msgs.length()) {
+            val m = msgs.optJSONObject(i) ?: continue
+            contents.put(JSONObject()
+                .put("role", if (m.optString("role") == "model") "model" else "user")
+                .put("parts", JSONArray().put(JSONObject().put("text", m.optString("text").take(2000)))))
+        }
+        val stringArray = JSONObject().put("type", "ARRAY").put("items", JSONObject().put("type", "STRING"))
+        val payload = JSONObject()
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", """
+                You are the video finder inside Orbit, an Android app that downloads videos and music.
+                Turn what the user wants into good YouTube search queries.
+                reply: one or two short friendly sentences saying what you are looking for, in the user's language.
+                searches: 1 to 3 focused YouTube queries. Use an empty list only when the user is not asking for media.
+                library_keywords: 1 to 4 single words that might appear in the title of a file they already saved.
+                Rules: you cannot see search results, so never name specific videos, channels, view counts, links or facts about results.
+                Never promise that something exists. Help find any legal content, and do not help with getting around DRM or private content.
+            """.trimIndent()))))
+            .put("contents", contents)
+            .put("generationConfig", JSONObject()
+                .put("temperature", 0.5)
+                .put("responseMimeType", "application/json")
+                .put("responseSchema", JSONObject().put("type", "OBJECT")
+                    .put("properties", JSONObject()
+                        .put("reply", JSONObject().put("type", "STRING"))
+                        .put("searches", stringArray)
+                        .put("library_keywords", stringArray))
+                    .put("required", JSONArray().put("reply").put("searches"))))
+
+        val res = geminiRequest(key, "models/$model:generateContent", payload)
+        val cand = res.optJSONArray("candidates")?.optJSONObject(0)
+            ?: throw IllegalArgumentException("Gemini did not answer that request. Try rewording it.")
+        val text = cand.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text").orEmpty()
+        if (text.isBlank()) throw IllegalArgumentException("Gemini stopped without an answer (${cand.optString("finishReason", "unknown")}).")
+        val ai = JSONObject(text)
+
+        // Everything shown as a result comes from a real YouTube search, never from the model.
+        val seen = HashSet<String>()
+        val results = JSONArray()
+        val queries = ai.optJSONArray("searches") ?: JSONArray()
+        var searchError = ""
+        for (i in 0 until minOf(queries.length(), 3)) {
+            val q = queries.optString(i).trim()
+            if (q.isBlank()) continue
+            try {
+                val found = searchVideos(q).optJSONArray("results") ?: continue
+                for (j in 0 until minOf(found.length(), 6)) {
+                    val v = found.optJSONObject(j) ?: continue
+                    if (seen.add(v.optString("url"))) results.put(v)
+                }
+            } catch (e: Exception) { searchError = e.message.orEmpty() }
+        }
+        return JSONObject()
+            .put("reply", ai.optString("reply"))
+            .put("results", results)
+            .put("queries", queries)
+            .put("keywords", ai.optJSONArray("library_keywords") ?: JSONArray())
+            .put("searchError", searchError)
+            .put("model", model)
     }
 
     /** Video search powered by yt-dlp's own YouTube search, with a page-scrape fallback. */

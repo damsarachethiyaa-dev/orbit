@@ -11,8 +11,8 @@ android {
     applicationId = "dev.chethiya.orbit"
     minSdk = 24
     targetSdk = 34
-    versionCode = 121
-    versionName = "1.0.21"
+    versionCode = 122
+    versionName = "1.0.22"
 
     ndk {
       abiFilters += listOf("arm64-v8a", "armeabi-v7a")
@@ -80,4 +80,6 @@ dependencies {
   implementation(libs.androidx.webkit)
   implementation(libs.youtubedl.library)
   implementation(libs.youtubedl.ffmpeg)
+  implementation(libs.media3.exoplayer)
+  implementation(libs.media3.ui)
 }

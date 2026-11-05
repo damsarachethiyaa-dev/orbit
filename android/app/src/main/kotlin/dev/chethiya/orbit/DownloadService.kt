@@ -323,6 +323,10 @@ class DownloadService : Service() {
         activeJobIds.remove(job.id)
         OrbitEngine.removePending(this, job.id)
         job.stage = if (job.state == "done") job.stage else ""
+        if (job.state == "done") {
+            OrbitEngine.addNotice(this, job.id, "done", job.title.ifBlank { "Download" },
+                when { job.quality == "convert" -> "Converted copy saved"; job.isImage -> "Photo saved"; job.quality == "audio" -> "MP3 saved"; else -> "Video saved" })
+        }
         scheduleIdleCheck()
     }
 
@@ -347,6 +351,7 @@ class DownloadService : Service() {
             job.isImage -> "Photo download failed"
             else -> "Download failed"
         }
+        OrbitEngine.addNotice(this, job.id, "error", job.title.ifBlank { title }, message)
         val notification = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
@@ -565,6 +570,12 @@ class DownloadService : Service() {
 
     private fun runDownload(job: OrbitEngine.DownloadJob) {
         OrbitEngine.initLatch.await(30, TimeUnit.SECONDS)
+        val vimeo = OrbitEngine.resolveVimeo(job.url)
+        if (vimeo != null) {
+            if (job.title.isBlank() || job.title == "Downloading…") { job.title = vimeo.title; job.site = vimeo.site; job.thumb = vimeo.thumbnail }
+            runVideoDownload(job, vimeo.directVideoUrl)
+            return
+        }
         val url = job.url
         val passedDirectUrl = job.directUrl.takeIf { it.isNotBlank() }
 
@@ -636,7 +647,9 @@ class DownloadService : Service() {
                 finishVideo(job, downloadDirect(job, fallback.directVideoUrl))
                 return
             }
-            val fallbackImg = OrbitEngine.resolveSocialAndWebImage(url)
+            val noImageFallback = listOf("youtube.", "youtu.be", "twitch.", "vimeo.", "dailymotion.", "soundcloud.", "bilibili.", "rumble.", "kick.com", "odysee.", "twitter.com", "x.com")
+                .any { url.substringAfter("://").substringBefore("/").lowercase(Locale.ROOT).contains(it) }
+            val fallbackImg = if (noImageFallback) null else OrbitEngine.resolveSocialAndWebImage(url)
             if (fallbackImg != null && fallbackImg.imageUrls.isNotEmpty()) {
                 job.isImage = true
                 job.title = fallbackImg.title; job.site = fallbackImg.site; job.thumb = fallbackImg.thumbnail
