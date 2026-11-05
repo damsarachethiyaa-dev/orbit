@@ -468,24 +468,27 @@ const mainEl = $(".main"), gridEl = $("#lib");
 let gridLayout = [], gridRows = 1, cellSize = 100, rowFirst = [];
 const gridCells = new Map();
 const GAP = 2;
+let gridCols = 4;
+const colsFor = w => Math.max(4, Math.round(w / 120));
 function computeGrid(n) {
-  const out = new Array(n), used = new Set(), key = (c, r) => r * 4 + c;
+  gridCols = colsFor(gridEl.clientWidth || mainEl.clientWidth);
+  const cols = gridCols, out = new Array(n), used = new Set(), key = (c, r) => r * cols + c;
   let r = 0, c = 0; rowFirst = []; gridRows = 0;
   for (let i = 0; i < n; i++) {
-    while (used.has(key(c, r))) { c++; if (c > 3) { c = 0; r++; } }
-    const big = i % 23 === 9 && c < 3 && !used.has(key(c + 1, r));
+    while (used.has(key(c, r))) { c++; if (c >= cols) { c = 0; r++; } }
+    const big = i % 23 === 9 && c < cols - 1 && !used.has(key(c + 1, r));
     used.add(key(c, r));
     if (big) { used.add(key(c + 1, r)); used.add(key(c, r + 1)); used.add(key(c + 1, r + 1)); }
     out[i] = { c, r, big };
     gridRows = Math.max(gridRows, r + (big ? 2 : 1));
     if (rowFirst[r] === undefined) rowFirst[r] = i;
-    c++; if (c > 3) { c = 0; r++; }
+    c++; if (c >= cols) { c = 0; r++; }
   }
   return out;
 }
 function layoutGrid() {
   const W = gridEl.clientWidth || mainEl.clientWidth;
-  cellSize = (W - GAP * 3) / 4;
+  cellSize = (W - GAP * (gridCols - 1)) / gridCols;
   gridEl.style.height = (gridRows * (cellSize + GAP)) + "px";
 }
 function cellNode(i) {
@@ -520,7 +523,20 @@ mainEl.addEventListener("scroll", () => {
   if (scrollTick) return; scrollTick = true;
   requestAnimationFrame(() => { scrollTick = false; renderWindow(); fsOnScroll(); });
 }, { passive: true });
-addEventListener("resize", () => { if (curView === "library" && libView.length) { gridCells.forEach(li => li.remove()); gridCells.clear(); layoutGrid(); renderWindow(); } if (!viewer.hidden) syncPlayerRect(); });
+addEventListener("resize", () => {
+  moveDockInd();
+  if (!viewer.hidden) { syncPlayerRect(); requestAnimationFrame(syncPlayerRect); paintSeek(true); }
+  if (curView !== "library" || !libView.length) return;
+  const rowH0 = cellSize + GAP, top0 = mainEl.scrollTop - gridEl.offsetTop;
+  const row0 = top0 > 0 ? Math.floor(top0 / rowH0) : -1;
+  let anchor = -1;
+  if (row0 >= 0) for (let r = row0; r < rowFirst.length; r++) if (rowFirst[r] !== undefined) { anchor = rowFirst[r]; break; }
+  gridCells.forEach(li => li.remove()); gridCells.clear();
+  gridLayout = computeGrid(libView.length);
+  layoutGrid();
+  if (anchor >= 0 && gridLayout[anchor]) mainEl.scrollTop = gridEl.offsetTop + gridLayout[anchor].r * (cellSize + GAP);
+  renderWindow();
+});
 
 /* ----- fast scroll handle, as in Google Photos ----- */
 const fsEl = $("#fastScroll"), fsDate = $("#fsDate");
