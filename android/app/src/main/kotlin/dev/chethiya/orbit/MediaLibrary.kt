@@ -139,7 +139,7 @@ object MediaLibrary {
         if (cacheFile != null && cacheFile.length() > 0) return try { cacheFile.readBytes() } catch (_: Exception) { null }
         val bmp = decode(context, path, s) ?: return null
         val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, if (s <= THUMB_CACHE_MAX) 82 else 92, out)
+        bmp.compress(Bitmap.CompressFormat.JPEG, if (s <= 320) 74 else if (s <= THUMB_CACHE_MAX) 82 else 92, out)
         bmp.recycle()
         val bytes = out.toByteArray()
         if (cacheFile != null) try { cacheFile.writeBytes(bytes) } catch (_: Exception) {}
