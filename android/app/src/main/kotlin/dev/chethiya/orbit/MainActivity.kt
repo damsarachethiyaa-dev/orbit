@@ -90,6 +90,9 @@ class MainActivity : AppCompatActivity() {
         4, 4, 30, TimeUnit.SECONDS,
         object : java.util.concurrent.LinkedBlockingDeque<Runnable>() {
             override fun offer(e: Runnable): Boolean = offerFirst(e)
+        },
+        java.util.concurrent.ThreadFactory { r ->
+            Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "orbit-thumb")
         }
     )
 
@@ -149,6 +152,7 @@ class MainActivity : AppCompatActivity() {
                 allowUniversalAccessFromFileURLs = false
                 cacheMode = WebSettings.LOAD_DEFAULT
                 textZoom = 100
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) offscreenPreRaster = true
             }
             addJavascriptInterface(OrbitBridge(), "OrbitAndroid")
             webChromeClient = object : WebChromeClient() {
@@ -265,7 +269,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG || BuildConfig.DEVTOOLS)
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         root.addView(webView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         rootLayout = root

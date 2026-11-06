@@ -100,29 +100,52 @@ const ACTIVE = ["queued", "downloading", "processing"];
 /* ---------------- views ---------------- */
 let cfg = { default_quality: "best", save_dir: "" };
 let curView = "library", lastTab = "library";
+const viewScroll = {};
 function show(view, keepFilter) {
   triggerHaptic();
   if (typeof exitSelect === "function" && selMode) exitSelect();
+  const same = view === curView, main = $(".main");
+  viewScroll[curView] = main.scrollTop;
+  const hadFilter = libFilter.type !== "all";
   if (view === "library" && !keepFilter) libFilter = { type: "all" };
   if (view !== "library") vaultUnlocked = false;      // the vault locks again as soon as you leave it
   curView = view;
   if (view !== "settings") lastTab = view;
-  document.body.dataset.view = view;
-  $$(".nav-btn").forEach(b => b.classList.toggle("on", b.dataset.view === view));
+  if (view !== "library") { apStop(); datePill.classList.remove("on"); }
+  dockFlip(() => {
+    document.body.dataset.view = view;
+    $$(".nav-btn").forEach(b => b.classList.toggle("on", b.dataset.view === view));
+  });
   $$(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + view));
-  const main = $(".main"); if (main) main.scrollTop = 0;
-  moveDockInd();
+  main.scrollTop = same || keepFilter || (view === "library" && hadFilter) ? 0 : (viewScroll[view] || 0);
   if (view === "library") loadLib();
   if (view === "collections") loadCollections();
   if (view === "settings") loadSettings();
   if (view === "search") setTimeout(() => { const i = $("#searchInput"); if (i && !i.value) i.focus(); }, 60);
 }
-function moveDockInd() {
+const DOCK_EASE = "cubic-bezier(.2,.9,.25,1)", DOCK_MS = 280;
+const calmMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+let indX = 0, indW = 0;
+function placeDockInd() {
   const on = document.querySelector(".dock-pill .nav-btn.on"), ind = $("#dockInd");
-  if (!on) { ind.style.opacity = 0; return; }
-  let n = 0;
-  const step = () => { ind.style.opacity = 1; ind.style.width = on.offsetWidth + "px"; ind.style.transform = `translateX(${on.offsetLeft}px)`; if (++n < 22) requestAnimationFrame(step); };
-  step();
+  if (!on) { ind.style.opacity = 0; indW = 0; return null; }
+  indX = on.offsetLeft; indW = on.offsetWidth;
+  ind.style.opacity = 1; ind.style.width = indW + "px"; ind.style.transform = `translate3d(${indX}px,0,0)`;
+  return on;
+}
+const moveDockInd = placeDockInd;
+/* The pill's layout changes once, instantly; everything you see moving is a compositor animation of that change. */
+function dockFlip(apply) {
+  const btns = $$(".dock-pill .nav-btn"), from = btns.map(b => b.offsetLeft), oldX = indX, oldW = indW, ind = $("#dockInd");
+  apply();
+  const on = placeDockInd();
+  if (calmMotion) return;
+  btns.forEach((b, i) => { const dx = from[i] - b.offsetLeft; if (dx) b.animate([{ transform: `translate3d(${dx}px,0,0)` }, { transform: "none" }], { duration: DOCK_MS, easing: DOCK_EASE }); });
+  if (on && oldW) {
+    ind.animate([{ transform: `translate3d(${oldX}px,0,0) scaleX(${oldW / indW})` }, { transform: `translate3d(${indX}px,0,0) scaleX(1)` }], { duration: DOCK_MS, easing: DOCK_EASE });
+    const icon = on.querySelector(".nav-icon-wrap");
+    if (icon) icon.animate([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: DOCK_EASE });
+  }
 }
 $("#nav").addEventListener("click", e => { const b = e.target.closest(".nav-btn"); if (b) show(b.dataset.view); });
 
@@ -356,7 +379,8 @@ async function poll() {
   if (polling || document.hidden) return; polling = true;
   try { renderQueue(await api("/api/jobs")); } catch {} finally { polling = false; }
 }
-setInterval(poll, 800); poll();
+let pollSkip = 0;
+setInterval(() => { if (lastActive || curView === "download" || ++pollSkip % 4 === 0) poll(); }, 800); poll();
 
 $("#queue").addEventListener("click", async e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
@@ -425,7 +449,7 @@ function applyFilter(list) {
 }
 
 /* ----- data ----- */
-function mergeLib() { libAll = historyAll.concat(deviceAll).sort((a, b) => (b.t || 0) - (a.t || 0)); updateStatus(lastActive); }
+function mergeLib() { libAll = historyAll.concat(deviceAll).sort((a, b) => (b.t || 0) - (a.t || 0)); itemCount = libAll.reduce((n, e) => n + (e.vault ? 0 : 1), 0); updateStatus(lastActive); }
 async function refreshHistory() {
   try { historyAll = (await api("/api/history")).map(e => ({ ...e, dur: (e.dur || 0) / 1000 })); } catch {}
   mergeLib();
@@ -450,7 +474,7 @@ async function loadLib() { await refreshHistory(); if (libFilter.type === "trash
 window.onOrbitResume = async () => {
   loadNotices();
   if (await loadDevice()) {
-    if (viewer.hidden && !selMode) { if (curView === "library") renderLib(); if (curView === "collections") loadCollections(); }
+    if (viewer.hidden && !selMode) { if (curView === "library") renderLib(true); if (curView === "collections") loadCollections(); }
   }
 };
 $("#permBtn").onclick = () => { triggerHaptic(); api("/api/media/request", {}).catch(() => {}); };
@@ -463,22 +487,23 @@ document.addEventListener("error", e => {
   const r = t.dataset.remote; if (r && t.src !== r) t.src = r; else t.style.visibility = "hidden";
 }, true);
 
-/* ----- grid: only the cells near the screen exist, so even 50,000 items scroll at full speed ----- */
+/* ----- grid: a fixed pool of recycled cells, positioned without layout, so scrolling never rebuilds anything ----- */
 const mainEl = $(".main"), gridEl = $("#lib");
-let gridLayout = [], gridRows = 1, cellSize = 100, rowFirst = [];
-const gridCells = new Map();
-const GAP = 2;
-let gridCols = 4;
+let gridLayout = [], gridRows = 1, cellSize = 100, rowFirst = [], gridTop = 0, maxScroll = 0, viewH = 0;
+const gridCells = new Map(), cellPool = [];
+const GAP = 2, OVERSCAN = 900, CELLS_PER_FRAME = 24, FAST_PX_PER_MS = 3.2;
+let gridCols = 4, rangeA = 0, rangeB = -1, pendingRaf = 0, lastScrollY = 0, lastScrollT = 0, scrollSpeed = 0, settleT = 0;
 const colsFor = w => Math.max(4, Math.round(w / 120));
 function computeGrid(n) {
   gridCols = colsFor(gridEl.clientWidth || mainEl.clientWidth);
   const cols = gridCols, out = new Array(n), used = new Set(), key = (c, r) => r * cols + c;
-  let r = 0, c = 0; rowFirst = []; gridRows = 0;
+  let r = 0, c = 0, since = 8; rowFirst = []; gridRows = 0;
   for (let i = 0; i < n; i++) {
     while (used.has(key(c, r))) { c++; if (c >= cols) { c = 0; r++; } }
-    const big = i % 23 === 9 && c < cols - 1 && !used.has(key(c + 1, r));
+    const want = since >= 30 || (since >= 11 && kindOf(libView[i]) === "video");
+    const big = want && c < cols - 1 && !used.has(key(c + 1, r)) && !used.has(key(c, r + 1)) && !used.has(key(c + 1, r + 1));
     used.add(key(c, r));
-    if (big) { used.add(key(c + 1, r)); used.add(key(c, r + 1)); used.add(key(c + 1, r + 1)); }
+    if (big) { used.add(key(c + 1, r)); used.add(key(c, r + 1)); used.add(key(c + 1, r + 1)); since = 0; } else since++;
     out[i] = { c, r, big };
     gridRows = Math.max(gridRows, r + (big ? 2 : 1));
     if (rowFirst[r] === undefined) rowFirst[r] = i;
@@ -486,86 +511,259 @@ function computeGrid(n) {
   }
   return out;
 }
+function measureGrid() {
+  const m = mainEl.getBoundingClientRect();
+  gridTop = gridEl.getBoundingClientRect().top - m.top + mainEl.scrollTop;
+  viewH = mainEl.clientHeight;
+  maxScroll = Math.max(0, mainEl.scrollHeight - viewH);
+}
 function layoutGrid() {
   const W = gridEl.clientWidth || mainEl.clientWidth;
   cellSize = (W - GAP * (gridCols - 1)) / gridCols;
   gridEl.style.height = (gridRows * (cellSize + GAP)) + "px";
+  measureGrid();
+  ensurePool(Math.ceil((viewH + OVERSCAN * 2) / (cellSize + GAP) + 2) * gridCols);
 }
-function cellNode(i) {
-  const e = libView[i], g = gridLayout[i], li = document.createElement("li");
-  const size = g.big ? cellSize * 2 + GAP : cellSize;
-  li.className = `cell${e.exists ? "" : " gone"}${sel.has(e.id) ? " sel" : ""}`;
-  li.dataset.id = e.id; li.dataset.i = i;
-  li.style.cssText = `width:${size}px;height:${size}px;transform:translate3d(${g.c * (cellSize + GAP)}px,${g.r * (cellSize + GAP)}px,0)`;
-  const k = kindOf(e);
-  li.innerHTML = thumbBox(e, g.big ? 768 : 384).replace(' loading="lazy"', "")
-    + (k !== "photo" ? `<span class="cell-dur">${e.dur ? `<em>${longDur(e.dur)}</em>` : ""}<i><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg></i></span>` : "")
-    + (favs.has(e.id) ? '<span class="cell-fav"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></span>' : "")
-    + (e.exists ? "" : '<span class="cell-gone">Missing</span>')
-    + '<span class="cell-check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>';
+/* Three elements per cell; icons, checkmarks and badges are CSS, so style work stays small while scrolling. */
+function makeCell() {
+  const li = document.createElement("li");
+  const img = document.createElement("img"); img.className = "t-img in"; img.alt = ""; img.decoding = "async";
+  const dur = document.createElement("span"); dur.className = "cell-dur";
+  li.append(img, dur);
+  li._img = img; li._dur = dur;
+  gridEl.appendChild(li);
   return li;
 }
-function renderWindow() {
+function ensurePool(count) {
+  const frag = count - cellPool.length - gridCells.size;
+  for (let i = 0; i < frag; i++) { const li = makeCell(); li.style.display = "none"; cellPool.push(li); }
+}
+function loadCellImage(li) {
+  const u = li._want;
+  if (!u || li._src === u) return;
+  li._src = u; li._img.style.visibility = ""; li._img.src = u;
+}
+function bindCell(li, i) {
+  const e = libView[i], g = gridLayout[i], k = kindOf(e), size = g.big ? cellSize * 2 + GAP : cellSize;
+  const cls = "cell " + k + (e.exists ? "" : " gone") + (sel.has(e.id) ? " sel" : "") + (favs.has(e.id) ? " fav" : "");
+  if (li.className !== cls) li.className = cls;
+  li.dataset.id = e.id; li.dataset.i = i;
+  if (li._size !== size) { li._size = size; li.style.width = size + "px"; li.style.height = size + "px"; }
+  li.style.transform = `translate(${g.c * (cellSize + GAP)}px,${g.r * (cellSize + GAP)}px)`;
+  li.style.display = "";
+  li._img.dataset.remote = e.thumb || "";
+  const label = k === "photo" ? "" : (e.dur ? longDur(e.dur) : k === "audio" ? "MP3" : " ");
+  if (li._label !== label) { li._label = label; li._dur.textContent = label; }
+  if (k === "audio") { li._want = ""; if (li._src) { li._src = ""; li._img.removeAttribute("src"); } return; }
+  const want = thumbUrl(e.id, g.big ? 640 : 320);
+  li._want = want;
+  if (li._src !== want) { li._src = ""; li._img.removeAttribute("src"); }
+  if (scrollSpeed < FAST_PX_PER_MS) loadCellImage(li);
+}
+function renderWindow(force) {
   if (curView !== "library" || gridEl.hidden || !libView.length) return;
-  const top = mainEl.scrollTop - (gridEl.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop);
-  const rowH = cellSize + GAP, h = mainEl.clientHeight;
-  const r0 = Math.max(0, Math.floor((top - 500) / rowH) - 1), r1 = Math.ceil((top + h + 500) / rowH);
-  let a = rowFirst[r0]; if (a === undefined) a = libView.length;
+  const rowH = cellSize + GAP, top = mainEl.scrollTop - gridTop;
+  const visFirst = Math.floor(top / rowH), visLast = Math.ceil((top + viewH) / rowH);
+  if (!force && visFirst >= rangeA + 2 && visLast <= rangeB - 2) return;      // still well inside what's already built
+  const margin = Math.ceil(OVERSCAN / rowH);
+  rangeA = Math.max(0, visFirst - margin); rangeB = visLast + margin;
+  let a = rowFirst[rangeA]; if (a === undefined) a = libView.length;
   let b = libView.length;
-  for (let r = r1 + 1; r < rowFirst.length; r++) if (rowFirst[r] !== undefined) { b = rowFirst[r]; break; }
-  const want = new Set();
-  for (let i = a; i < b; i++) want.add(i);
-  for (const [i, li] of gridCells) if (!want.has(i)) { li.remove(); gridCells.delete(i); }
-  for (const i of want) if (!gridCells.has(i)) { const li = cellNode(i); gridEl.appendChild(li); gridCells.set(i, li); }
+  for (let r = rangeB + 1; r < rowFirst.length; r++) if (rowFirst[r] !== undefined) { b = rowFirst[r]; break; }
+  for (const [i, li] of gridCells) if (i < a || i >= b) {
+    if (li === apCell) apStop();
+    gridCells.delete(i); li.style.display = "none"; cellPool.push(li);
+  }
+  fillCells(a, b);
+}
+function fillCells(a, b) {
+  cancelAnimationFrame(pendingRaf);
+  const rowH = cellSize + GAP, start = Math.max(a, rowFirst[Math.max(0, Math.floor((mainEl.scrollTop - gridTop) / rowH))] || a);
+  let budget = CELLS_PER_FRAME, more = false;
+  const put = i => { if (gridCells.has(i)) return; if (budget-- <= 0) { more = true; return; } const li = cellPool.pop() || makeCell(); bindCell(li, i); gridCells.set(i, li); };
+  for (let i = start; i < b && !more; i++) put(i);      // what's on screen and below first
+  for (let i = start - 1; i >= a && !more; i--) put(i);
+  if (more) pendingRaf = requestAnimationFrame(() => fillCells(a, b));
+}
+function flushImages() { gridCells.forEach(loadCellImage); }
+/* During a fast fling, what's on screen still fills in, a few per frame; only off-screen tiles wait. */
+function loadVisibleImages(limit) {
+  const s = cellSize + GAP, y = mainEl.scrollTop - gridTop;
+  for (const [i, li] of gridCells) {
+    if (limit <= 0) return;
+    if (li._src === li._want) continue;
+    const t = gridLayout[i].r * s - y;
+    if (t > -s * 2 && t < viewH) { loadCellImage(li); limit--; }
+  }
+}
+function resetGrid() {
+  cancelAnimationFrame(pendingRaf);
+  apStop();
+  gridCells.forEach(li => { li.style.display = "none"; cellPool.push(li); });
+  gridCells.clear(); rangeA = 0; rangeB = -1;
 }
 let scrollTick = false;
 mainEl.addEventListener("scroll", () => {
   if (scrollTick) return; scrollTick = true;
-  requestAnimationFrame(() => { scrollTick = false; renderWindow(); fsOnScroll(); });
+  requestAnimationFrame(now => {
+    scrollTick = false;
+    const y = mainEl.scrollTop, dt = now - lastScrollT;
+    if (dt > 0 && dt < 100) scrollSpeed = Math.abs(y - lastScrollY) / dt; else scrollSpeed = 0;
+    lastScrollY = y; lastScrollT = now;
+    prefetchGen++;      // scrolling takes priority over fetching ahead
+    renderWindow();
+    fsOnScroll();
+    paintDatePill();
+    if (scrollSpeed < FAST_PX_PER_MS) flushImages(); else loadVisibleImages(2);
+    clearTimeout(settleT);
+    settleT = setTimeout(() => { scrollSpeed = 0; flushImages(); measureGrid(); apPick(); setTimeout(prefetchAhead, 200); }, 140);
+  });
 }, { passive: true });
 addEventListener("resize", () => {
   moveDockInd();
   if (!viewer.hidden) { syncPlayerRect(); requestAnimationFrame(syncPlayerRect); paintSeek(true); }
   if (curView !== "library" || !libView.length) return;
-  const rowH0 = cellSize + GAP, top0 = mainEl.scrollTop - gridEl.offsetTop;
-  const row0 = top0 > 0 ? Math.floor(top0 / rowH0) : -1;
+  const top0 = mainEl.scrollTop - gridTop, row0 = top0 > 0 ? Math.floor(top0 / (cellSize + GAP)) : -1;
   let anchor = -1;
   if (row0 >= 0) for (let r = row0; r < rowFirst.length; r++) if (rowFirst[r] !== undefined) { anchor = rowFirst[r]; break; }
-  gridCells.forEach(li => li.remove()); gridCells.clear();
+  resetGrid();
   gridLayout = computeGrid(libView.length);
   layoutGrid();
-  if (anchor >= 0 && gridLayout[anchor]) mainEl.scrollTop = gridEl.offsetTop + gridLayout[anchor].r * (cellSize + GAP);
-  renderWindow();
+  if (anchor >= 0 && gridLayout[anchor]) mainEl.scrollTop = gridTop + gridLayout[anchor].r * (cellSize + GAP);
+  renderWindow(true);
 });
+
+/* ----- keep recently seen thumbnails decoded, so scrolling back never goes through the bridge again ----- */
+const thumbKeep = new Map();
+document.addEventListener("load", e => {
+  const t = e.target;
+  if (!t.parentNode || t.parentNode.tagName !== "LI" || !t.classList.contains("t-img")) return;
+  const u = t.currentSrc || t.src;
+  if (thumbKeep.has(u)) { const k = thumbKeep.get(u); thumbKeep.delete(u); thumbKeep.set(u, k); return; }
+  const keep = new Image(); keep.src = u; thumbKeep.set(u, keep);
+  if (thumbKeep.size > 620) thumbKeep.delete(thumbKeep.keys().next().value);
+}, true);
+
+/* While the list is still, quietly fetch what's next, so a fling lands on pictures that are already in memory. */
+let prefetchGen = 0;
+function prefetchAhead() {
+  const gen = ++prefetchGen;
+  if (curView !== "library" || !libView.length || !viewer.hidden) return;
+  const s = cellSize + GAP;
+  let r = Math.max(0, Math.floor((mainEl.scrollTop - gridTop) / s));
+  while (r > 0 && rowFirst[r] === undefined) r--;
+  const start = rowFirst[r] || 0, order = [];
+  for (let d = 0; d < 260 && order.length < 300; d++) {
+    if (start + d < libView.length) order.push(start + d);
+    if (d % 3 === 0 && start - d >= 0 && d) order.push(start - d);
+  }
+  let at = 0, running = 0;
+  const next = () => {
+    while (gen === prefetchGen && running < 3 && at < order.length) {
+      const i = order[at++], e = libView[i], g = gridLayout[i];
+      if (!e || !g || kindOf(e) === "audio") continue;
+      const u = thumbUrl(e.id, g.big ? 640 : 320);
+      if (thumbKeep.has(u)) continue;
+      const im = new Image(); running++;
+      im.decoding = "async";
+      im.onload = im.onerror = () => {
+        running--;
+        if (im.naturalWidth) { thumbKeep.set(u, im); if (thumbKeep.size > 620) thumbKeep.delete(thumbKeep.keys().next().value); }
+        if (gen === prefetchGen) setTimeout(next, 16);
+      };
+      im.src = u;
+    }
+  };
+  next();
+}
+
+/* ----- floating date pill while scrolling, as in Google Photos ----- */
+const datePill = $("#datePill");
+let pillHide = 0, pillDay = "";
+function dayLabel(t) {
+  if (!t) return "";
+  const d = new Date(t * 1000), now = new Date();
+  const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 864e5);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return d.toLocaleDateString("en-US", d.getFullYear() === now.getFullYear() ? { weekday: "short", month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
+}
+function paintDatePill() {
+  const top = mainEl.scrollTop - gridTop;
+  if (curView !== "library" || top < 10 || libView.length < 12) { datePill.classList.remove("on"); return; }
+  let row = Math.floor(top / (cellSize + GAP));
+  while (row > 0 && rowFirst[row] === undefined) row--;
+  const it = libView[rowFirst[row] || 0];
+  const label = dayLabel(it && it.t);
+  if (label !== pillDay) { pillDay = label; datePill.textContent = label; }
+  datePill.classList.add("on");
+  clearTimeout(pillHide);
+  pillHide = setTimeout(() => datePill.classList.remove("on"), 1500);
+}
+
+/* ----- large video tiles play silently in place, one at a time ----- */
+const apVideo = document.createElement("video");
+apVideo.className = "t-auto"; apVideo.muted = true; apVideo.defaultMuted = true; apVideo.loop = true; apVideo.playsInline = true; apVideo.preload = "auto";
+apVideo.setAttribute("muted", ""); apVideo.setAttribute("playsinline", "");
+let apCell = null, apId = "", apEnabled = true; const apFailed = new Set();
+try { apEnabled = localStorage.getItem("orbit_autoplay") !== "false"; } catch {}
+apVideo.addEventListener("playing", () => apVideo.classList.add("on"));
+apVideo.addEventListener("error", () => { if (apId && apVideo.getAttribute("src")) { apFailed.add(apId); apStop(); apPick(); } });
+function apStop() {
+  if (!apCell) return;
+  apVideo.classList.remove("on");
+  apVideo.pause(); apVideo.removeAttribute("src"); apVideo.load();
+  apVideo.remove();
+  apCell = null; apId = "";
+}
+function apPick() {
+  if (!apEnabled || curView !== "library" || viewer.hidden === false || selMode || document.hidden || gridEl.hidden) { apStop(); return; }
+  const rowH = cellSize + GAP, y = mainEl.scrollTop - gridTop;
+  let best = null, bestShare = 0.55;
+  for (const [i, li] of gridCells) {
+    const g = gridLayout[i], e = libView[i];
+    if (!g.big || kindOf(e) !== "video" || apFailed.has(e.id) || !e.exists) continue;
+    const top = g.r * rowH - y, h = cellSize * 2 + GAP;
+    const share = (Math.min(viewH - 80, top + h) - Math.max(0, top)) / h;
+    if (share > bestShare) { bestShare = share; best = li; }
+  }
+  if (best === apCell) return;
+  apStop();
+  if (!best) return;
+  apCell = best; apId = best.dataset.id;
+  best.appendChild(apVideo);
+  apVideo.src = streamUrl(apId);
+  apVideo.play().catch(() => {});
+}
+document.addEventListener("visibilitychange", () => { if (document.hidden) apStop(); else apPick(); });
 
 /* ----- fast scroll handle, as in Google Photos ----- */
 const fsEl = $("#fastScroll"), fsDate = $("#fsDate");
-let fsHide = null, fsDrag = false;
+let fsHide = null, fsDrag = false, fsOn = false;
 function fsPlace() {
-  const max = mainEl.scrollHeight - mainEl.clientHeight;
-  const track = mainEl.clientHeight - 170;
-  fsEl.style.transform = `translateY(${(max > 0 ? mainEl.scrollTop / max : 0) * track}px)`;
+  const track = viewH - 170;
+  fsEl.style.transform = `translate3d(0,${(maxScroll > 0 ? mainEl.scrollTop / maxScroll : 0) * track}px,0)`;
 }
 function fsOnScroll() {
-  if (curView !== "library" || libView.length < 40) { fsEl.classList.remove("on"); return; }
+  if (curView !== "library" || libView.length < 40) { if (fsOn) { fsOn = false; fsEl.classList.remove("on"); } return; }
   fsPlace();
-  fsEl.classList.add("on");
+  if (!fsOn) { fsOn = true; fsEl.classList.add("on"); }
   clearTimeout(fsHide);
-  if (!fsDrag) fsHide = setTimeout(() => fsEl.classList.remove("on"), 1400);
+  if (!fsDrag) fsHide = setTimeout(() => { fsOn = false; fsEl.classList.remove("on"); }, 1400);
 }
 fsEl.addEventListener("pointerdown", e => { fsDrag = true; fsEl.setPointerCapture(e.pointerId); fsEl.classList.add("drag"); clearTimeout(fsHide); triggerHaptic(); e.preventDefault(); });
 fsEl.addEventListener("pointermove", e => {
   if (!fsDrag) return;
-  const r = mainEl.getBoundingClientRect(), track = mainEl.clientHeight - 170;
+  const r = mainEl.getBoundingClientRect(), track = viewH - 170;
   const p = Math.max(0, Math.min(1, (e.clientY - r.top - 32) / track));
-  mainEl.scrollTop = p * (mainEl.scrollHeight - mainEl.clientHeight);
+  mainEl.scrollTop = p * maxScroll;
   const rowH = cellSize + GAP, top = mainEl.scrollTop;
-  let row = Math.max(0, Math.floor((top - gridEl.offsetTop) / rowH));
+  let row = Math.max(0, Math.floor((top - gridTop) / rowH));
   while (row > 0 && rowFirst[row] === undefined) row--;
   const it = libView[rowFirst[row] || 0];
   if (it && it.t) fsDate.textContent = new Date(it.t * 1000).toLocaleDateString("en-US", { month: "short", year: "numeric" });
 });
-const fsEnd = () => { fsDrag = false; fsEl.classList.remove("drag"); fsHide = setTimeout(() => fsEl.classList.remove("on"), 1400); };
+const fsEnd = () => { fsDrag = false; fsEl.classList.remove("drag"); fsHide = setTimeout(() => { fsOn = false; fsEl.classList.remove("on"); }, 1400); };
 fsEl.addEventListener("pointerup", fsEnd); fsEl.addEventListener("pointercancel", fsEnd);
 
 /* ----- memories ----- */
@@ -587,7 +785,7 @@ function renderMemories(list) {
   if (!cards.length) cards.push({ a: "Recent", b: "", f: { type: "recent" }, cover: list[0] });
   box.hidden = false;
   box.innerHTML = cards.map((c, i) => {
-    return `<button type="button" class="mem" data-i="${i}" style="--i:${Math.min(i, 5)}">${thumbBox(c.cover, 768)}
+    return `<button type="button" class="mem" data-i="${i}" style="--i:${Math.min(i, 5)}">${thumbBox(c.cover, 512)}
       <span class="mem-label"><b>${esc(c.a)}</b>${c.b ? `<b>${esc(c.b)}</b>` : ""}</span></button>`;
   }).join("");
   box._cards = cards;
@@ -597,16 +795,17 @@ $("#memories").addEventListener("click", e => {
   triggerHaptic(); openFilter($("#memories")._cards[+b.dataset.i].f);
 });
 
-function renderLib() {
+let renderedSig = "";
+function renderLib(force) {
   const f = libFilter, isVault = f.type === "vault";
   $("#filterBar").hidden = f.type === "all";
   $("#filterTitle").textContent = filterTitle(f);
   $("#permCard").hidden = !(f.type === "all" && mediaPerm !== "full" && onAndroid);
   if (mediaPerm === "partial") { $("#permTitle").textContent = "Orbit sees only the photos you picked"; $("#permSub").textContent = "Allow all to see everything on this phone."; $("#permBtn").textContent = "Manage"; }
   else { $("#permTitle").textContent = "See the photos and videos on this phone"; $("#permSub").textContent = "Orbit needs permission to show your gallery. Nothing leaves your phone."; $("#permBtn").textContent = "Allow"; }
-  gridCells.forEach(li => li.remove()); gridCells.clear();
   const lock = $("#vaultLockScreen");
   if (isVault && !vaultUnlocked) {
+    resetGrid(); renderedSig = "";
     lock.hidden = false; gridEl.hidden = true; $("#libCount").textContent = "Locked"; $("#libEmpty").hidden = true; $("#memories").hidden = true;
     const hasPin = !!localStorage.getItem("orbit_vault_pin");
     $("#vaultLockTitle").textContent = hasPin ? "Private vault" : "Create a vault PIN";
@@ -615,13 +814,19 @@ function renderLib() {
   }
   lock.hidden = true; gridEl.hidden = false;
   const list = applyFilter(libAll);
+  const sig = [f.type, f.val, f.year, list.length, list[0] && list[0].id, list[list.length - 1] && list[list.length - 1].id, favs.size, colsFor(gridEl.clientWidth || mainEl.clientWidth)].join("|");
+  if (!force && sig === renderedSig) { measureGrid(); renderWindow(true); flushImages(); if (selMode) updateSelUi(); setTimeout(apPick, 300); return; }
+  renderedSig = sig;
+  resetGrid();
   libView = list;
   $("#libCount").textContent = `${list.length} item${list.length === 1 ? "" : "s"}`;
   $("#libClear").hidden = true;
   if (f.type === "all") renderMemories(list); else $("#memories").hidden = true;
   gridLayout = computeGrid(list.length);
   layoutGrid();
-  renderWindow();
+  renderWindow(true);
+  setTimeout(apPick, 500);
+  setTimeout(prefetchAhead, 900);
   const empty = !list.length;
   $("#libEmpty").hidden = !empty;
   if (empty) {
@@ -695,8 +900,8 @@ function updateSelUi() {
   $("#selCount").textContent = sel.size + " selected";
   gridCells.forEach(c => c.classList.toggle("sel", sel.has(c.dataset.id)));
 }
-function enterSelect(id) { selMode = true; document.body.classList.add("selecting"); $("#tbNormal").hidden = true; $("#tbSelect").hidden = false; if (id) sel.add(id); updateSelUi(); }
-function exitSelect() { selMode = false; sel.clear(); document.body.classList.remove("selecting"); $("#tbNormal").hidden = false; $("#tbSelect").hidden = true; gridCells.forEach(c => c.classList.remove("sel")); }
+function enterSelect(id) { apStop(); selMode = true; document.body.classList.add("selecting"); $("#tbNormal").hidden = true; $("#tbSelect").hidden = false; if (id) sel.add(id); updateSelUi(); }
+function exitSelect() { setTimeout(apPick, 200); selMode = false; sel.clear(); document.body.classList.remove("selecting"); $("#tbNormal").hidden = false; $("#tbSelect").hidden = true; gridCells.forEach(c => c.classList.remove("sel")); }
 function toggleSel(id) { sel.has(id) ? sel.delete(id) : sel.add(id); if (!sel.size) exitSelect(); else updateSelUi(); }
 $("#selClose").onclick = () => { triggerHaptic(); exitSelect(); };
 $("#selShare").onclick = async () => {
@@ -755,9 +960,13 @@ function groupBy(list, keyFn) {
   list.forEach(e => { const k = keyFn(e); if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(e); });
   return [...m.entries()];
 }
+let collSig = "";
 async function loadCollections() {
   await refreshHistory();
   const list = libAll.filter(e => !e.vault);
+  const csig = [list.length, list[0] && list[0].id, mediaPerm].join("|");
+  if (csig === collSig) return;
+  collSig = csig;
   const rank = n => /^camera$/i.test(n) ? 0 : /^orbit$/i.test(n) ? 1 : 2;
   const buckets = groupBy(list.filter(e => e.device), e => e.bucket).sort((a, b) => rank(a[0]) - rank(b[0]) || b[1].length - a[1].length);
   const dl = list.filter(e => !e.device);
@@ -791,6 +1000,13 @@ $("#viewAllSites").onclick = e => {
 /* ----- top bar ----- */
 $("#btnAvatar").onclick = () => show("settings");
 $("#settingsBack").onclick = () => show(lastTab);
+$("#setAutoplay").checked = apEnabled;
+$("#setAutoplay").onchange = e => {
+  apEnabled = e.target.checked; triggerHaptic();
+  try { localStorage.setItem("orbit_autoplay", apEnabled); } catch {}
+  toast(apEnabled ? "Videos autoplay in the grid" : "Autoplay off");
+  apPick();
+};
 $("#rowQuality").onclick = () => {
   triggerHaptic();
   const cur = $("#setQuality").value;
@@ -800,11 +1016,13 @@ $("#rowQuality").onclick = () => {
 };
 $("#btnAdd").onclick = () => { show("download"); setTimeout(() => urlEl.focus(), 80); };
 $("#statusChip").onclick = () => show("download");
-let lastJobs = [], updateReady = false, lastActive = 0;
+let lastJobs = [], updateReady = false, lastActive = 0, itemCount = 0, chipText = "";
 function updateStatus(active) {
   lastActive = active;
-  const n = libAll.filter(e => !e.vault).length;
-  $("#scText").textContent = active ? `Downloading ${active}` : `${n.toLocaleString("en-US")} item${n === 1 ? "" : "s"}`;
+  const text = active ? `Downloading ${active}` : `${itemCount.toLocaleString("en-US")} item${itemCount === 1 ? "" : "s"}`;
+  if (text === chipText) return;
+  chipText = text;
+  $("#scText").textContent = text;
   $("#scIdle").toggleAttribute("hidden", !!active); $("#scBusy").toggleAttribute("hidden", !active);
   $("#statusChip").classList.toggle("busy", !!active);
 }
@@ -1281,6 +1499,7 @@ function heroTransform(rect) {
 }
 function openViewer(list, idx, fromRect) {
   if (!list || !list[idx]) return;
+  apStop();
   vList = list.slice();
   viewer.hidden = false; viewer.classList.remove("hide-ui", "closing");
   document.body.classList.add("viewing"); document.documentElement.classList.add("viewing");
@@ -1318,7 +1537,8 @@ function closeViewer() {
     viewer.hidden = true; viewer.classList.remove("closing", "hero", "hero-bars");
     vPages.style.transition = ""; vPages.style.transform = ""; vPages.style.opacity = "";
     vPhoto.removeAttribute("src"); vPoster.removeAttribute("src"); resetZoom();
-    if (libDirty && curView === "library") { libDirty = false; renderLib(); }
+    if (libDirty && curView === "library") { libDirty = false; renderLib(true); }
+    else apPick();
   }, 205);
   return true;
 }

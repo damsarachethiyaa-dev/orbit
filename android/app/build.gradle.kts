@@ -11,8 +11,10 @@ android {
     applicationId = "dev.chethiya.orbit"
     minSdk = 24
     targetSdk = 34
-    versionCode = 123
-    versionName = "1.0.23"
+    versionCode = 124
+    versionName = "1.0.24"
+    // Only for measuring on a device: -Porbit.devtools=true. Never set for a published build.
+    buildConfigField("boolean", "DEVTOOLS", (project.findProperty("orbit.devtools") == "true").toString())
 
     ndk {
       abiFilters += listOf("arm64-v8a", "armeabi-v7a")
