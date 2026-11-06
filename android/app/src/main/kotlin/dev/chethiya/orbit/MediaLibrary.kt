@@ -132,41 +132,95 @@ object MediaLibrary {
         return d
     }
 
-    /** JPEG thumbnail bytes for a saved file. Small sizes are cached on disk so the grid scrolls without re-decoding. */
-    fun thumbnail(context: Context, id: String, path: String, size: Int): ByteArray? {
-        val s = size.coerceIn(64, 3000)
-        val cacheFile = if (s <= THUMB_CACHE_MAX) File(File(context.cacheDir, "thumbs").apply { mkdirs() }, "${id.replace(Regex("[^A-Za-z0-9_-]"), "_")}_$s.jpg") else null
+    /**
+     * JPEG bytes for a saved file. Small sizes are cached on disk so the grid scrolls without re-decoding.
+     * [cover] means a square grid tile: the short side reaches the size, so tall screenshots stay sharp.
+     */
+    fun thumbnail(context: Context, id: String, path: String, size: Int, cover: Boolean = false): ByteArray? {
+        val s = size.coerceIn(64, 4096)
+        val cacheFile = if (s <= THUMB_CACHE_MAX) File(File(context.cacheDir, "thumbs").apply { mkdirs() }, "${id.replace(Regex("[^A-Za-z0-9_-]"), "_")}_${if (cover) "c" else "t"}$s.jpg") else null
         if (cacheFile != null && cacheFile.length() > 0) return try { cacheFile.readBytes() } catch (_: Exception) { null }
-        val bmp = decode(context, path, s) ?: return null
+        var bmp = decode(context, path, s, cover) ?: return null
+        if (cover) bmp = centerSquare(bmp, s)
         val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, if (s <= 320) 74 else if (s <= THUMB_CACHE_MAX) 82 else 92, out)
+        bmp.compress(Bitmap.CompressFormat.JPEG, if (s <= 360) 78 else if (s <= THUMB_CACHE_MAX) 84 else 96, out)
         bmp.recycle()
         val bytes = out.toByteArray()
         if (cacheFile != null) try { cacheFile.writeBytes(bytes) } catch (_: Exception) {}
         return bytes
     }
 
+    private fun centerSquare(src: Bitmap, s: Int): Bitmap {
+        val side = minOf(src.width, src.height)
+        if (side <= 0) return src
+        val square = Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
+        if (side <= s) return square
+        return Bitmap.createScaledBitmap(square, s, s, true)
+    }
+
+    private val PHOTO_EXT = setOf("jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "avif", "bmp", "dng")
+
+    private fun isPhoto(context: Context, path: String): Boolean =
+        if (path.startsWith("content://")) context.contentResolver.getType(Uri.parse(path)).orEmpty().startsWith("image/")
+        else File(path).extension.lowercase() in PHOTO_EXT
+
+    /** Decodes the photo itself, so large sizes really are large. Android's thumbnail call stops well short of the screen size. */
+    private fun decodePhoto(context: Context, path: String, s: Int, cover: Boolean): Bitmap? {
+        val uri = if (path.startsWith("content://")) Uri.parse(path) else Uri.fromFile(File(path))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
+            return android.graphics.ImageDecoder.decodeBitmap(source) { d, info, _ ->
+                d.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                val w = info.size.width; val h = info.size.height
+                val ref = if (cover) minOf(w, h) else maxOf(w, h)
+                if (ref > s) { val k = s.toFloat() / ref; d.setTargetSize((w * k).toInt().coerceAtLeast(1), (h * k).toInt().coerceAtLeast(1)) }
+            }
+        }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        val ref = if (cover) minOf(bounds.outWidth, bounds.outHeight) else maxOf(bounds.outWidth, bounds.outHeight)
+        while (ref / (sample * 2) >= s) sample *= 2
+        return context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
+    }
+
+    /** The video's real opening frame, so the viewer's preview matches what starts playing. Falls back to the normal thumbnail. */
+    fun firstFrame(context: Context, id: String, path: String, size: Int): ByteArray? {
+        val s = size.coerceIn(64, THUMB_CACHE_MAX)
+        val cacheFile = File(File(context.cacheDir, "thumbs").apply { mkdirs() }, "${id.replace(Regex("[^A-Za-z0-9_-]"), "_")}_f$s.jpg")
+        if (cacheFile.length() > 0) return try { cacheFile.readBytes() } catch (_: Exception) { null }
+        val frame = try {
+            val r = MediaMetadataRetriever()
+            try {
+                if (path.startsWith("content://")) r.setDataSource(context, Uri.parse(path)) else r.setDataSource(path)
+                r.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            } finally { r.release() }
+        } catch (_: Exception) { null } ?: return thumbnail(context, id, path, s, false)
+        val scale = minOf(1f, s.toFloat() / maxOf(frame.width, frame.height))
+        val small = if (scale < 1f) Bitmap.createScaledBitmap(frame, (frame.width * scale).toInt().coerceAtLeast(1), (frame.height * scale).toInt().coerceAtLeast(1), true) else frame
+        val out = ByteArrayOutputStream()
+        small.compress(Bitmap.CompressFormat.JPEG, 84, out)
+        val bytes = out.toByteArray()
+        try { cacheFile.writeBytes(bytes) } catch (_: Exception) {}
+        return bytes
+    }
+
     @Suppress("DEPRECATION")
-    private fun decode(context: Context, path: String, s: Int): Bitmap? {
+    private fun decode(context: Context, path: String, s: Int, cover: Boolean): Bitmap? {
         try {
+            val photo = isPhoto(context, path)
+            // Android keeps its own small thumbnails, which are the quickest source for small grid tiles.
+            if (path.startsWith("content://") && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && (!photo || s <= 360)) {
+                val ask = if (cover) s * 2 else s
+                return context.contentResolver.loadThumbnail(Uri.parse(path), Size(ask, ask), null)
+            }
+            if (photo) return decodePhoto(context, path, s, cover)
             if (path.startsWith("content://")) {
-                val uri = Uri.parse(path)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return context.contentResolver.loadThumbnail(uri, Size(s, s), null)
-                val type = context.contentResolver.getType(uri).orEmpty()
-                if (type.startsWith("image/")) return context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = 2 }) }
                 val r = MediaMetadataRetriever()
-                try { r.setDataSource(context, uri); return r.frameAtTime } finally { r.release() }
+                try { r.setDataSource(context, Uri.parse(path)); return r.frameAtTime } finally { r.release() }
             }
             val file = File(path)
-            val ext = file.extension.lowercase()
-            if (ext in setOf("jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "avif")) {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(path, bounds)
-                var sample = 1
-                while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= s) sample *= 2
-                return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
-            }
-            if (ext in setOf("mp3", "m4a", "opus", "wav", "ogg", "flac")) return null
+            if (file.extension.lowercase() in setOf("mp3", "m4a", "opus", "wav", "ogg", "flac")) return null
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return ThumbnailUtils.createVideoThumbnail(file, Size(s, s), null)
             return ThumbnailUtils.createVideoThumbnail(path, MediaStore.Images.Thumbnails.MINI_KIND)
         } catch (_: Exception) {

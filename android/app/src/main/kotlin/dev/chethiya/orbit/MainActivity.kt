@@ -55,6 +55,41 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
+    companion object {
+        const val EXTRA_OPEN_ID = "orbit_open_id"
+        const val EXTRA_OPEN_VIEW = "orbit_open_view"
+        private const val UPDATE_CHANNEL_ID = "orbit_updates_channel"
+    }
+
+    /** Only ids Orbit itself generates, since other apps can also start this activity. */
+    private fun notificationTarget(intent: Intent?): Pair<String, String>? {
+        if (intent == null) return null
+        val id = intent.getStringExtra(EXTRA_OPEN_ID).orEmpty().takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }.orEmpty()
+        val view = intent.getStringExtra(EXTRA_OPEN_VIEW).orEmpty().takeIf { it == "download" }.orEmpty()
+        return if (id.isBlank() && view.isBlank()) null else id to view
+    }
+
+    /** One Android notification per new version, so it never nags. */
+    private fun notifyUpdateOnce(version: String) {
+        if (version.isBlank() || prefs().getString("update_notified", "") == version) return
+        prefs().edit().putString("update_notified", version).apply()
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(android.app.NotificationChannel(UPDATE_CHANNEL_ID, "Orbit updates", android.app.NotificationManager.IMPORTANCE_DEFAULT))
+        }
+        val tap = android.app.PendingIntent.getActivity(
+            this, 7001, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        nm.notify(7001, androidx.core.app.NotificationCompat.Builder(this, UPDATE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Orbit $version is available")
+            .setContentText("Open Orbit to update")
+            .setAutoCancel(true)
+            .setContentIntent(tap)
+            .build())
+    }
+
 
     private lateinit var webView: WebView
     private val executor = Executors.newCachedThreadPool()
@@ -84,6 +119,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var downloadedApkPath = ""
 
     private lateinit var orbitPlayer: OrbitPlayer
+    private var safeInsetsJs = ""
 
     /** Newest request first, so what is on screen decodes before what was scrolled past. */
     private val thumbPool = java.util.concurrent.ThreadPoolExecutor(
@@ -127,8 +163,19 @@ class MainActivity : AppCompatActivity() {
         val sharedDownloadStarted = savedInstanceState == null && sharedLink != null &&
             startSharedDownload(sharedLink)
 
-        window.statusBarColor = Color.BLACK
-        window.navigationBarColor = Color.BLACK
+        // Edge to edge, like Google Photos: pictures fill the whole screen behind the status and navigation bars.
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
 
         requestStoragePermissionsIfNeeded()
         initEngineAsync()
@@ -186,6 +233,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    if (safeInsetsJs.isNotBlank()) view?.evaluateJavascript(safeInsetsJs, null)
+                }
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean {
                     return handleNavigation(request.url, request.isForMainFrame)
                 }
@@ -211,9 +262,11 @@ class MainActivity : AppCompatActivity() {
                     if (path.startsWith("thumb/")) {
                         val id = path.removePrefix("thumb/").substringBefore("/")
                         val size = uri.getQueryParameter("s")?.toIntOrNull() ?: 384
+                        val wantFirst = uri.getQueryParameter("first") == "1"
+                        val wantCover = uri.getQueryParameter("c") == "1"
                         // WebView asks for intercepts one at a time, so the decode must happen off this thread.
                         val task = thumbPool.submit(java.util.concurrent.Callable<ByteArray?> {
-                            findFileForId(id)?.let { MediaLibrary.thumbnail(applicationContext, id, it, size) }
+                            findFileForId(id)?.let { if (wantFirst) MediaLibrary.firstFrame(applicationContext, id, it, size) else MediaLibrary.thumbnail(applicationContext, id, it, size, wantCover) }
                         })
                         return WebResourceResponse(
                             "image/jpeg", null, 200, "OK",
@@ -275,6 +328,16 @@ class MainActivity : AppCompatActivity() {
         rootLayout = root
         orbitPlayer = OrbitPlayer(this, root, webView)
         setContentView(root)
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val types = androidx.core.view.WindowInsetsCompat.Type.systemBars() or androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+            val bars = insets.getInsets(types)
+            val ime = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())
+            v.setPadding(0, 0, 0, ime.bottom)      // the keyboard still pushes the page up
+            val d = resources.displayMetrics.density
+            safeInsetsJs = "window.setSafeInsets && window.setSafeInsets(${bars.top / d},${if (ime.bottom > 0) 0f else bars.bottom / d},${bars.left / d},${bars.right / d});"
+            webView.evaluateJavascript(safeInsetsJs, null)
+            insets
+        }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -292,7 +355,8 @@ class MainActivity : AppCompatActivity() {
         } else {
             "https://orbit.local/desktop/index.html"
         }
-        webView.loadUrl(startUrl)
+        val target = notificationTarget(intent)
+        webView.loadUrl(if (target != null) "https://orbit.local/desktop/index.html?open=${target.first}&view=${target.second}" else startUrl)
     }
 
     override fun onResume() {
@@ -413,6 +477,12 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        notificationTarget(intent)?.let { (id, view) ->
+            if (::webView.isInitialized) webView.post {
+                webView.evaluateJavascript("window.onOrbitNotification && window.onOrbitNotification(${JSONObject.quote(id)}, ${JSONObject.quote(view)});", null)
+            }
+            return
+        }
         val sharedLink = extractSharedUrl(intent)
         if (!sharedLink.isNullOrBlank()) {
             val started = startSharedDownload(sharedLink)
@@ -1267,6 +1337,7 @@ class MainActivity : AppCompatActivity() {
                         latestVersion = "v$tag"
                         releaseName = data.optString("name", "Orbit $latestVersion")
                         downloadUrl = apkUrl
+                        if (hasUpdate) notifyUpdateOnce(latestVersion)
                         hasUpdate = isNewerVersion(tag, BuildConfig.VERSION_NAME)
                         break
                     }
@@ -1464,8 +1535,26 @@ class MainActivity : AppCompatActivity() {
     /* ---------------- AI helper (Google Gemini, your own key, stored only on this phone) ---------------- */
     private val geminiBase = "https://generativelanguage.googleapis.com/v1beta"
 
+    /** A short network blip shouldn't fail the request, so it is retried twice before giving up. */
     private fun geminiRequest(key: String, path: String, payload: JSONObject?): JSONObject {
-        val conn = (URL("$geminiBase/$path").openConnection() as HttpURLConnection).apply {
+        var last: java.io.IOException? = null
+        for (attempt in 0..2) {
+            try {
+                return geminiCall(key, path, payload)
+            } catch (e: java.io.IOException) {
+                last = e
+                android.util.Log.w("OrbitAI", "attempt $attempt: ${e.javaClass.simpleName}: ${e.message}")
+                Thread.sleep(700L * (attempt + 1))
+            }
+        }
+        throw last!!
+    }
+
+    private fun geminiCall(key: String, path: String, payload: JSONObject?): JSONObject {
+        // Bound to the active network: this app's default DNS lookup sometimes fails for this host while the network is fine.
+        val network = (getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).activeNetwork
+        val target = URL("$geminiBase/$path")
+        val conn = ((network?.openConnection(target) ?: target.openConnection()) as HttpURLConnection).apply {
             connectTimeout = 15000
             readTimeout = 60000
             setRequestProperty("x-goog-api-key", key)
@@ -1480,13 +1569,16 @@ class MainActivity : AppCompatActivity() {
         val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.readText().orEmpty()
         if (code !in 200..299) {
             val msg = try { JSONObject(text).optJSONObject("error")?.optString("message") } catch (_: Exception) { null }
-            throw IllegalArgumentException(msg?.takeIf { it.isNotBlank() } ?: "Gemini returned an error (HTTP $code).")
+            throw GeminiHttpException(code, msg?.takeIf { it.isNotBlank() } ?: "Gemini returned an error (HTTP $code).")
         }
         return JSONObject(text)
     }
 
     /** Asks Google which models this key can use and picks the newest stable Flash, so model retirements don't break the app. */
-    private fun geminiPickModel(key: String): String {
+    private fun geminiPickModel(key: String): String = geminiRankModels(key).first()
+
+    /** Stable Flash models newest first, then anything else usable, so a busy model has somewhere to fall back to. */
+    private fun geminiRankModels(key: String): List<String> {
         val models = geminiRequest(key, "models?pageSize=200", null).optJSONArray("models") ?: JSONArray()
         val usable = ArrayList<String>()
         for (i in 0 until models.length()) {
@@ -1498,10 +1590,35 @@ class MainActivity : AppCompatActivity() {
         }
         val banned = Regex("lite|image|tts|live|audio|embedding|vision|exp|preview|thinking|robotics|computer")
         val version = { n: String -> Regex("""gemini-(\d+(?:\.\d+)?)""").find(n)?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0 }
-        val best = usable.filter { it.contains("flash") && !banned.containsMatchIn(it) }.maxByOrNull { version(it) }
-            ?: usable.filter { it.contains("flash") }.maxByOrNull { version(it) }
-            ?: usable.maxByOrNull { version(it) }
-        return best ?: throw IllegalArgumentException("This API key has no Gemini text models available.")
+        val stable = usable.filter { it.contains("flash") && !banned.containsMatchIn(it) }.sortedByDescending { version(it) }
+        val otherFlash = usable.filter { it.contains("flash") && it !in stable }.sortedByDescending { version(it) }
+        val rest = usable.filter { it !in stable && it !in otherFlash && !banned.containsMatchIn(it) }.sortedByDescending { version(it) }
+        val ranked = stable + otherFlash + rest
+        if (ranked.isEmpty()) throw IllegalArgumentException("This API key has no Gemini text models available.")
+        return ranked
+    }
+
+    private class GeminiHttpException(val code: Int, message: String) : IllegalArgumentException(message)
+
+    /** Busy or rate-limited models get one quick retry, then the next model is tried. Other errors stop right away. */
+    private fun geminiGenerate(key: String, payload: JSONObject): Pair<JSONObject, String> {
+        val saved = prefs().getString("gemini_model", "").orEmpty()
+        val models = (listOf(saved).filter { it.isNotBlank() } + try { geminiRankModels(key) } catch (e: GeminiHttpException) { throw e }).distinct().take(4)
+        var last: Exception? = null
+        for ((index, model) in models.withIndex()) {
+            for (attempt in 0..(if (index == 0) 1 else 0)) {
+                try {
+                    val res = geminiRequest(key, "models/$model:generateContent", payload)
+                    if (model != saved) prefs().edit().putString("gemini_model", model).apply()
+                    return res to model
+                } catch (e: GeminiHttpException) {
+                    last = e
+                    if (e.code != 429 && e.code != 500 && e.code != 503 && e.code != 404) throw e
+                    if (attempt == 0 && index == 0 && e.code != 404) Thread.sleep(1200)
+                }
+            }
+        }
+        throw last ?: IllegalArgumentException("Gemini is busy right now. Try again in a moment.")
     }
 
     private fun aiStatus(): JSONObject {
@@ -1521,9 +1638,6 @@ class MainActivity : AppCompatActivity() {
     private fun aiChat(body: JSONObject): JSONObject {
         val key = prefs().getString("gemini_key", "").orEmpty()
         if (key.isBlank()) throw IllegalArgumentException("Add your Gemini API key in Settings first.")
-        var model = prefs().getString("gemini_model", "").orEmpty()
-        if (model.isBlank()) { model = geminiPickModel(key); prefs().edit().putString("gemini_model", model).apply() }
-
         val contents = JSONArray()
         val msgs = body.optJSONArray("messages") ?: JSONArray()
         for (i in 0 until msgs.length()) {
@@ -1554,7 +1668,11 @@ class MainActivity : AppCompatActivity() {
                         .put("library_keywords", stringArray))
                     .put("required", JSONArray().put("reply").put("searches"))))
 
-        val res = geminiRequest(key, "models/$model:generateContent", payload)
+        val (res, model) = try {
+            geminiGenerate(key, payload)
+        } catch (e: java.io.IOException) {
+            throw IllegalArgumentException("Couldn't reach Gemini. Check your internet connection and try again.")
+        }
         val cand = res.optJSONArray("candidates")?.optJSONObject(0)
             ?: throw IllegalArgumentException("Gemini did not answer that request. Try rewording it.")
         val text = cand.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text").orEmpty()

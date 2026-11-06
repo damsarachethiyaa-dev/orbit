@@ -489,13 +489,13 @@
 
   <div class="v-stage" id="vStage">
     <div class="v-pages" id="vPages">
-      <div class="v-page prev" id="pgPrev"><img alt=""></div>
+      <div class="v-page prev" id="pgPrev"><img alt="" decoding="sync"></div>
       <div class="v-page" id="pgCur">
-        <img class="v-img" id="vPoster" alt="">
-        <img class="v-img" id="vPhoto" alt="" hidden>
+        <img class="v-img" id="vPoster" alt="" decoding="sync">
+        <img class="v-img" id="vPhoto" alt="" decoding="sync" hidden>
         <div class="v-audio" id="vAudio" hidden><svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
       </div>
-      <div class="v-page next" id="pgNext"><img alt=""></div>
+      <div class="v-page next" id="pgNext"><img alt="" decoding="sync"></div>
     </div>
     <div class="v-spin" id="vSpin" hidden></div>
     <div class="v-title" id="playerTitle"></div>
@@ -547,6 +547,7 @@
   </div>
 </div>
 
+<div class="status-scrim" aria-hidden="true"></div>
 <div class="toast" id="toast" role="status"></div>
 <script src="/desktop/app.js"></script>
 </body>

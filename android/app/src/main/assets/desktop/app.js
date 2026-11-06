@@ -1,3 +1,10 @@
+/* Real system bar sizes from Android, since the app draws behind them. */
+window.setSafeInsets = (top, bottom, left, right) => {
+  const r = document.documentElement.style;
+  r.setProperty("--safe-top", top + "px"); r.setProperty("--safe-bottom", bottom + "px");
+  r.setProperty("--safe-left", left + "px"); r.setProperty("--safe-right", right + "px");
+  if (typeof measureGrid === "function") { try { measureGrid(); } catch {} }
+};
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -501,8 +508,8 @@ try { if (LAYOUTS[localStorage.getItem("orbit_layout")]) layoutName = localStora
 const colsFor = w => Math.max(LAYOUTS[layoutName].min, Math.round(w / LAYOUTS[layoutName].w));
 const idHash = s => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
 function tileUrl(e, g) {
-  const px = cellSize * g.s * (devicePixelRatio || 1) * 0.85;
-  return thumbUrl(e.id, px <= 320 ? 320 : px <= 480 ? 480 : px <= 640 ? 640 : 768);
+  const px = cellSize * g.s * (devicePixelRatio || 1);
+  return thumbUrl(e.id, px <= 360 ? 360 : px <= 480 ? 480 : px <= 640 ? 640 : 768) + "&c=1";
 }
 /* Mixed sizes: mostly single tiles, with featured 2x2 and 3x3 tiles. Videos are preferred, as in Google Photos.
    Choices come from each item's id, so the layout stays the same between visits. */
@@ -1432,6 +1439,13 @@ if (sUpdateNow) sUpdateNow.addEventListener("click", () => {
 /* ---------------- start up ---------------- */
 // optional deep links: #library / #settings open a screen, ?url=... fetches a link,
 // ?shot turns off the clipboard prompt (used for README screenshots)
+/* Tapping an Android notification lands here. */
+window.onOrbitNotification = (id, view) => {
+  loadNotices();
+  if (view === "download") { if (!viewer.hidden) closeViewer(); show("download"); return; }
+  if (id) openInAppPlayer(id);
+};
+
 window.onOrbitShareLink = sharedUrl => {
   const u = normalizeUrl(String(sharedUrl || ""));
   if (u) {
@@ -1549,49 +1563,67 @@ function syncPlayerRect() {
   Native.playerRect(Math.round(r.left * d), Math.round(r.top * d), Math.round(r.width * d), Math.round(r.height * d));
 }
 const isPlayable = e => e && kindOf(e) !== "photo";
+const posterUrl = e => kindOf(e) === "video" ? thumbUrl(e.id, 768) + "&first=1" : thumbUrl(e.id, 768);
 function setNeighbour(sel, e) {
   const img = $(sel + " img");
-  if (e && kindOf(e) !== "audio") { if (img.dataset.id !== e.id) { img.dataset.id = e.id; img.src = thumbUrl(e.id, 768); } img.style.visibility = ""; }
+  if (e && kindOf(e) !== "audio") { if (img.dataset.id !== e.id) { img.dataset.id = e.id; img.src = posterUrl(e); } img.style.visibility = ""; }
   else { img.removeAttribute("data-id"); img.style.visibility = "hidden"; }
 }
-function showItem(i, delayNative) {
+let vGen = 0, uiTouched = false, uiTimer = 0;
+/* Moving to another item never shows a blank or the old video:
+   the next picture is decoded first, the old video surface is removed, and only then does anything change on screen. */
+function showItem(i, o) {
+  o = o || {};
+  const gen = ++vGen;
   vIdx = Math.max(0, Math.min(vList.length - 1, i));
   const e = vCur = vList[vIdx];
   if (!e) { closeViewer(); return; }
-  const k = kindOf(e);
-  resetZoom();
-  vPages.style.transform = "";
-  if (Native) Native.playerOffset(0, 0);
-  $("#playerTitle").textContent = e.title || "";
-  $("#vDateMain").textContent = e.t ? fmtDay(e.t) : "Saved";
-  $("#vDateSub").textContent = e.t ? fmtClock(e.t) : "";
-  $("#vErr").hidden = true;
-  viewer.dataset.kind = k;
-  viewer.classList.toggle("in-trash", !!e.trashed);
-  $("#vDateSub").textContent = e.trashed && e.expires ? `Deleted forever in ${Math.max(0, Math.ceil((e.expires - Date.now() / 1000) / 86400))} days` : $("#vDateSub").textContent;
-  $("#vAudio").hidden = k !== "audio";
-  setNeighbour("#pgPrev", vList[vIdx - 1]);
-  setNeighbour("#pgNext", vList[vIdx + 1]);
-  vPoster.hidden = k === "audio";
-  if (k !== "audio") {
-    vPoster.src = thumbUrl(e.id, 384);       // already decoded for the grid, so the picture is there instantly
-    const hi = new Image(); hi.onload = () => { if (vCur === e) vPoster.src = hi.src; }; hi.src = thumbUrl(e.id, 768);
-  }
-  vPhoto.hidden = true; vPhoto.removeAttribute("src");
-  if (k === "photo") {
-    if (Native) Native.playerStop();
-    vPhoto.onload = () => { if (vCur === e) { vPhoto.hidden = false; vPoster.hidden = true; } };
-    vPhoto.onerror = () => { if (vCur === e && vPoster.naturalWidth === 0) $("#vErr").hidden = false; };
-    vPhoto.src = /\.gif$/i.test(e.title || "") ? streamUrl(e.id) : thumbUrl(e.id, 2400);
-  } else {
-    Object.assign(vS, { playing: true, pos: 0, dur: (e.dur || 0) * 1000, rate: 1, t0: performance.now(), muted: false, scrub: false });
-    setIco("#vPlayIco", PAUSE_P); setIco("#vVolIco", VOL_P);
-    paintSeek(true);
-    const start = () => { if (Native && vCur === e) { Native.playerOpen(e.id, k === "audio"); syncPlayerRect(); } };
-    if (delayNative) setTimeout(start, 240); else start();
-    startSeekLoop();
-  }
-  paintFav();
+  const k = kindOf(e), hiUrl = k === "audio" ? "" : posterUrl(e);
+  const apply = () => {
+    if (gen !== vGen) return;
+    resetZoom();
+    if (Native) { Native.playerStop(); Native.playerOffset(0, 0); }
+    vPages.style.transform = ""; vPages.style.willChange = "";
+    $("#playerTitle").textContent = e.title || "";
+    $("#vDateMain").textContent = e.t ? fmtDay(e.t) : "Saved";
+    $("#vDateSub").textContent = e.trashed && e.expires ? `Deleted forever in ${Math.max(0, Math.ceil((e.expires - Date.now() / 1000) / 86400))} days` : (e.t ? fmtClock(e.t) : "");
+    $("#vErr").hidden = true;
+    viewer.dataset.kind = k;
+    viewer.classList.toggle("in-trash", !!e.trashed);
+    $("#vAudio").hidden = k !== "audio";
+    vPhoto.hidden = true;
+    vPoster.hidden = k === "audio";
+    if (k !== "audio") {
+      const first = o.low || hiUrl;
+      if (vPoster.getAttribute("src") !== first) vPoster.src = first;
+      if (first !== hiUrl && k === "photo") { const hi = new Image(); hi.src = hiUrl; hi.decode().then(() => { if (gen === vGen && !vPoster.hidden) vPoster.src = hiUrl; }).catch(() => {}); }
+    }
+    setNeighbour("#pgPrev", vList[vIdx - 1]);
+    setNeighbour("#pgNext", vList[vIdx + 1]);
+    if (k === "photo") {
+      /* The original file, untouched, whenever the browser can show it. HEIC and the like are converted at up to 4096 px. */
+      const name = String(e.device ? e.title : e.file || "");
+      const src = /\.(jpe?g|png|webp|gif|bmp)$/i.test(name) ? streamUrl(e.id) : thumbUrl(e.id, 4096);
+      const full = new Image(); full.src = src;
+      full.decode().then(() => {
+        if (gen !== vGen) return;
+        vPhoto.src = src; vPhoto.hidden = false;
+        requestAnimationFrame(() => { if (gen === vGen) vPoster.hidden = true; });
+      }).catch(() => { if (gen === vGen && !vPoster.naturalWidth) $("#vErr").hidden = false; });
+    } else {
+      Object.assign(vS, { playing: true, pos: 0, dur: (e.dur || 0) * 1000, rate: 1, t0: performance.now(), muted: false, scrub: false });
+      setIco("#vPlayIco", PAUSE_P); setIco("#vVolIco", VOL_P);
+      paintSeek(true);
+      const start = () => { if (Native && gen === vGen) { Native.playerOpen(e.id, k === "audio"); syncPlayerRect(); } };
+      if (o.delayNative) setTimeout(start, 240); else start();
+      startSeekLoop();
+    }
+    paintFav();
+  };
+  if (o.swipe && hiUrl) {
+    const next = new Image(); next.src = hiUrl;
+    Promise.race([next.decode().catch(() => {}), new Promise(r => setTimeout(r, 160))]).then(apply);
+  } else apply();
 }
 function heroTransform(rect) {
   const s = stage.getBoundingClientRect(), k = rect.width / s.width;
@@ -1604,7 +1636,13 @@ function openViewer(list, idx, fromRect) {
   viewer.hidden = false; viewer.classList.remove("hide-ui", "closing");
   document.body.classList.add("viewing"); document.documentElement.classList.add("viewing");
   if (Native) Native.viewerOpen(true);
-  showItem(idx, !!fromRect);
+  uiTouched = false; clearTimeout(uiTimer);
+  if (kindOf(list[idx]) === "video") {         // video opens immersive, as in Google Photos; the bars come back on their own
+    viewer.classList.add("hide-ui");
+    uiTimer = setTimeout(() => { if (!uiTouched) viewer.classList.remove("hide-ui"); }, 2600);
+  }
+  const lowCell = fromRect ? gridEl.querySelector(`.cell[data-id="${CSS.escape(list[idx].id)}"]`) : null;
+  showItem(idx, { delayNative: !!fromRect, low: lowCell && lowCell._src ? lowCell._src : "" });
   if (fromRect) {
     viewer.classList.add("hero");
     vPages.style.transition = "none"; vPages.style.transform = heroTransform(fromRect);
@@ -1662,7 +1700,7 @@ $("#vFav").onclick = () => {
 /* ----- native player events and the seek bar ----- */
 window.orbitPlayerEvent = ev => {
   if (viewer.hidden) return;
-  if (ev.ev === "first") { vPoster.hidden = true; return; }
+  if (ev.ev === "first") { const g = vGen; requestAnimationFrame(() => requestAnimationFrame(() => { if (g === vGen && vCur && kindOf(vCur) !== "photo") vPoster.hidden = true; })); return; }
   if (ev.ev === "error") { vPoster.hidden = false; $("#vErr").hidden = false; return; }
   if (ev.ev === "state") {
     vS.playing = ev.playing; vS.pos = ev.pos; if (ev.dur) vS.dur = ev.dur; vS.rate = ev.rate || 1; vS.t0 = performance.now();
@@ -1732,6 +1770,7 @@ function clampPan() {
 let g = null, lastTap = 0, tapTimer = null;
 const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 function moveTo(dx, dy) {
+  if (!vPages.style.willChange) vPages.style.willChange = "transform";
   vPages.style.transform = `translate3d(${dx}px,${dy}px,0)`;
   if (Native && isPlayable(vCur) && kindOf(vCur) === "video") Native.playerOffset(dx * devicePixelRatio, dy * devicePixelRatio);
 }
@@ -1740,7 +1779,7 @@ function animateTo(dx0, dy0, dx1, dy1, done) {
   const step = now => {
     const p = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - p, 3);
     moveTo(dx0 + (dx1 - dx0) * e, dy0 + (dy1 - dy0) * e);
-    if (p < 1) requestAnimationFrame(step); else if (done) done();
+    if (p < 1) requestAnimationFrame(step); else { if (done) done(); else vPages.style.willChange = ""; }
   };
   requestAnimationFrame(step);
 }
@@ -1779,7 +1818,7 @@ stage.addEventListener("touchend", e => {
     const target = vIdx + go;
     if (go && target >= 0 && target < vList.length) {
       if (Native && isPlayable(vCur)) Native.playerPause();
-      animateTo(cur.dx, 0, -go * W, 0, () => showItem(target));
+      animateTo(cur.dx, 0, -go * W, 0, () => showItem(target, { swipe: true }));
     } else animateTo(cur.dx, 0, 0, 0);
   } else if (cur.mode === "down") {
     viewer.classList.remove("dragging");
@@ -1789,9 +1828,12 @@ stage.addEventListener("touchend", e => {
     if (kindOf(vCur || {}) === "photo") {
       if (now - lastTap < 280) {
         clearTimeout(tapTimer); lastTap = 0;
-        if (zoom > 1) resetZoom(); else { zoom = 2.5; applyZoom(); }
-      } else { lastTap = now; tapTimer = setTimeout(() => viewer.classList.toggle("hide-ui"), 285); }
-    } else viewer.classList.toggle("hide-ui");
+        const img = zoomTarget(), pt = e.changedTouches[0], box = stage.getBoundingClientRect();
+        img.classList.add("zooming"); setTimeout(() => img.classList.remove("zooming"), 230);
+        if (zoom > 1) resetZoom();
+        else { zoom = 2.5; panX = (box.width / 2 - (pt.clientX - box.left)) * (zoom - 1); panY = (box.height / 2 - (pt.clientY - box.top)) * (zoom - 1); clampPan(); applyZoom(); }
+      } else { lastTap = now; tapTimer = setTimeout(() => { uiTouched = true; viewer.classList.toggle("hide-ui"); }, 285); }
+    } else { uiTouched = true; viewer.classList.toggle("hide-ui"); }
   }
 }, { passive: true });
 
@@ -2205,6 +2247,7 @@ function boot() {
   loadSettings();
   loadDevice().then(() => { deviceSig = mediaPerm + ":" + deviceAll.length + ":" + (deviceAll[0] ? deviceAll[0].id : ""); loadLib(); });
   loadLib();
+  if (params.get("open") || params.get("view")) setTimeout(() => window.onOrbitNotification(params.get("open"), params.get("view")), 300);
   if (params.get("url")) { show("download"); urlEl.value = params.get("url"); fetchInfo(); }
   else if (params.has("shared")) { show("download"); toast("Download started in background"); }
   else if (!params.has("shot")) checkClip();

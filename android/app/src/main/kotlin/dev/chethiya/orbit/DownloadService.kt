@@ -359,7 +359,15 @@ class DownloadService : Service() {
             .setSubText(job.title)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setAutoCancel(true)
-            .setContentIntent(openAppIntent())
+            .setContentIntent(PendingIntent.getActivity(
+                this, notifId + 3,
+                Intent(this, MainActivity::class.java).apply {
+                    action = "dev.chethiya.orbit.OPEN_VIEW"
+                    putExtra(MainActivity.EXTRA_OPEN_VIEW, "download")
+                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            ))
             .build()
         nm.notify(notifId, notification)
     }
@@ -458,10 +466,11 @@ class DownloadService : Service() {
         val uri = OrbitEngine.mediaUri(this, path)
         val type = contentResolver.getType(uri) ?: mime
 
-        val open = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, type)
-            clipData = ClipData.newRawUri("", uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Tapping opens the item inside Orbit's own viewer.
+        val open = Intent(this, MainActivity::class.java).apply {
+            action = "dev.chethiya.orbit.OPEN_ITEM.${job.id}"
+            putExtra(MainActivity.EXTRA_OPEN_ID, job.id)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         val notifId = notifIdFor(job.id)
         val pOpen = PendingIntent.getActivity(this, notifId + 1, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -477,11 +486,15 @@ class DownloadService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val preview = try {
+            MediaLibrary.thumbnail(applicationContext, job.id, path, 320)?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
+        } catch (_: Exception) { null }
         val note = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(if (job.quality == "convert") "Conversion complete" else "Download complete")
             .setContentText(job.title)
             .setSubText(if (job.stage.isNotBlank()) job.stage else "Saved to your media library")
+            .apply { if (preview != null) setLargeIcon(preview) }
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setContentIntent(pOpen)
