@@ -110,7 +110,7 @@ function show(view, keepFilter) {
   if (view === "library" && !keepFilter) libFilter = { type: "all" };
   if (view !== "library") vaultUnlocked = false;      // the vault locks again as soon as you leave it
   curView = view;
-  if (view !== "settings") lastTab = view;
+  if (!["settings", "search", "photosview"].includes(view)) lastTab = view;
   if (view !== "library") { apStop(); datePill.classList.remove("on"); }
   dockFlip(() => {
     document.body.dataset.view = view;
@@ -493,21 +493,41 @@ let gridLayout = [], gridRows = 1, cellSize = 100, rowFirst = [], gridTop = 0, m
 const gridCells = new Map(), cellPool = [];
 const GAP = 2, OVERSCAN = 900, CELLS_PER_FRAME = 24, FAST_PX_PER_MS = 3.2;
 let gridCols = 4, rangeA = 0, rangeB = -1, pendingRaf = 0, lastScrollY = 0, lastScrollT = 0, scrollSpeed = 0, settleT = 0;
-const colsFor = w => Math.max(4, Math.round(w / 120));
+/* Same three views as Google Photos' "Photos view". Pinching moves between them. */
+const LAYOUTS = { comfortable: { w: 160, min: 3, label: "Comfortable" }, day: { w: 120, min: 4, label: "Day" }, month: { w: 96, min: 5, label: "Month" } };
+const LAYOUT_ORDER = ["comfortable", "day", "month"];
+let layoutName = "day", featureOn = true;
+try { if (LAYOUTS[localStorage.getItem("orbit_layout")]) layoutName = localStorage.getItem("orbit_layout"); featureOn = localStorage.getItem("orbit_feature") !== "false"; } catch {}
+const colsFor = w => Math.max(LAYOUTS[layoutName].min, Math.round(w / LAYOUTS[layoutName].w));
+const idHash = s => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
+function tileUrl(e, g) {
+  const px = cellSize * g.s * (devicePixelRatio || 1) * 0.85;
+  return thumbUrl(e.id, px <= 320 ? 320 : px <= 480 ? 480 : px <= 640 ? 640 : 768);
+}
+/* Mixed sizes: mostly single tiles, with featured 2x2 and 3x3 tiles. Videos are preferred, as in Google Photos.
+   Choices come from each item's id, so the layout stays the same between visits. */
 function computeGrid(n) {
   gridCols = colsFor(gridEl.clientWidth || mainEl.clientWidth);
   const cols = gridCols, out = new Array(n), used = new Set(), key = (c, r) => r * cols + c;
-  let r = 0, c = 0, since = 8; rowFirst = []; gridRows = 0;
+  const free = (c, r, s) => { for (let y = r; y < r + s; y++) for (let x = c; x < c + s; x++) if (x >= cols || used.has(key(x, y))) return false; return true; };
+  const gapVideo = Math.round(cols * 2.5), gapAny = cols * 6;
+  let r = 0, c = 0, since = cols; rowFirst = []; gridRows = 0;
   for (let i = 0; i < n; i++) {
     while (used.has(key(c, r))) { c++; if (c >= cols) { c = 0; r++; } }
-    const want = since >= 30 || (since >= 11 && kindOf(libView[i]) === "video");
-    const big = want && c < cols - 1 && !used.has(key(c + 1, r)) && !used.has(key(c, r + 1)) && !used.has(key(c + 1, r + 1));
-    used.add(key(c, r));
-    if (big) { used.add(key(c + 1, r)); used.add(key(c, r + 1)); used.add(key(c + 1, r + 1)); since = 0; } else since++;
-    out[i] = { c, r, big };
-    gridRows = Math.max(gridRows, r + (big ? 2 : 1));
+    const e = libView[i], h = idHash(String(e.id));
+    let s = 1, at = c;
+    if (featureOn && (since >= gapAny || (since >= gapVideo && kindOf(e) === "video"))) {
+      const want = cols >= 4 && h % 3 === 0 ? 3 : 2;
+      const side = c === 0 && h % 2 ? cols - want : c;       // start of a row: sometimes sit on the right, singles fill the left
+      if (free(side, r, want)) { s = want; at = side; }
+      else if (free(c, r, 2)) { s = 2; at = c; }
+    }
+    for (let y = r; y < r + s; y++) for (let x = at; x < at + s; x++) used.add(key(x, y));
+    since = s > 1 ? 0 : since + 1;
+    out[i] = { c: at, r, s };
+    gridRows = Math.max(gridRows, r + s);
     if (rowFirst[r] === undefined) rowFirst[r] = i;
-    c++; if (c >= cols) { c = 0; r++; }
+    if (at === c) { c += s; if (c >= cols) { c = 0; r++; } }
   }
   return out;
 }
@@ -521,6 +541,7 @@ function layoutGrid() {
   const W = gridEl.clientWidth || mainEl.clientWidth;
   cellSize = (W - GAP * (gridCols - 1)) / gridCols;
   gridEl.style.height = (gridRows * (cellSize + GAP)) + "px";
+  gridEl.dataset.layout = layoutName;
   measureGrid();
   ensurePool(Math.ceil((viewH + OVERSCAN * 2) / (cellSize + GAP) + 2) * gridCols);
 }
@@ -544,7 +565,7 @@ function loadCellImage(li) {
   li._src = u; li._img.style.visibility = ""; li._img.src = u;
 }
 function bindCell(li, i) {
-  const e = libView[i], g = gridLayout[i], k = kindOf(e), size = g.big ? cellSize * 2 + GAP : cellSize;
+  const e = libView[i], g = gridLayout[i], k = kindOf(e), size = cellSize * g.s + GAP * (g.s - 1);
   const cls = "cell " + k + (e.exists ? "" : " gone") + (sel.has(e.id) ? " sel" : "") + (favs.has(e.id) ? " fav" : "");
   if (li.className !== cls) li.className = cls;
   li.dataset.id = e.id; li.dataset.i = i;
@@ -555,7 +576,7 @@ function bindCell(li, i) {
   const label = k === "photo" ? "" : (e.dur ? longDur(e.dur) : k === "audio" ? "MP3" : " ");
   if (li._label !== label) { li._label = label; li._dur.textContent = label; }
   if (k === "audio") { li._want = ""; if (li._src) { li._src = ""; li._img.removeAttribute("src"); } return; }
-  const want = thumbUrl(e.id, g.big ? 640 : 320);
+  const want = tileUrl(e, g);
   li._want = want;
   if (li._src !== want) { li._src = ""; li._img.removeAttribute("src"); }
   if (scrollSpeed < FAST_PX_PER_MS) loadCellImage(li);
@@ -662,7 +683,7 @@ function prefetchAhead() {
     while (gen === prefetchGen && running < 3 && at < order.length) {
       const i = order[at++], e = libView[i], g = gridLayout[i];
       if (!e || !g || kindOf(e) === "audio") continue;
-      const u = thumbUrl(e.id, g.big ? 640 : 320);
+      const u = tileUrl(e, g);
       if (thumbKeep.has(u)) continue;
       const im = new Image(); running++;
       im.decoding = "async";
@@ -694,7 +715,7 @@ function paintDatePill() {
   let row = Math.floor(top / (cellSize + GAP));
   while (row > 0 && rowFirst[row] === undefined) row--;
   const it = libView[rowFirst[row] || 0];
-  const label = dayLabel(it && it.t);
+  const label = layoutName === "month" && it && it.t ? new Date(it.t * 1000).toLocaleDateString("en-US", { month: "long", year: new Date(it.t * 1000).getFullYear() === new Date().getFullYear() ? undefined : "numeric" }) : dayLabel(it && it.t);
   if (label !== pillDay) { pillDay = label; datePill.textContent = label; }
   datePill.classList.add("on");
   clearTimeout(pillHide);
@@ -722,8 +743,8 @@ function apPick() {
   let best = null, bestShare = 0.55;
   for (const [i, li] of gridCells) {
     const g = gridLayout[i], e = libView[i];
-    if (!g.big || kindOf(e) !== "video" || apFailed.has(e.id) || !e.exists) continue;
-    const top = g.r * rowH - y, h = cellSize * 2 + GAP;
+    if (g.s < 2 || kindOf(e) !== "video" || apFailed.has(e.id) || !e.exists) continue;
+    const top = g.r * rowH - y, h = cellSize * g.s + GAP * (g.s - 1);
     const share = (Math.min(viewH - 80, top + h) - Math.max(0, top)) / h;
     if (share > bestShare) { bestShare = share; best = li; }
   }
@@ -736,6 +757,71 @@ function apPick() {
   apVideo.play().catch(() => {});
 }
 document.addEventListener("visibilitychange", () => { if (document.hidden) apStop(); else apPick(); });
+
+/* ----- pinch the grid to move between Comfortable, Day and Month ----- */
+let pz = null, pzRaf = 0;
+const touchDist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+function changeLayout(name, keep) {
+  layoutName = name;
+  try { localStorage.setItem("orbit_layout", name); } catch {}
+  $("#photosViewInfo").textContent = LAYOUTS[name].label;
+  $$("#layoutPick button").forEach(b => b.classList.toggle("on", b.dataset.layout === name));
+  if (curView !== "library" || !libView.length) { renderedSig = ""; return; }
+  resetGrid();
+  gridLayout = computeGrid(libView.length);
+  layoutGrid();
+  if (keep && gridLayout[keep.i]) mainEl.scrollTop = Math.max(0, gridTop + gridLayout[keep.i].r * (cellSize + GAP) + keep.frac * cellSize - keep.y);
+  renderedSig = "";
+  measureGrid();
+  renderWindow(true);
+  flushImages();
+  fsOnScroll();
+}
+mainEl.addEventListener("touchstart", e => {
+  if (e.touches.length !== 2 || pz || curView !== "library" || selMode || gridEl.hidden || libView.length < 2) return;
+  const t = e.touches, m = mainEl.getBoundingClientRect();
+  const cx = (t[0].clientX + t[1].clientX) / 2 - m.left, cy = (t[0].clientY + t[1].clientY) / 2 - m.top;
+  const gy = mainEl.scrollTop - gridTop + cy, rowH = cellSize + GAP;
+  let row = Math.max(0, Math.floor(gy / rowH));
+  while (row > 0 && rowFirst[row] === undefined) row--;
+  pz = { d0: touchDist(t), s: 1, cx, cy, gy, i: rowFirst[row] || 0, rowY: row * rowH };
+  clearTimeout(pressT); apStop();
+  mainEl.style.overflowY = "hidden";
+  gridEl.getAnimations().forEach(a => a.cancel());
+  gridEl.style.willChange = "transform";
+  gridEl.style.transformOrigin = `${cx}px ${gy}px`;
+}, { passive: true });
+mainEl.addEventListener("touchmove", e => {
+  if (!pz || e.touches.length !== 2) return;
+  const lvl = LAYOUT_ORDER.indexOf(layoutName);
+  pz.s = Math.max(lvl === LAYOUT_ORDER.length - 1 ? 0.92 : 0.6, Math.min(lvl === 0 ? 1.08 : 1.7, touchDist(e.touches) / pz.d0));
+  if (!pzRaf) pzRaf = requestAnimationFrame(() => { pzRaf = 0; if (pz) gridEl.style.transform = `scale(${pz.s})`; });
+}, { passive: true });
+function endPinch() {
+  if (!pz) return;
+  const p = pz; pz = null;
+  cancelAnimationFrame(pzRaf); pzRaf = 0;
+  mainEl.style.overflowY = "";
+  const lvl = LAYOUT_ORDER.indexOf(layoutName);
+  const next = p.s > 1.14 ? lvl - 1 : p.s < 0.88 ? lvl + 1 : lvl;
+  const clean = () => { gridEl.style.transform = ""; gridEl.style.transformOrigin = ""; gridEl.style.willChange = ""; apPick(); setTimeout(prefetchAhead, 300); };
+  if (next === lvl || next < 0 || next >= LAYOUT_ORDER.length) {
+    const back = gridEl.animate([{ transform: `scale(${p.s})` }, { transform: "none" }], { duration: 170, easing: "cubic-bezier(.2,.9,.25,1)" });
+    gridEl.style.transform = "";
+    back.onfinish = clean; back.oncancel = clean;
+    return;
+  }
+  triggerHaptic();
+  const oldCell = cellSize;
+  gridEl.style.transform = "";
+  changeLayout(LAYOUT_ORDER[next], { i: p.i, y: p.cy, frac: (p.gy - p.rowY) / oldCell });
+  const ny = gridLayout[p.i] ? gridLayout[p.i].r * (cellSize + GAP) + (p.gy - p.rowY) * cellSize / oldCell : 0;
+  gridEl.style.transformOrigin = `${p.cx}px ${ny}px`;
+  const anim = gridEl.animate([{ transform: `scale(${p.s * oldCell / cellSize})`, opacity: 0.55 }, { transform: "none", opacity: 1 }], { duration: 260, easing: "cubic-bezier(.2,.9,.25,1)" });
+  anim.onfinish = clean; anim.oncancel = clean;
+}
+mainEl.addEventListener("touchend", e => { if (pz && e.touches.length < 2) endPinch(); }, { passive: true });
+mainEl.addEventListener("touchcancel", () => endPinch(), { passive: true });
 
 /* ----- fast scroll handle, as in Google Photos ----- */
 const fsEl = $("#fastScroll"), fsDate = $("#fsDate");
@@ -814,7 +900,7 @@ function renderLib(force) {
   }
   lock.hidden = true; gridEl.hidden = false;
   const list = applyFilter(libAll);
-  const sig = [f.type, f.val, f.year, list.length, list[0] && list[0].id, list[list.length - 1] && list[list.length - 1].id, favs.size, colsFor(gridEl.clientWidth || mainEl.clientWidth)].join("|");
+  const sig = [f.type, f.val, f.year, list.length, list[0] && list[0].id, list[list.length - 1] && list[list.length - 1].id, favs.size, featureOn, colsFor(gridEl.clientWidth || mainEl.clientWidth)].join("|");
   if (!force && sig === renderedSig) { measureGrid(); renderWindow(true); flushImages(); if (selMode) updateSelUi(); setTimeout(apPick, 300); return; }
   renderedSig = sig;
   resetGrid();
@@ -974,8 +1060,7 @@ async function loadCollections() {
   if (dl.length) dev.splice(buckets.length && rank(buckets[0][0]) === 0 ? 1 : 0, 0, coverCard("Downloads", dl.length, dl[0], 'data-f="downloads"'));
   $("#siteRail").innerHTML = dev.join("") || `<div class="rail-note">${mediaPerm === "none" ? "Allow access on the Photos tab to see your phone's folders." : "Nothing here yet."}</div>`;
   const types = [["video", "Videos", e => kindOf(e) === "video"], ["photo", "Photos", e => kindOf(e) === "photo"], ["audio", "Audio", e => kindOf(e) === "audio"], ["share", "Share-ready", e => e.share_ready === true]];
-  const vaultCard = `<button type="button" class="dev-card lock-card" data-filter="vault"><div class="thumb empty-t">${'<svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>'}</div><span class="dc-label"><b>Vault</b></span></button>`;
-  const albums = vaultCard + types.map(([t, n, fn]) => { const items = list.filter(fn); return items.length ? coverCard(n, items.length, items[0], `data-f="${t}"`) : ""; }).join("")
+  const albums = types.map(([t, n, fn]) => { const items = list.filter(fn); return items.length ? coverCard(n, items.length, items[0], `data-f="${t}"`) : ""; }).join("")
     + groupBy(dl, siteOf).sort((a, b) => b[1].length - a[1].length).map(([s, items]) => coverCard(s, items.length, items[0], `data-f="site" data-v="${esc(s)}"`)).join("");
   $("#albumRail").innerHTML = albums || '<div class="rail-note">Albums appear when you have items to group.</div>';
   const q = Object.entries(QBANDS).map(([k, [label, fn]]) => { const items = list.filter(e => kindOf(e) === "video" && fn(e)); return items.length ? { k, label, items } : null; }).filter(Boolean);
@@ -984,6 +1069,7 @@ async function loadCollections() {
   $("#qualRail").innerHTML = q.map(o => `<button type="button" class="circ" data-f="q" data-v="${o.k}">${thumbBox(o.items[0], 384)}<span class="circ-label">${o.label}</span></button>`).join("");
   const shots = buckets.find(([n]) => /screenshot/i.test(n));
   $("#pinShots").dataset.v = shots ? shots[0] : "Screenshots";
+  $("#otherShots").dataset.v = $("#pinShots").dataset.v;
 }
 $("#v-collections").addEventListener("click", e => {
   const b = e.target.closest("[data-f],[data-filter]"); if (!b) return;
@@ -1000,6 +1086,20 @@ $("#viewAllSites").onclick = e => {
 /* ----- top bar ----- */
 $("#btnAvatar").onclick = () => show("settings");
 $("#settingsBack").onclick = () => show(lastTab);
+let pvFrom = "library";
+const openPhotosView = () => { pvFrom = curView; show("photosview"); };
+$("#gridMore").onclick = openPhotosView;
+$("#rowPhotosView").onclick = openPhotosView;
+$("#pvBack").onclick = () => show(pvFrom);
+$("#searchBack").onclick = () => show(lastTab);
+$("#layoutPick").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  triggerHaptic(); changeLayout(b.dataset.layout);
+});
+$("#setFeature").checked = featureOn;
+$("#setFeature").onchange = e => { featureOn = e.target.checked; triggerHaptic(); try { localStorage.setItem("orbit_feature", featureOn); } catch {} renderedSig = ""; };
+$("#photosViewInfo").textContent = LAYOUTS[layoutName].label;
+$$("#layoutPick button").forEach(b => b.classList.toggle("on", b.dataset.layout === layoutName));
 $("#setAutoplay").checked = apEnabled;
 $("#setAutoplay").onchange = e => {
   apEnabled = e.target.checked; triggerHaptic();
@@ -1761,7 +1861,8 @@ window.orbitBack = () => {
   if (!$("#sheet").hidden) { closeSheet(); return true; }
   if (!viewer.hidden) { closeViewer(); return true; }
   if (selMode) { exitSelect(); return true; }
-  if (curView === "settings") { show(lastTab); return true; }
+  if (curView === "photosview") { show(pvFrom); return true; }
+  if (curView === "settings" || curView === "search") { show(lastTab); return true; }
   if (curView === "library" && libFilter.type !== "all") { $("#filterBack").click(); return true; }
   if (curView !== "library") { show("library"); return true; }
   return false;
@@ -1866,6 +1967,7 @@ async function runSearch(query) {
   searchInput.value = q;
   searchInput.blur();
   $("#searchEmpty").hidden = true;
+  $("#searchChips").hidden = true; $("#tryLabel").hidden = true;
   searchResults.innerHTML = "";
   $("#searchSkeleton").hidden = false;
   $("#searchGo").disabled = true;
@@ -1921,13 +2023,15 @@ let aiMode = false, aiHasKey = false, aiModel = "", aiBusy = false, aiHistory = 
 const SPARK = '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg>';
 function paintSearchMode() {
   $$("#searchSeg button").forEach(b => b.classList.toggle("on", (b.dataset.mode === "ai") === aiMode));
-  $("#searchInput").placeholder = aiMode ? "Ask for any video or song" : "Search videos or songs";
+  $("#searchInput").placeholder = aiMode ? "Search or ask" : "Search YouTube";
+  $("#tryLabel").textContent = aiMode ? "Try asking" : "Try searching";
   const needKey = aiMode && !aiHasKey;
   $("#aiNoKey").hidden = !needKey;
   $("#aiThread").hidden = !aiMode;
-  $("#searchForm").hidden = needKey; $("#searchChips").hidden = needKey || (aiMode && aiHistory.length > 0);
+  const usedChips = aiMode ? aiHistory.length > 0 : $("#searchResults").children.length > 0;
+  $("#searchForm").hidden = needKey; $("#searchChips").hidden = needKey || usedChips; $("#tryLabel").hidden = needKey || usedChips;
   $("#searchResults").hidden = aiMode;
-  $("#searchEmpty").hidden = aiMode || $("#searchResults").children.length > 0;
+  $("#searchEmpty").hidden = true;
   $("#searchSkeleton").hidden = true;
 }
 async function refreshAiStatus() {
@@ -1971,7 +2075,7 @@ async function aiSend(text) {
   const q = String(text || "").trim();
   if (!q || aiBusy) return;
   aiBusy = true; searchInput.value = ""; searchInput.blur(); $("#searchGo").disabled = true;
-  $("#searchChips").hidden = true;
+  $("#searchChips").hidden = true; $("#tryLabel").hidden = true;
   aiAdd(esc(q), "me");
   const wait = aiAdd(`<span class="ai-spark">${SPARK}</span><span class="ai-dots"><i></i><i></i><i></i></span>`, "ai");
   aiHistory.push({ role: "user", text: q });

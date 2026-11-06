@@ -10,6 +10,7 @@
 <body data-view="library">
 <div class="app">
 
+<main class="main">
   <!-- Top app bar (Google Photos style) -->
   <header class="topbar" id="topbar">
     <div class="tb-row tb-normal" id="tbNormal">
@@ -35,7 +36,6 @@
     </div>
   </header>
 
-<main class="main">
 
     <!-- UPDATE BANNER -->
     <div class="update-banner" id="updateBanner" hidden>
@@ -181,15 +181,14 @@
 
     <!-- SEARCH VIEW -->
     <section class="view" id="v-search">
-      <div class="search-seg" id="searchSeg" role="tablist">
+      <div class="search-top">
+        <button type="button" class="tb-btn" id="searchBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M19 12H5m6-7l-7 7 7 7"/></svg></button>
+        <div class="search-seg" id="searchSeg" role="tablist">
         <button type="button" data-mode="ai"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg><span>Ask AI</span></button>
         <button type="button" data-mode="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span>YouTube</span></button>
+        </div>
       </div>
-      <form class="search-bar" id="searchForm" autocomplete="off">
-        <svg class="f-ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-        <input id="searchInput" type="search" placeholder="Search videos or songs" enterkeyhint="search" spellcheck="false" aria-label="Search videos">
-        <button type="submit" class="solid" id="searchGo"><span>Go</span></button>
-      </form>
+      <h4 class="try-label" id="tryLabel">Try asking</h4>
       <div class="search-chips" id="searchChips">
         <button type="button" class="chip" data-q="Relaxing lofi music for studying">Lofi for studying</button>
         <button type="button" class="chip" data-q="4K nature documentary">4K nature</button>
@@ -215,6 +214,10 @@
         <p>Search YouTube</p>
         <span class="empty-sub">Results come straight from YouTube. Nothing is generated or guessed.</span>
       </div>
+      <form class="search-bar" id="searchForm" autocomplete="off">
+        <input id="searchInput" type="search" placeholder="Search or ask" enterkeyhint="search" spellcheck="false" aria-label="Search or ask">
+        <button type="submit" class="search-send" id="searchGo" aria-label="Send"><svg viewBox="0 0 24 24" class="fill"><path d="M3 20.5l18-8.5L3 3.5V10l11 2-11 2z"/></svg></button>
+      </form>
     </section>
 
     <!-- PHOTOS (LIBRARY) VIEW -->
@@ -302,7 +305,43 @@
 
       <div class="sec-head"><h2>Quality</h2></div>
       <div class="hrail circles" id="qualRail"></div>
+      <h3 class="other-title">Other collections</h3>
+      <div class="other-grid">
+        <button type="button" class="other-item" data-filter="fav"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg><span>Favorites</span></button>
+        <button type="button" class="other-item" id="otherShots" data-f="bucket" data-v="Screenshots"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/></svg><span>Screenshots</span></button>
+        <button type="button" class="other-item" data-filter="video"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5.5 3.5-5.5 3.5z"/></svg><span>Videos</span></button>
+        <button type="button" class="other-item" data-filter="photo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="9" r="1.7"/><path d="M21 16l-5.5-5.5L5 21"/></svg><span>Photos</span></button>
+        <button type="button" class="other-item" data-filter="recent"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Recently added</span></button>
+        <button type="button" class="other-item" data-filter="downloads"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg><span>Downloads</span></button>
+        <button type="button" class="other-item" data-filter="vault"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Vault</span></button>
+        <button type="button" class="other-item" data-filter="trash"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span>Trash</span></button>
+      </div>
       <div class="rail-spacer"></div>
+    </section>
+
+    <!-- PHOTOS VIEW -->
+    <section class="view" id="v-photosview">
+      <header class="page-head">
+        <button type="button" class="tb-btn" id="pvBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M19 12H5m6-7l-7 7 7 7"/></svg></button>
+        <h1>Photos view</h1>
+      </header>
+      <h2 class="st-label plain">Layout</h2>
+      <div class="layout-pick" id="layoutPick">
+        <button type="button" data-layout="comfortable"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M12 4v16M12 12h8"/></svg><span>Comfortable</span></button>
+        <button type="button" data-layout="day"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></svg><span>Day</span></button>
+        <button type="button" data-layout="month"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/></svg><span>Month</span></button>
+      </div>
+      <p class="pv-hint">You can also pinch the grid to switch layouts.</p>
+      <div class="pv-rows">
+        <label class="st-row">
+          <span class="st-body"><b>Feature photos</b><small>Enlarge some videos and photos in the grid</small></span>
+          <span class="switch"><input type="checkbox" id="setFeature"><span class="slider"></span></span>
+        </label>
+        <label class="st-row">
+          <span class="st-body"><b>Autoplay videos</b><small>The large video tile on screen plays silently</small></span>
+          <span class="switch"><input type="checkbox" id="setAutoplay"><span class="slider"></span></span>
+        </label>
+      </div>
     </section>
 
     <!-- SETTINGS VIEW -->
@@ -331,11 +370,11 @@
 
       <h2 class="st-label">Photos</h2>
       <div class="st-group">
-        <label class="st-row">
-          <span class="st-ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5l5 2.5-5 2.5z"/></svg></span>
-          <span class="st-body"><b>Autoplay videos</b><small>Large video tiles play silently in the grid</small></span>
-          <span class="switch"><input type="checkbox" id="setAutoplay"><span class="slider"></span></span>
-        </label>
+        <button type="button" class="st-row" id="rowPhotosView">
+          <span class="st-ico"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></svg></span>
+          <span class="st-body"><b>Photos view</b><small id="photosViewInfo">Day</small></span>
+          <svg class="st-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
       </div>
 
       <h2 class="st-label">AI helper</h2>
@@ -423,6 +462,7 @@
   </main>
 
   <div class="date-pill" id="datePill" aria-hidden="true"></div>
+  <button type="button" class="grid-more" id="gridMore" aria-label="Photos view"><svg viewBox="0 0 24 24" class="fill"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button>
   <div class="fast-scroll" id="fastScroll" aria-hidden="true"><span class="fs-date" id="fsDate"></span><svg viewBox="0 0 24 24"><path d="M7 10l5-5 5 5z"/><path d="M7 14l5 5 5-5z"/></svg></div>
 
   <!-- Floating bottom dock (pill + search) -->
