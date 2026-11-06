@@ -70,7 +70,7 @@ class OrbitPlayer(private val activity: MainActivity, private val root: FrameLay
         val v = PlayerView(activity).apply {
             useController = false
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-            setShutterBackgroundColor(Color.TRANSPARENT)
+            setShutterBackgroundColor(Color.BLACK)
             setBackgroundColor(Color.BLACK)
             isClickable = false
             isFocusable = false
