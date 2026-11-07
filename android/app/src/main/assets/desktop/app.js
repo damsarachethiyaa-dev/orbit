@@ -115,9 +115,9 @@ function show(view, keepFilter) {
   viewScroll[curView] = main.scrollTop;
   const hadFilter = libFilter.type !== "all";
   if (view === "library" && !keepFilter) libFilter = { type: "all" };
-  if (view !== "library") vaultUnlocked = false;      // the vault locks again as soon as you leave it
+  if (view !== "library") { vaultUnlocked = false; vaultAskedAuth = false; vaultResetting = false; vaultNewPin = ""; }      // the vault locks again as soon as you leave it
   curView = view;
-  if (!["settings", "search", "photosview"].includes(view)) lastTab = view;
+  if (!["settings", "search", "photosview", "notices"].includes(view)) lastTab = view;
   if (view !== "library") { apStop(); datePill.classList.remove("on"); }
   dockFlip(() => {
     document.body.dataset.view = view;
@@ -128,6 +128,7 @@ function show(view, keepFilter) {
   if (view === "library") loadLib();
   if (view === "collections") loadCollections();
   if (view === "settings") loadSettings();
+  if (view === "notices") openNotices();
   if (view === "search") setTimeout(() => { const i = $("#searchInput"); if (i && !i.value) i.focus(); }, 60);
 }
 const DOCK_EASE = "cubic-bezier(.2,.9,.25,1)", DOCK_MS = 280;
@@ -161,7 +162,38 @@ if (pClose) pClose.onclick = () => { triggerHaptic(); $("#preview").hidden = tru
 
 /* ---------------- fetch link info ---------------- */
 const urlEl = $("#url");
-let info = null, fetching = false;
+let info = null, fetching = false, singleOnly = false;
+let plItems = [], plUrl = "";
+function openPlaylistPicker(p, url) {
+  const usable = p.items.filter(x => x.title && x.title !== "null" && !/^\[(private|deleted)/i.test(x.title));
+  const hiddenCount = p.items.length - usable.length;
+  plItems = usable.map(x => ({ ...x, on: true, site: String(p.site || "").replace(/Tab$/, "") })); plUrl = url;
+  $("#sheetTitle").textContent = p.title || "Playlist";
+  $("#sheetSub").textContent = hiddenCount ? `Choose what to download. ${hiddenCount} private or removed ${hiddenCount === 1 ? "item is" : "items are"} hidden.` : "Choose what to download";
+  $("#sheetBody").innerHTML = `<div class="pl-bar"><button type="button" class="link-btn" id="plAll">Select none</button>${/[?&]v=/.test(url) ? '<button type="button" class="link-btn" id="plOne">Only this video</button>' : ""}</div>
+    <div class="pl-list">${plItems.map((x, i) => `<button type="button" class="pl-row on" data-pl="${i}"><span class="pl-thumb">${x.thumb ? `<img alt="" loading="lazy" src="${esc(x.thumb)}">` : ""}${x.duration ? `<span class="dur">${longDur(x.duration)}</span>` : ""}</span><span class="pl-name">${esc(x.title)}</span><i class="pl-check"></i></button>`).join("")}</div>
+    <button type="button" class="solid pl-go" id="plGo">Download ${plItems.length}</button>`;
+  sheet.hidden = false;
+}
+function plPaint() {
+  const n = plItems.filter(x => x.on).length;
+  $("#plGo").textContent = `Download ${n}`; $("#plGo").disabled = !n;
+  $("#plAll").textContent = n ? "Select none" : "Select all";
+}
+function wirePlaylist() {
+  $("#sheetBody").addEventListener("click", async e => {
+    const row = e.target.closest("[data-pl]");
+    if (row) { const it = plItems[+row.dataset.pl]; it.on = !it.on; row.classList.toggle("on", it.on); plPaint(); return; }
+    if (e.target.id === "plAll") { const anyOn = plItems.some(x => x.on); plItems.forEach(x => { x.on = !anyOn; }); $$("#sheetBody .pl-row").forEach(r => r.classList.toggle("on", !anyOn)); plPaint(); return; }
+    if (e.target.id === "plOne") { closeSheet(); singleOnly = true; urlEl.value = plUrl.replace(/([?&])list=[^&]*&?/, "$1").replace(/[?&]$/, ""); fetchInfo(); return; }
+    if (e.target.id === "plGo") {
+      const picked = plItems.filter(x => x.on);
+      closeSheet(); urlEl.value = "";
+      for (const x of picked) { try { await api("/api/download", { url: x.url, title: x.title, thumb: x.thumb, site: x.site, quality: cfg.default_quality || "best" }); } catch {} }
+      toast(`${picked.length} added to the queue`); poll();
+    }
+  });
+}
 
 function normalizeUrl(v) {
   if (!v) return "";
@@ -179,6 +211,11 @@ async function fetchInfo(e) {
   urlEl.value = url; showError(""); $("#preview").hidden = true; $("#clip").hidden = true;
   fetching = true; $("#skeleton").hidden = false; $("#fetch").disabled = true;
   try {
+    if (/[?&]list=|\/playlist\b|\/sets\/|\/album\//i.test(url) && !singleOnly) {
+      const p = await api("/api/playlist", { url }).catch(() => null);
+      if (p && p.items && p.items.length > 1) { openPlaylistPicker(p, url); return; }
+    }
+    singleOnly = false;
     const d = await api("/api/info", { url });
     info = { ...d, url };
     const isImage = d.type === "image";
@@ -192,15 +229,19 @@ async function fetchInfo(e) {
 
     if (isImage) {
       $("#seg").hidden = true;
-      $("#shareRow").hidden = true;
+      $("#qualityHint").hidden = true;
       const count = d.count || (d.imageUrls ? d.imageUrls.length : 1);
       $("#quality").innerHTML = `<option value="image">Original Resolution</option>`;
       $("#quality").disabled = false;
       $("#dl").innerHTML = `<span>${count > 1 ? `Download All Photos (${count})` : "Download Photo"}</span>${svg(I.dl)}`;
+      info.picked = new Set((d.imageUrls || []).map((_, i) => i));
+      const pick = $("#pPick");
+      pick.hidden = !(d.imageUrls && d.imageUrls.length > 1);
+      pick.innerHTML = pick.hidden ? "" : d.imageUrls.map((u, i) => `<button type="button" class="pp on" data-pp="${i}"><img alt="" loading="lazy" src="${esc(u)}"><i></i></button>`).join("");
     } else {
       $("#seg").hidden = false;
+      $("#pPick").hidden = true;
       $("#dl").innerHTML = `<span>Download</span>${svg(I.dl)}`;
-      $("#shareReady").checked = cfg.share_ready !== false;
       renderQualityOptions(cfg.default_quality);
       setKind(d.audioOnly || cfg.default_quality === "audio" ? "audio" : "video");
       if (d.audioOnly) {          // no video track exists, so don't offer one
@@ -212,7 +253,8 @@ async function fetchInfo(e) {
     $("#preview").hidden = false;
 
     // Automatic download if enabled in Settings
-    if (cfg && cfg.auto_download) {
+    // A post with several photos waits, so you can choose which ones to keep.
+    if (cfg && cfg.auto_download && !(isImage && (info.imageUrls || []).length > 1)) {
       toast(isImage ? "Auto-downloading photo..." : "Auto-downloading video...");
       setTimeout(() => {
         if ($("#dl") && !$("#dl").disabled) {
@@ -228,37 +270,25 @@ $("#form").addEventListener("submit", fetchInfo);
 function setKind(kind) {
   $$("#seg button").forEach(b => b.classList.toggle("on", b.dataset.kind === kind));
   $("#quality").disabled = kind === "audio";
-  $("#shareRow").hidden = kind === "audio" || !!(info && info.isImage);
+  $("#qualityHint").hidden = kind === "audio" || !!(info && info.isImage);
 }
 
-/* Quality choices come from the formats the site really offers; the hint says what will happen to the codec. */
+/* Quality choices come from the formats the site really offers. Nothing is re-compressed at download. */
 function renderQualityOptions(keep) {
   if (!info || info.isImage) return;
-  const share = $("#shareReady").checked;
-  const hs = info.heights || [], top = hs[0] || 0, h264 = info.h264Max || 0;
+  const hs = info.heights || [], top = hs[0] || 0;
   const opts = [];
   if (!hs.length) opts.push(["best", "Original quality"]);
-  else if (share && h264) opts.push(["best", `Best · ${h264}p H.264`]);
-  else if (!share) opts.push(["best", `Maximum · ${top}p${info.maxCodec ? " " + info.maxCodec : ""}`]);
-  else opts.push(["best", "Best available"]);
+  else opts.push(["best", `Maximum · ${top}p`]);
   [2160, 1440, 1080, 720, 480].forEach(h => {
     if (!hs.some(x => x >= h)) return;
-    const label = h === 2160 ? "4K (2160p)" : h + "p";
-    opts.push([String(h), share && h264 && h > h264 ? `${label} · converted to H.264` : label]);
+    opts.push([String(h), h === 2160 ? "4K (2160p)" : h + "p"]);
   });
   if (info.imageUrls && info.imageUrls.length > 0) opts.push(["photo", `Photos only (${info.imageUrls.length})`]);
   const prevVal = keep || $("#quality").value;
   $("#quality").innerHTML = opts.map(o => `<option value="${o[0]}">${esc(o[1])}</option>`).join("");
   if (opts.some(o => o[0] === prevVal)) $("#quality").value = prevVal;
-
-  const modern = ["VP9", "AV1", "HEVC"].includes(info.maxCodec || "");
-  $("#shareHint").textContent = share
-    ? (h264 && top > h264
-        ? `H.264 reaches ${h264}p on this video. Higher resolutions are converted to H.264 after download, which takes longer.`
-        : "H.264 + AAC. Plays in WeChat, WhatsApp and Telegram.")
-    : (modern ? `Original ${info.maxCodec} file. Some chat apps cannot play it.` : "Original file, no conversion.");
 }
-$("#shareReady").addEventListener("change", () => { triggerHaptic(); renderQualityOptions(); });
 $("#seg").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setKind(b.dataset.kind); });
 
 /* ---------------- clipboard, paste and drop ---------------- */
@@ -303,6 +333,15 @@ addEventListener("drop", e => {
 });
 
 /* ---------------- start a download ---------------- */
+$("#pPick").addEventListener("click", e => {
+  const b = e.target.closest("[data-pp]"); if (!b || !info) return;
+  const i = +b.dataset.pp;
+  if (info.picked.has(i)) info.picked.delete(i); else info.picked.add(i);
+  b.classList.toggle("on", info.picked.has(i));
+  const n = info.picked.size;
+  $("#dl").disabled = !n;
+  $("#dl").querySelector("span").textContent = n === 1 ? "Download 1 Photo" : `Download ${n} Photos`;
+});
 $("#dl").onclick = async () => {
   if (!info) return;
   const isImage = info.isImage || info.type === "image" || $("#quality").value === "photo" || $("#quality").value === "image";
@@ -313,9 +352,8 @@ $("#dl").onclick = async () => {
     await api("/api/download", {
       url: info.url,
       directUrl: isImage ? (info.directUrl || info.thumbnail || "") : (info.directUrl || ""),
-      imageUrls: isImage ? (info.imageUrls || []) : [],
+      imageUrls: isImage ? (info.imageUrls || []).filter((_, i) => !info.picked || info.picked.has(i)) : [],
       quality,
-      shareReady: $("#shareReady").checked,
       type: isImage ? "image" : "video",
       title: info.title,
       site: info.site,
@@ -333,14 +371,17 @@ const rows = new Map(), prev = {};
 let noticesChanged = false;
 function actions(j) {
   const b = (act, label, ic, cls = "") => `<button class="iconbtn ${cls}" data-act="${act}" title="${label || "Remove"}" aria-label="${label || "Remove"}">${svg(ic)}${label ? `<span>${label}</span>` : ""}</button>`;
-  if (ACTIVE.includes(j.state)) return b("cancel", "Cancel", I.x, "danger sq");
+  const canPause = j.state === "downloading" && !j.isImage && j.quality !== "convert";
+  if (j.state === "paused") return b("resume", "Resume", I.play, "primary sq") + b("cancel", "Cancel", I.x, "danger sq");
+  if (ACTIVE.includes(j.state)) return (canPause ? b("pause", "Pause", "M9 5v14M15 5v14", "sq") : "") + b("cancel", "Cancel", I.x, "danger sq");
   const isImg = j.isImage || j.quality === "image" || j.quality === "photo";
-  if (j.state === "done") return b("open", isImg ? "Open" : "Play", I.play, "primary") + b("share", "Share", I.share) + b("dismiss", "", I.x, "sq");
+  if (j.state === "done") return b("open", isImg ? "Open" : "Play", I.play, "primary") + b("share", "Share", I.share) + (j.url ? b("more", "More", "M12 5v.01M12 12v.01M12 19v.01", "sq") : "") + b("dismiss", "", I.x, "sq");
   if (j.quality === "convert") return b("dismiss", "", I.x, "sq");
-  return b("retry", "Retry", I.retry, "primary") + b("dismiss", "", I.x, "sq");
+  return b("retry", "Retry", I.retry, "primary") + (j.url ? b("copy", "Copy link", "M9 9h11v11H9zM5 15V4h11", "sq") : "") + b("dismiss", "", I.x, "sq");
 }
 function queueSub(j, isImg) {
   const pct = Math.round(j.percent || 0);
+  if (j.state === "paused") return `${j.stage || "Paused"}  ·  ${pct}%`;
   if (j.state === "queued") return j.stage || "Waiting to start…";
   if (j.state === "downloading") return j.stage || `${pct}%  ·  ${j.speed || (isImg ? "saving" : "starting")}${j.eta ? "  ·  ETA " + j.eta : ""}`;
   if (j.state === "processing") return j.stage || "Merging and finishing…";
@@ -377,7 +418,8 @@ function renderQueue(list) {
   const active = list.filter(j => ACTIVE.includes(j.state)).length;
   $("#qBadge").hidden = !active; $("#qBadge").textContent = active;
   lastJobs = list; updateStatus(active);
-  if (noticesChanged) { noticesChanged = false; loadNotices(); }
+  if (curView === "notices") paintLiveNotices();
+  if (noticesChanged) { noticesChanged = false; loadNotices().then(() => { if (curView === "notices") openNotices(); }); }
   $("#qEmpty").hidden = list.length > 0;
   $("#clearDone").hidden = !list.some(j => !ACTIVE.includes(j.state));
 }
@@ -387,7 +429,7 @@ async function poll() {
   try { renderQueue(await api("/api/jobs")); } catch {} finally { polling = false; }
 }
 let pollSkip = 0;
-setInterval(() => { if (lastActive || curView === "download" || ++pollSkip % 4 === 0) poll(); }, 800); poll();
+setInterval(() => { if (lastActive || curView === "download" || curView === "notices" || ++pollSkip % 4 === 0) poll(); }, 800); poll();
 
 $("#queue").addEventListener("click", async e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
@@ -397,17 +439,28 @@ $("#queue").addEventListener("click", async e => {
     const li = b.closest("li");
     const title = li.querySelector(".q-title")?.textContent || "Media";
     const act = b.dataset.act;
+    const job = lastJobs.find(x => x.id === id);
+    if (act === "pause") await api("/api/pause/" + id, {});
+    if (act === "resume") await api("/api/resume/" + id, {});
+    if (act === "copy" && job) { await api("/api/copy", { text: job.url }); toast("Link copied"); }
+    if (act === "more" && job) {
+      openMenu(`<div class="sheet-handle"></div><div class="m-title">${esc(job.title || "Download")}</div>${mi("again", ICO.redo, "Download again")}${mi("copy", '<path d="M9 9h11v11H9zM5 15V4h11"/>', "Copy link")}`, "sheet-menu", k => {
+        if (k === "copy") api("/api/copy", { text: job.url }).then(() => toast("Link copied"));
+        if (k === "again") { urlEl.value = job.url; fetchInfo(); mainEl.scrollTop = 0; }
+      });
+      return;
+    }
     if (act === "cancel") await api("/api/cancel/" + id, {});
     if (act === "dismiss") await api("/api/dismiss/" + id, {});
     if (act === "retry") { await api("/api/retry/" + id, {}); toast("Trying again"); }
     if (act === "open") openInAppPlayer(id, title, "video");
-    if (act === "share") { await api("/api/share/" + id, {}); return; }
+    if (act === "share") { await shareChecked(id); return; }
   } catch (err) { toast(err.message || "That file isn't there any more"); }
   poll();
 });
 $("#clearDone").onclick = async () => {
   triggerHaptic();
-  for (const [id, li] of rows) if (!li.classList.contains("downloading") && !li.classList.contains("processing")) await api("/api/dismiss/" + id, {});
+  for (const [id, li] of rows) if (!li.classList.contains("downloading") && !li.classList.contains("processing") && !li.classList.contains("paused")) await api("/api/dismiss/" + id, {});
   poll();
 };
 
@@ -419,7 +472,7 @@ const saveFavs = () => { try { localStorage.setItem("orbit_favs", JSON.stringify
 const isPhotoE = e => e.quality === "image" || e.quality === "photo";
 const isAudioE = e => e.quality === "audio";
 const kindOf = e => isPhotoE(e) ? "photo" : isAudioE(e) ? "audio" : "video";
-const siteOf = e => e.device ? "This phone" : (String(e.site || "").trim() || "Other");
+const siteOf = e => e.device ? "Earlier downloads" : (String(e.site || "").trim() || "Other");
 const onAndroid = !!window.OrbitAndroid;
 const streamUrl = id => onAndroid ? "https://orbit.local/stream/" + id : "/api/stream/" + id;
 const thumbUrl = (id, s) => onAndroid ? `https://orbit.local/thumb/${id}?s=${s || 384}` : streamUrl(id);
@@ -430,9 +483,11 @@ const yearOf = e => new Date((e.t || 0) * 1000).getFullYear();
 const NOTE_ICO = '<svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
 const QBANDS = { 2160: ["4K", e => e.height >= 2160], 1080: ["1080p", e => e.height >= 1080 && e.height < 2160], 720: ["720p", e => e.height >= 720 && e.height < 1080], sd: ["SD", e => e.height > 0 && e.height < 720] };
 
+const monthKey = e => { const d = new Date((e.t || 0) * 1000); return d.getFullYear() + "-" + d.getMonth(); };
+const monthName = k => { const [y, m] = k.split("-").map(Number); return new Date(y, m, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" }); };
 function filterTitle(f) {
-  return ({ fav: "Favorites", video: "Videos", photo: "Photos", audio: "Audio", share: "Share-ready", vault: "Vault", recent: "Recent", trash: "Trash", downloads: "Orbit downloads", onthisday: "On this day" })[f.type]
-    || (f.type === "site" || f.type === "bucket" ? f.val : f.type === "by" ? `${f.val} ${f.year}` : f.type === "q" ? QBANDS[f.val][0] : "Photos");
+  return ({ fav: "Favorites", video: "Videos", photo: "Photos", audio: "Audio", share: "Share-ready", vault: "Vault", recent: "Recent", trash: "Trash", "site-device": "Earlier downloads", downloads: "Downloads", onthisday: "On this day" })[f.type]
+    || (f.type === "album" ? (albums.find(a => a.id === f.val) || {}).name || "Album" : f.type === "month" ? monthName(f.val) : f.type === "site" || f.type === "bucket" ? f.val : f.type === "by" ? `${f.val} ${f.year}` : f.type === "q" ? QBANDS[f.val][0] : "Photos");
 }
 function applyFilter(list) {
   const f = libFilter;
@@ -446,8 +501,11 @@ function applyFilter(list) {
     case "share": return list.filter(e => e.share_ready === true);
     case "site": return list.filter(e => !e.device && siteOf(e) === f.val);
     case "bucket": return list.filter(e => e.bucket === f.val);
+    case "month": return list.filter(e => monthKey(e) === f.val);
+    case "album": { const al = albums.find(a => a.id === f.val), ids = new Set(al ? al.items : []); return list.filter(e => ids.has(e.id)); }
     case "by": return list.filter(e => e.bucket === f.val && yearOf(e) === f.year);
     case "downloads": return list.filter(e => !e.device);
+    case "site-device": return list.filter(e => e.device);
     case "q": return list.filter(QBANDS[f.val][1]);
     case "recent": return list.slice(0, 60);
     case "onthisday": return list.filter(e => { const d = new Date(e.t * 1000); return d.getMonth() === now.getMonth() && d.getDate() === now.getDate() && d.getFullYear() < now.getFullYear(); });
@@ -456,7 +514,7 @@ function applyFilter(list) {
 }
 
 /* ----- data ----- */
-function mergeLib() { libAll = historyAll.concat(deviceAll).sort((a, b) => (b.t || 0) - (a.t || 0)); itemCount = libAll.reduce((n, e) => n + (e.vault ? 0 : 1), 0); updateStatus(lastActive); }
+function mergeLib() { libAll = historyAll.filter(e => kindOf(e) !== "audio").concat(deviceAll).sort((a, b) => (b.t || 0) - (a.t || 0)); itemCount = libAll.reduce((n, e) => n + (e.vault ? 0 : 1), 0); updateStatus(lastActive); }
 async function refreshHistory() {
   try { historyAll = (await api("/api/history")).map(e => ({ ...e, dur: (e.dur || 0) / 1000 })); } catch {}
   mergeLib();
@@ -505,6 +563,15 @@ const LAYOUTS = { comfortable: { w: 160, min: 3, label: "Comfortable" }, day: { 
 const LAYOUT_ORDER = ["comfortable", "day", "month"];
 let layoutName = "day", featureOn = true;
 try { if (LAYOUTS[localStorage.getItem("orbit_layout")]) layoutName = localStorage.getItem("orbit_layout"); featureOn = localStorage.getItem("orbit_feature") !== "false"; } catch {}
+let datesOn = false, rowTops = null, gridHeads = [];
+try { datesOn = localStorage.getItem("orbit_dates") === "true"; } catch {}
+const rowY = r => rowTops ? (rowTops[r] !== undefined ? rowTops[r] : rowTops[rowTops.length - 1]) : r * (cellSize + GAP);
+function rowAtY(y) {
+  if (!rowTops) return Math.floor(y / (cellSize + GAP));
+  let lo = 0, hi = rowTops.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (rowTops[m] <= y) lo = m; else hi = m - 1; }
+  return y < 0 ? Math.floor(y / (cellSize + GAP)) : lo;
+}
 const colsFor = w => Math.max(LAYOUTS[layoutName].min, Math.round(w / LAYOUTS[layoutName].w));
 const idHash = s => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
 function tileUrl(e, g) {
@@ -518,8 +585,17 @@ function computeGrid(n) {
   const cols = gridCols, out = new Array(n), used = new Set(), key = (c, r) => r * cols + c;
   const free = (c, r, s) => { for (let y = r; y < r + s; y++) for (let x = c; x < c + s; x++) if (x >= cols || used.has(key(x, y))) return false; return true; };
   const gapVideo = Math.round(cols * 2.5), gapAny = cols * 6;
-  let r = 0, c = 0, since = cols; rowFirst = []; gridRows = 0;
+  let r = 0, c = 0, since = cols, lastDay = null; rowFirst = []; gridRows = 0; gridHeads = [];
+  const monthly = layoutName === "month";
   for (let i = 0; i < n; i++) {
+    if (datesOn) {
+      const d = new Date((libView[i].t || 0) * 1000), day = monthly ? d.getFullYear() + "-" + d.getMonth() : d.toDateString();
+      if (day !== lastDay) {
+        if (lastDay !== null) { r = gridRows; c = 0; }
+        lastDay = day;
+        gridHeads.push({ r, label: monthly ? d.toLocaleDateString("en-US", { month: "long", year: "numeric" }) : dayLabel(libView[i].t) });
+      }
+    }
     while (used.has(key(c, r))) { c++; if (c >= cols) { c = 0; r++; } }
     const e = libView[i], h = idHash(String(e.id));
     let s = 1, at = c;
@@ -547,7 +623,17 @@ function measureGrid() {
 function layoutGrid() {
   const W = gridEl.clientWidth || mainEl.clientWidth;
   cellSize = (W - GAP * (gridCols - 1)) / gridCols;
-  gridEl.style.height = (gridRows * (cellSize + GAP)) + "px";
+  gridEl.querySelectorAll(".g-head").forEach(n => n.remove());
+  rowTops = null;
+  if (gridHeads.length) {
+    const HEAD = 44, heads = new Set(gridHeads.map(g => g.r));
+    rowTops = []; let y = 0;
+    for (let r = 0; r <= gridRows; r++) { if (heads.has(r)) y += HEAD; rowTops[r] = y; y += cellSize + GAP; }
+    const frag = document.createDocumentFragment();
+    gridHeads.forEach(g => { const li = document.createElement("li"); li.className = "g-head"; li.textContent = g.label; li.style.transform = `translate(0,${rowTops[g.r] - HEAD}px)`; frag.appendChild(li); });
+    gridEl.appendChild(frag);
+  }
+  gridEl.style.height = rowY(gridRows) + "px";
   gridEl.dataset.layout = layoutName;
   measureGrid();
   ensurePool(Math.ceil((viewH + OVERSCAN * 2) / (cellSize + GAP) + 2) * gridCols);
@@ -577,7 +663,7 @@ function bindCell(li, i) {
   if (li.className !== cls) li.className = cls;
   li.dataset.id = e.id; li.dataset.i = i;
   if (li._size !== size) { li._size = size; li.style.width = size + "px"; li.style.height = size + "px"; }
-  li.style.transform = `translate(${g.c * (cellSize + GAP)}px,${g.r * (cellSize + GAP)}px)`;
+  li.style.transform = `translate(${g.c * (cellSize + GAP)}px,${rowY(g.r)}px)`;
   li.style.display = "";
   li._img.dataset.remote = e.thumb || "";
   const label = k === "photo" ? "" : (e.dur ? longDur(e.dur) : k === "audio" ? "MP3" : " ");
@@ -591,7 +677,7 @@ function bindCell(li, i) {
 function renderWindow(force) {
   if (curView !== "library" || gridEl.hidden || !libView.length) return;
   const rowH = cellSize + GAP, top = mainEl.scrollTop - gridTop;
-  const visFirst = Math.floor(top / rowH), visLast = Math.ceil((top + viewH) / rowH);
+  const visFirst = rowAtY(top), visLast = rowAtY(top + viewH) + 1;
   if (!force && visFirst >= rangeA + 2 && visLast <= rangeB - 2) return;      // still well inside what's already built
   const margin = Math.ceil(OVERSCAN / rowH);
   rangeA = Math.max(0, visFirst - margin); rangeB = visLast + margin;
@@ -606,7 +692,7 @@ function renderWindow(force) {
 }
 function fillCells(a, b) {
   cancelAnimationFrame(pendingRaf);
-  const rowH = cellSize + GAP, start = Math.max(a, rowFirst[Math.max(0, Math.floor((mainEl.scrollTop - gridTop) / rowH))] || a);
+  const rowH = cellSize + GAP, start = Math.max(a, rowFirst[Math.max(0, rowAtY(mainEl.scrollTop - gridTop))] || a);
   let budget = CELLS_PER_FRAME, more = false;
   const put = i => { if (gridCells.has(i)) return; if (budget-- <= 0) { more = true; return; } const li = cellPool.pop() || makeCell(); bindCell(li, i); gridCells.set(i, li); };
   for (let i = start; i < b && !more; i++) put(i);      // what's on screen and below first
@@ -620,7 +706,7 @@ function loadVisibleImages(limit) {
   for (const [i, li] of gridCells) {
     if (limit <= 0) return;
     if (li._src === li._want) continue;
-    const t = gridLayout[i].r * s - y;
+    const t = rowY(gridLayout[i].r) - y;
     if (t > -s * 2 && t < viewH) { loadCellImage(li); limit--; }
   }
 }
@@ -651,13 +737,13 @@ addEventListener("resize", () => {
   moveDockInd();
   if (!viewer.hidden) { syncPlayerRect(); requestAnimationFrame(syncPlayerRect); paintSeek(true); }
   if (curView !== "library" || !libView.length) return;
-  const top0 = mainEl.scrollTop - gridTop, row0 = top0 > 0 ? Math.floor(top0 / (cellSize + GAP)) : -1;
+  const top0 = mainEl.scrollTop - gridTop, row0 = top0 > 0 ? rowAtY(top0) : -1;
   let anchor = -1;
   if (row0 >= 0) for (let r = row0; r < rowFirst.length; r++) if (rowFirst[r] !== undefined) { anchor = rowFirst[r]; break; }
   resetGrid();
   gridLayout = computeGrid(libView.length);
   layoutGrid();
-  if (anchor >= 0 && gridLayout[anchor]) mainEl.scrollTop = gridTop + gridLayout[anchor].r * (cellSize + GAP);
+  if (anchor >= 0 && gridLayout[anchor]) mainEl.scrollTop = gridTop + rowY(gridLayout[anchor].r);
   renderWindow(true);
 });
 
@@ -678,7 +764,7 @@ function prefetchAhead() {
   const gen = ++prefetchGen;
   if (curView !== "library" || !libView.length || !viewer.hidden) return;
   const s = cellSize + GAP;
-  let r = Math.max(0, Math.floor((mainEl.scrollTop - gridTop) / s));
+  let r = Math.max(0, rowAtY(mainEl.scrollTop - gridTop));
   while (r > 0 && rowFirst[r] === undefined) r--;
   const start = rowFirst[r] || 0, order = [];
   for (let d = 0; d < 260 && order.length < 300; d++) {
@@ -719,7 +805,7 @@ function dayLabel(t) {
 function paintDatePill() {
   const top = mainEl.scrollTop - gridTop;
   if (curView !== "library" || top < 10 || libView.length < 12) { datePill.classList.remove("on"); return; }
-  let row = Math.floor(top / (cellSize + GAP));
+  let row = rowAtY(top);
   while (row > 0 && rowFirst[row] === undefined) row--;
   const it = libView[rowFirst[row] || 0];
   const label = layoutName === "month" && it && it.t ? new Date(it.t * 1000).toLocaleDateString("en-US", { month: "long", year: new Date(it.t * 1000).getFullYear() === new Date().getFullYear() ? undefined : "numeric" }) : dayLabel(it && it.t);
@@ -751,7 +837,7 @@ function apPick() {
   for (const [i, li] of gridCells) {
     const g = gridLayout[i], e = libView[i];
     if (g.s < 2 || kindOf(e) !== "video" || apFailed.has(e.id) || !e.exists) continue;
-    const top = g.r * rowH - y, h = cellSize * g.s + GAP * (g.s - 1);
+    const top = rowY(g.r) - y, h = cellSize * g.s + GAP * (g.s - 1);
     const share = (Math.min(viewH - 80, top + h) - Math.max(0, top)) / h;
     if (share > bestShare) { bestShare = share; best = li; }
   }
@@ -777,7 +863,7 @@ function changeLayout(name, keep) {
   resetGrid();
   gridLayout = computeGrid(libView.length);
   layoutGrid();
-  if (keep && gridLayout[keep.i]) mainEl.scrollTop = Math.max(0, gridTop + gridLayout[keep.i].r * (cellSize + GAP) + keep.frac * cellSize - keep.y);
+  if (keep && gridLayout[keep.i]) mainEl.scrollTop = Math.max(0, gridTop + rowY(gridLayout[keep.i].r) + keep.frac * cellSize - keep.y);
   renderedSig = "";
   measureGrid();
   renderWindow(true);
@@ -789,9 +875,9 @@ mainEl.addEventListener("touchstart", e => {
   const t = e.touches, m = mainEl.getBoundingClientRect();
   const cx = (t[0].clientX + t[1].clientX) / 2 - m.left, cy = (t[0].clientY + t[1].clientY) / 2 - m.top;
   const gy = mainEl.scrollTop - gridTop + cy, rowH = cellSize + GAP;
-  let row = Math.max(0, Math.floor(gy / rowH));
+  let row = Math.max(0, rowAtY(gy));
   while (row > 0 && rowFirst[row] === undefined) row--;
-  pz = { d0: touchDist(t), s: 1, cx, cy, gy, i: rowFirst[row] || 0, rowY: row * rowH };
+  pz = { d0: touchDist(t), s: 1, cx, cy, gy, i: rowFirst[row] || 0, rowY: rowY(row) };
   clearTimeout(pressT); apStop();
   mainEl.style.overflowY = "hidden";
   gridEl.getAnimations().forEach(a => a.cancel());
@@ -822,7 +908,7 @@ function endPinch() {
   const oldCell = cellSize;
   gridEl.style.transform = "";
   changeLayout(LAYOUT_ORDER[next], { i: p.i, y: p.cy, frac: (p.gy - p.rowY) / oldCell });
-  const ny = gridLayout[p.i] ? gridLayout[p.i].r * (cellSize + GAP) + (p.gy - p.rowY) * cellSize / oldCell : 0;
+  const ny = gridLayout[p.i] ? rowY(gridLayout[p.i].r) + (p.gy - p.rowY) * cellSize / oldCell : 0;
   gridEl.style.transformOrigin = `${p.cx}px ${ny}px`;
   const anim = gridEl.animate([{ transform: `scale(${p.s * oldCell / cellSize})`, opacity: 0.55 }, { transform: "none", opacity: 1 }], { duration: 260, easing: "cubic-bezier(.2,.9,.25,1)" });
   anim.onfinish = clean; anim.oncancel = clean;
@@ -851,7 +937,7 @@ fsEl.addEventListener("pointermove", e => {
   const p = Math.max(0, Math.min(1, (e.clientY - r.top - 32) / track));
   mainEl.scrollTop = p * maxScroll;
   const rowH = cellSize + GAP, top = mainEl.scrollTop;
-  let row = Math.max(0, Math.floor((top - gridTop) / rowH));
+  let row = Math.max(0, rowAtY(top - gridTop));
   while (row > 0 && rowFirst[row] === undefined) row--;
   const it = libView[rowFirst[row] || 0];
   if (it && it.t) fsDate.textContent = new Date(it.t * 1000).toLocaleDateString("en-US", { month: "short", year: "numeric" });
@@ -865,22 +951,13 @@ function renderMemories(list) {
   if (!list.length) { box.hidden = true; box.innerHTML = ""; return; }
   const otd = list.filter(e => { const d = new Date(e.t * 1000); return d.getMonth() === now.getMonth() && d.getDate() === now.getDate() && d.getFullYear() < now.getFullYear(); });
   if (otd.length) cards.push({ a: "On this day", b: `${now.getFullYear() - yearOf(otd[0])} year${now.getFullYear() - yearOf(otd[0]) > 1 ? "s" : ""} ago`, f: { type: "onthisday" }, cover: otd[0] });
-  const dl = list.filter(e => !e.device);
-  if (dl.length) cards.push({ a: "Orbit", b: "Downloads", f: { type: "downloads" }, cover: dl[0] });
   const fv = list.filter(e => favs.has(e.id));
   if (fv.length) cards.push({ a: "Your", b: "favorites", f: { type: "fav" }, cover: fv[0] });
-  const by = new Map();
-  list.forEach(e => { if (!e.bucket) return; const k = e.bucket + "|" + yearOf(e); if (!by.has(k)) by.set(k, []); by.get(k).push(e); });
-  [...by.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 6).forEach(([k, items]) => {
-    const [bucket, year] = k.split("|");
-    cards.push({ a: bucket, b: year, f: { type: "by", val: bucket, year: +year }, cover: items[0] });
-  });
-  if (!cards.length) cards.push({ a: "Recent", b: "", f: { type: "recent" }, cover: list[0] });
+  groupBy(list.filter(e => !e.device), siteOf).sort((a, b) => b[1].length - a[1].length).slice(0, 4).forEach(([site, items]) => cards.push({ a: site, b: `${items.length} saved`, f: { type: "site", val: site }, cover: items[0] }));
+  groupBy(list, monthKey).slice(0, 6).forEach(([k, items]) => { const [y, m] = k.split("-").map(Number); cards.push({ a: new Date(y, m, 1).toLocaleDateString("en-US", { month: "long" }), b: String(y), f: { type: "month", val: k }, cover: items[0] }); });
   box.hidden = false;
-  box.innerHTML = cards.map((c, i) => {
-    return `<button type="button" class="mem" data-i="${i}" style="--i:${Math.min(i, 5)}">${thumbBox(c.cover, 512)}
-      <span class="mem-label"><b>${esc(c.a)}</b>${c.b ? `<b>${esc(c.b)}</b>` : ""}</span></button>`;
-  }).join("");
+  box.innerHTML = cards.map((c, i) => `<button type="button" class="mem" data-i="${i}" style="--i:${Math.min(i, 5)}">${thumbBox(c.cover, 512)}
+      <span class="mem-label"><b>${esc(c.a)}</b>${c.b ? `<b>${esc(c.b)}</b>` : ""}</span></button>`).join("");
   box._cards = cards;
 }
 $("#memories").addEventListener("click", e => {
@@ -893,21 +970,21 @@ function renderLib(force) {
   const f = libFilter, isVault = f.type === "vault";
   $("#filterBar").hidden = f.type === "all";
   $("#filterTitle").textContent = filterTitle(f);
+  $("#albumMenu").hidden = f.type !== "album";
   $("#permCard").hidden = !(f.type === "all" && mediaPerm !== "full" && onAndroid);
-  if (mediaPerm === "partial") { $("#permTitle").textContent = "Orbit sees only the photos you picked"; $("#permSub").textContent = "Allow all to see everything on this phone."; $("#permBtn").textContent = "Manage"; }
-  else { $("#permTitle").textContent = "See the photos and videos on this phone"; $("#permSub").textContent = "Orbit needs permission to show your gallery. Nothing leaves your phone."; $("#permBtn").textContent = "Allow"; }
+  if (mediaPerm === "partial") { $("#permTitle").textContent = "Orbit sees only the items you picked"; $("#permSub").textContent = "Allow all to see every video and photo you downloaded earlier."; $("#permBtn").textContent = "Manage"; }
+  else { $("#permTitle").textContent = "Show your earlier downloads"; $("#permSub").textContent = "Orbit needs permission to find videos and photos it saved before. It only looks in its own folders."; $("#permBtn").textContent = "Allow"; }
   const lock = $("#vaultLockScreen");
   if (isVault && !vaultUnlocked) {
     resetGrid(); renderedSig = "";
     lock.hidden = false; gridEl.hidden = true; $("#libCount").textContent = "Locked"; $("#libEmpty").hidden = true; $("#memories").hidden = true;
-    const hasPin = !!localStorage.getItem("orbit_vault_pin");
-    $("#vaultLockTitle").textContent = hasPin ? "Private vault" : "Create a vault PIN";
-    $("#vaultLockDesc").textContent = hasPin ? "Enter your 4-digit PIN. Vault items are hidden from the phone gallery." : "Choose a 4-digit PIN to protect videos and photos you hide.";
+    paintVaultLock();
+    if (vaultHasPin && vaultCanAuth && !vaultAskedAuth && !vaultResetting) { vaultAskedAuth = true; api("/api/vault/auth", { purpose: "unlock" }).catch(() => {}); }
     return;
   }
   lock.hidden = true; gridEl.hidden = false;
   const list = applyFilter(libAll);
-  const sig = [f.type, f.val, f.year, list.length, list[0] && list[0].id, list[list.length - 1] && list[list.length - 1].id, favs.size, featureOn, colsFor(gridEl.clientWidth || mainEl.clientWidth)].join("|");
+  const sig = [f.type, f.val, f.year, list.length, list[0] && list[0].id, list[list.length - 1] && list[list.length - 1].id, favs.size, featureOn, datesOn, colsFor(gridEl.clientWidth || mainEl.clientWidth)].join("|");
   if (!force && sig === renderedSig) { measureGrid(); renderWindow(true); flushImages(); if (selMode) updateSelUi(); setTimeout(apPick, 300); return; }
   renderedSig = sig;
   resetGrid();
@@ -923,7 +1000,7 @@ function renderLib(force) {
   const empty = !list.length;
   $("#libEmpty").hidden = !empty;
   if (empty) {
-    const t = { all: ["Your photos will show up here", "Everything on this phone and everything you download shows here."], fav: ["No favorites yet", "Tap the star on any photo or video to find it here."], vault: ["Your vault is empty", "Use Add to, then Private vault, to hide items from the phone gallery."], trash: ["Trash is empty", "Items you remove stay here for 30 days, then Android deletes them."] }[f.type] || ["Nothing here yet", "Items that match will show up here."];
+    const t = { all: ["Your downloads will show up here", "Videos and photos you download with Orbit appear here."], fav: ["No favorites yet", "Tap the star on any photo or video to find it here."], vault: ["Your vault is empty", "Use Add to, then Private vault, to hide items from the phone gallery."], trash: ["Trash is empty", "Items you remove stay here for 30 days, then Android deletes them."] }[f.type] || ["Nothing here yet", "Items that match will show up here."];
     $("#libEmptyTitle").textContent = t[0]; $("#libEmptySub").textContent = t[1];
     $("#libEmptyBtn").hidden = f.type !== "all";
   }
@@ -1014,12 +1091,34 @@ $("#selDelete").onclick = async () => {
   exitSelect(); renderLib();
 };
 
-let pressT = null, pressX = 0, pressY = 0, longFired = false;
+let pressT = null, pressX = 0, pressY = 0, longFired = false, dragSel = null;
+gridEl.addEventListener("touchmove", e => {
+  if (!dragSel || !e.touches[0]) return;
+  const t = e.touches[0], el = document.elementFromPoint(t.clientX, t.clientY), cell = el && el.closest && el.closest(".cell");
+  const m = mainEl.getBoundingClientRect();
+  if (t.clientY < m.top + 80) mainEl.scrollTop -= 14; else if (t.clientY > m.bottom - 120) mainEl.scrollTop += 14;
+  if (!cell) return;
+  const i = +cell.dataset.i;
+  if (i === dragSel.last) return;
+  dragSel.last = i;
+  sel.clear(); dragSel.base.forEach(id => sel.add(id));
+  for (let k = Math.min(dragSel.a, i); k <= Math.max(dragSel.a, i); k++) if (libView[k]) sel.add(libView[k].id);
+  triggerHaptic(); updateSelUi();
+}, { passive: true });
+const endDragSel = () => { if (dragSel) { dragSel = null; mainEl.style.overflowY = ""; } };
+gridEl.addEventListener("touchend", endDragSel, { passive: true });
+gridEl.addEventListener("touchcancel", endDragSel, { passive: true });
 gridEl.addEventListener("pointerdown", e => {
   const c = e.target.closest(".cell"); if (!c) return;
   longFired = false; pressX = e.clientX; pressY = e.clientY;
   clearTimeout(pressT);
-  pressT = setTimeout(() => { longFired = true; triggerHaptic(); if (!selMode) enterSelect(c.dataset.id); else toggleSel(c.dataset.id); }, 450);
+  pressT = setTimeout(() => {
+    longFired = true; triggerHaptic();
+    if (!selMode) enterSelect(c.dataset.id); else toggleSel(c.dataset.id);
+    if (!selMode) return;
+    dragSel = { a: +c.dataset.i, base: new Set(sel), last: +c.dataset.i };
+    mainEl.style.overflowY = "hidden";
+  }, 450);
 }, { passive: true });
 const cancelPress = () => clearTimeout(pressT);
 gridEl.addEventListener("pointermove", e => { if (Math.abs(e.clientX - pressX) > 9 || Math.abs(e.clientY - pressY) > 9) cancelPress(); }, { passive: true });
@@ -1041,6 +1140,45 @@ async function clearLib() {
 }
 $("#libClear").onclick = clearLib; $("#setClear").onclick = clearLib;
 
+/* ----- your own albums ----- */
+let albums = [];
+async function loadAlbums() { try { albums = (await api("/api/albums")).albums || []; } catch { albums = []; } }
+const saveAlbums = () => { collSig = ""; return api("/api/albums", { albums }).catch(err => toast(err.message)); };
+function promptDialog(title, value, okLabel) {
+  return new Promise(res => {
+    menuResolve = ok => res(ok ? promptValue.trim() : "");
+    openMenu(`<div class="dlg-t">${esc(title)}</div><div class="field dlg-field"><input id="dlgInput" type="text" maxlength="60" value="${esc(value || "")}"></div><div class="dlg-b"><button type="button" data-r="0">Cancel</button><button type="button" data-r="1" class="strong">${esc(okLabel || "OK")}</button></div>`, "dlg");
+    setTimeout(() => { const i = $("#dlgInput"); if (i) { i.focus(); i.select(); } }, 60);
+  });
+}
+async function newAlbum(ids) {
+  const name = await promptDialog("New album", "", "Create");
+  if (!name) return null;
+  const al = { id: "a" + Date.now().toString(36), name, items: ids || [], t: Date.now() };
+  albums.unshift(al); await saveAlbums();
+  toast(`Album "${name}" created`);
+  return al;
+}
+function addToAlbumMenu(ids, onDone) {
+  openMenu(`<div class="sheet-handle"></div><div class="m-title">Add to album</div>${mi("new", '<path d="M12 5v14M5 12h14"/>', "New album")}${albums.map((a, i) => mi("a" + i, '<rect x="3" y="5" width="18" height="15" rx="3"/><path d="M7 2.5h10"/>', a.name)).join("")}`, "sheet-menu", async k => {
+    if (k === "new") { const al = await newAlbum(ids); if (al && onDone) onDone(); return; }
+    const al = albums[+k.slice(1)]; if (!al) return;
+    const set = new Set(al.items); ids.forEach(x => set.add(x)); al.items = [...set];
+    await saveAlbums(); toast(`Added to ${al.name}`); if (onDone) onDone();
+  });
+}
+$("#albumMenu").onclick = () => {
+  const al = albums.find(a => a.id === libFilter.val); if (!al) return;
+  openMenu(`<div class="sheet-handle"></div><div class="m-title">${esc(al.name)}</div>${mi("rename", '<path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4"/>', "Rename album")}${mi("delete", '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>', "Delete album")}`, "sheet-menu", async k => {
+    if (k === "rename") { const n = await promptDialog("Rename album", al.name, "Save"); if (n) { al.name = n; await saveAlbums(); $("#filterTitle").textContent = n; } }
+    if (k === "delete") {
+      if (!await confirmDialog("Delete this album?", "Only the album is removed. Your videos and photos stay.", "Delete")) return;
+      albums = albums.filter(a => a !== al); await saveAlbums(); show("collections");
+    }
+  });
+};
+$("#selAlbum").onclick = () => { triggerHaptic(); addToAlbumMenu([...sel], () => { exitSelect(); }); };
+
 /* ----- collections ----- */
 function coverCard(label, count, cover, attrs) {
   return `<button type="button" class="dev-card" ${attrs}>
@@ -1057,32 +1195,28 @@ let collSig = "";
 async function loadCollections() {
   await refreshHistory();
   const list = libAll.filter(e => !e.vault);
-  const csig = [list.length, list[0] && list[0].id, mediaPerm].join("|");
+  const csig = [list.length, list[0] && list[0].id, mediaPerm, JSON.stringify(albums)].join("|");
   if (csig === collSig) return;
   collSig = csig;
-  const rank = n => /^camera$/i.test(n) ? 0 : /^orbit$/i.test(n) ? 1 : 2;
-  const buckets = groupBy(list.filter(e => e.device), e => e.bucket).sort((a, b) => rank(a[0]) - rank(b[0]) || b[1].length - a[1].length);
-  const dl = list.filter(e => !e.device);
-  let dev = buckets.map(([s, items]) => coverCard(s, items.length, items[0], `data-f="bucket" data-v="${esc(s)}"`));
-  if (dl.length) dev.splice(buckets.length && rank(buckets[0][0]) === 0 ? 1 : 0, 0, coverCard("Downloads", dl.length, dl[0], 'data-f="downloads"'));
-  $("#siteRail").innerHTML = dev.join("") || `<div class="rail-note">${mediaPerm === "none" ? "Allow access on the Photos tab to see your phone's folders." : "Nothing here yet."}</div>`;
-  const types = [["video", "Videos", e => kindOf(e) === "video"], ["photo", "Photos", e => kindOf(e) === "photo"], ["audio", "Audio", e => kindOf(e) === "audio"], ["share", "Share-ready", e => e.share_ready === true]];
-  const albums = types.map(([t, n, fn]) => { const items = list.filter(fn); return items.length ? coverCard(n, items.length, items[0], `data-f="${t}"`) : ""; }).join("")
-    + groupBy(dl, siteOf).sort((a, b) => b[1].length - a[1].length).map(([s, items]) => coverCard(s, items.length, items[0], `data-f="site" data-v="${esc(s)}"`)).join("");
-  $("#albumRail").innerHTML = albums || '<div class="rail-note">Albums appear when you have items to group.</div>';
+  const sources = groupBy(list, siteOf).sort((a, b) => b[1].length - a[1].length);
+  $("#siteRail").innerHTML = sources.map(([s, items]) => coverCard(s, items.length, items[0], items[0].device ? 'data-f="device"' : `data-f="site" data-v="${esc(s)}"`)).join("")
+    || '<div class="rail-note">Sources appear here after your first download.</div>';
+  const types = [["video", "Videos", e => kindOf(e) === "video"], ["photo", "Photos", e => kindOf(e) === "photo"], ["share", "Share-ready", e => e.share_ready === true]];
+  const byId = new Map(list.map(e => [e.id, e]));
+  const mine = albums.map(a => { const items = a.items.map(id => byId.get(id)).filter(Boolean); return coverCard(a.name, items.length, items[0], `data-f="album" data-v="${esc(a.id)}"`); }).join("");
+  const auto = types.map(([t, n, fn]) => { const items = list.filter(fn); return items.length ? coverCard(n, items.length, items[0], `data-f="${t}"`) : ""; }).join("");
+  $("#albumRail").innerHTML = `<button type="button" class="dev-card new-album" id="newAlbumCard"><div class="thumb empty-t"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div><span class="dc-label"><b>New album</b></span></button>` + mine + auto;
   const q = Object.entries(QBANDS).map(([k, [label, fn]]) => { const items = list.filter(e => kindOf(e) === "video" && fn(e)); return items.length ? { k, label, items } : null; }).filter(Boolean);
   $("#qualRail").previousElementSibling.hidden = !q.length;
   $("#qualRail").hidden = !q.length;
   $("#qualRail").innerHTML = q.map(o => `<button type="button" class="circ" data-f="q" data-v="${o.k}">${thumbBox(o.items[0], 384)}<span class="circ-label">${o.label}</span></button>`).join("");
-  const shots = buckets.find(([n]) => /screenshot/i.test(n));
-  $("#pinShots").dataset.v = shots ? shots[0] : "Screenshots";
-  $("#otherShots").dataset.v = $("#pinShots").dataset.v;
 }
 $("#v-collections").addEventListener("click", e => {
+  if (e.target.closest("#newAlbumCard")) { triggerHaptic(); newAlbum([]).then(al => { if (al) loadCollections(); }); return; }
   const b = e.target.closest("[data-f],[data-filter]"); if (!b) return;
   triggerHaptic();
   const t = b.dataset.f || b.dataset.filter;
-  openFilter(t === "site" || t === "q" || t === "bucket" ? { type: t, val: b.dataset.v } : { type: t });
+  openFilter(t === "site" || t === "q" || t === "bucket" || t === "album" ? { type: t, val: b.dataset.v } : t === "device" ? { type: "site-device" } : { type: t });
 });
 $("#pinAdd").onclick = () => { triggerHaptic(); show("download"); };
 $("#viewAllSites").onclick = e => {
@@ -1103,6 +1237,10 @@ $("#layoutPick").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   triggerHaptic(); changeLayout(b.dataset.layout);
 });
+$("#setDates").checked = datesOn;
+$("#setDates").onchange = e => { datesOn = e.target.checked; triggerHaptic(); try { localStorage.setItem("orbit_dates", datesOn); } catch {} renderedSig = ""; };
+if (window.OrbitAndroid && window.OrbitAndroid.getPipAuto) $("#setPip").checked = window.OrbitAndroid.getPipAuto();
+$("#setPip").onchange = e => { triggerHaptic(); if (window.OrbitAndroid) window.OrbitAndroid.setPipAuto(e.target.checked); };
 $("#setFeature").checked = featureOn;
 $("#setFeature").onchange = e => { featureOn = e.target.checked; triggerHaptic(); try { localStorage.setItem("orbit_feature", featureOn); } catch {} renderedSig = ""; };
 $("#photosViewInfo").textContent = LAYOUTS[layoutName].label;
@@ -1154,32 +1292,68 @@ function paintBell() {
   lastUnread = unread;
 }
 $("#rowNotif").onclick = () => { triggerHaptic(); api("/api/notices/settings", {}).catch(() => {}); };
-$("#btnBell").onclick = async () => {
-  triggerHaptic();
-  await loadNotices();
-  const active = lastJobs.filter(j => ACTIVE.includes(j.state));
-  const liveHtml = active.map(j => `<button type="button" class="n-row" data-k="create"><span class="n-dot ${esc(j.state)}"></span><span class="n-copy"><b>${esc(j.title || "Download")}</b><small>${esc(queueSub(j, j.isImage || j.quality === "image"))}</small></span></button>`).join("");
-  const listHtml = notices.slice(0, 40).map((n, i) => `<button type="button" class="n-row ${n.read ? "" : "unread"}" data-k="n${i}"><span class="n-dot ${esc(n.state)}"></span><span class="n-copy"><b>${esc(n.title)}</b><small>${esc(n.body)}</small><small class="n-time">${esc(agoText(n.t))}</small></span></button>`).join("");
-  const has = active.length || notices.length || updateReady;
-  openMenu(`<div class="sheet-handle"></div>
-    <div class="m-title n-head"><span>Notifications</span>${notices.length ? '<button type="button" class="n-clear" data-k="clear">Clear all</button>' : ""}</div>
-    ${noticesOn ? "" : '<button type="button" class="n-update warn" data-k="perm"><b>Alerts are off</b><small>Tap to allow Orbit notifications in Android settings</small></button>'}
-    ${updateReady ? '<button type="button" class="n-update" data-k="update"><b>Orbit update available</b><small>Tap to download and install</small></button>' : ""}
-    ${liveHtml}${listHtml}
-    ${has ? "" : '<div class="n-empty">No notifications yet. Finished and failed downloads show up here.</div>'}
-    <button type="button" class="m-item" data-k="check"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg>Check for updates</button>`, "sheet-menu", async k => {
-    if (k === "update") { $("#updateBanner").hidden = false; if (/Install|Restart/.test($("#ubBtn").textContent)) applyUpdate(); else startUpdate(); }
-    if (k === "check") checkUpdate(true);
-    if (k === "perm") api("/api/notices/settings", {}).catch(() => {});
-    if (k === "create") show("download");
-    if (k === "clear") { await api("/api/notices/clear", {}); await loadNotices(); toast("Notifications cleared"); }
-    if (k[0] === "n" && k !== "clear") {
-      const n = notices[+k.slice(1)]; if (!n) return;
-      if (n.state === "done") openInAppPlayer(n.id); else show("download");
-    }
+const N_ICON = { done: '<path d="M5 12.5l4.5 4.5L19 7.5"/>', error: '<path d="M12 6v7M12 17.5v.01"/>', cancelled: '<path d="M7 7l10 10M17 7L7 17"/>', live: '<path d="M12 5v11m0 0l-4-4m4 4l4-4"/>' };
+function noticeThumb(id, remote, state) {
+  const local = state === "done" && id ? thumbUrl(id, 360) + "&c=1" : "";
+  const src = local || remote || "";
+  return `<span class="n-thumb">${src ? `<img class="t-img in" alt="" decoding="async" src="${esc(src)}" data-remote="${esc(remote || "")}">` : ""}<i class="n-badge ${state === "done" ? "done" : state === "error" ? "error" : "live"}"><svg viewBox="0 0 24 24">${N_ICON[state] || N_ICON.live}</svg></i></span>`;
+}
+function noticeGroup(t) {
+  const d = new Date(t * 1000), now = new Date();
+  const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 864e5);
+  return days === 0 ? "Today" : days === 1 ? "Yesterday" : "Earlier";
+}
+function paintLiveNotices() {
+  const box = $("#nLive"), active = lastJobs.filter(j => ACTIVE.includes(j.state));
+  box.hidden = !active.length;
+  $("#nEmpty").hidden = !!active.length || !!notices.length || updateReady;
+  if (!active.length) { box.innerHTML = ""; return; }
+  box.innerHTML = `<h4 class="n-sec">Downloading</h4>` + active.map(j => {
+    const pct = j.state === "queued" ? 0 : Math.round(j.percent || 0);
+    return `<div class="n-card live" data-open="download">${noticeThumb("", j.thumb, "live")}<span class="n-copy"><b>${esc(j.title || "Download")}</b><small>${esc(queueSub(j, j.isImage || j.quality === "image"))}</small><span class="n-bar"><i style="width:${pct}%"></i></span></span></div>`;
+  }).join("");
+}
+function paintNotices() {
+  paintLiveNotices();
+  let html = "", group = "";
+  if (!noticesOn) html += `<button type="button" class="n-banner warn" data-act="perm"><b>Alerts are off</b><small>Tap to allow Orbit notifications in Android settings</small></button>`;
+  if (updateReady) html += `<button type="button" class="n-banner" data-act="update"><b>Orbit update available</b><small>Tap to download and install</small></button>`;
+  notices.slice(0, 60).forEach((n, i) => {
+    const g = noticeGroup(n.t);
+    if (g !== group) { group = g; html += `<h4 class="n-sec">${g}</h4>`; }
+    const acts = n.state === "error" && n.url ? `<span class="n-acts"><span class="n-act" data-na="retry">Try again</span><span class="n-act" data-na="copy">Copy link</span></span>` : "";
+    html += `<div role="button" tabindex="0" class="n-card ${n.state}" data-i="${i}">${noticeThumb(n.id, n.thumb, n.state)}<span class="n-copy"><b>${esc(n.title)}</b><small>${esc(n.body)}</small>${acts}</span><span class="n-time">${esc(agoText(n.t))}${n.read ? "" : '<i class="n-dot"></i>'}</span></div>`;
   });
+  $("#nList").innerHTML = html;
+  $("#nClear").hidden = !notices.length;
+}
+$("#btnBell").onclick = () => show("notices");
+$("#nBack").onclick = () => show(lastTab);
+$("#nClear").onclick = async () => { triggerHaptic(); await api("/api/notices/clear", {}); await loadNotices(); paintNotices(); toast("Notifications cleared"); };
+$("#nList").addEventListener("click", e => {
+  const act = e.target.closest("[data-act]");
+  if (act) {
+    triggerHaptic();
+    if (act.dataset.act === "perm") api("/api/notices/settings", {}).catch(() => {});
+    if (act.dataset.act === "update") { $("#updateBanner").hidden = false; if (/Install|Restart/.test($("#ubBtn").textContent)) applyUpdate(); else startUpdate(); show("library"); }
+    return;
+  }
+  const c = e.target.closest("[data-i]"); if (!c) return;
+  const n = notices[+c.dataset.i]; if (!n) return;
+  triggerHaptic();
+  const na = e.target.closest("[data-na]");
+  if (na) {
+    if (na.dataset.na === "copy") api("/api/copy", { text: n.url }).then(() => toast("Link copied"));
+    if (na.dataset.na === "retry") api("/api/download", { url: n.url, title: n.title, thumb: n.thumb || "", site: "", quality: cfg.default_quality || "best" }).then(() => { toast("Trying again"); poll(); }).catch(err => toast(err.message));
+    return;
+  }
+  if (n.state === "done") openInAppPlayer(n.id); else show("download");
+});
+$("#nLive").addEventListener("click", e => { if (e.target.closest(".n-card")) show("download"); });
+async function openNotices() {
+  await loadNotices(); paintNotices();
   if (notices.some(n => !n.read)) { await api("/api/notices/read", {}).catch(() => {}); notices.forEach(n => { n.read = true; }); paintBell(); }
-};
+}
 
 /* ---------------- settings ---------------- */
 const QNAMES = { best: "Best available", 2160: "4K (2160p)", 1440: "1440p", 1080: "1080p", 720: "720p", 480: "480p", audio: "Audio only (MP3)" };
@@ -1198,9 +1372,6 @@ function applySettings(s) {
   });
   if ($("#setAutoDownload")) {
     $("#setAutoDownload").checked = Boolean(s.auto_download);
-  }
-  if ($("#setShareReady")) {
-    $("#setShareReady").checked = s.share_ready !== false;
   }
 }
 async function checkBatteryOpt() {
@@ -1251,17 +1422,6 @@ if ($("#setAutoDownload")) {
       applySettings(await api("/api/settings", { auto_download: e.target.checked }));
       toast(e.target.checked ? "Automatic download enabled" : "Automatic download disabled");
     } catch (err) {
-      toast("Couldn't update setting: " + err.message);
-    }
-  };
-}
-if ($("#setShareReady")) {
-  $("#setShareReady").onchange = async e => {
-    try {
-      applySettings(await api("/api/settings", { share_ready: e.target.checked }));
-      toast(e.target.checked ? "Videos will be saved share-ready (H.264)" : "Videos keep their original codec");
-    } catch (err) {
-      e.target.checked = !e.target.checked;
       toast("Couldn't update setting: " + err.message);
     }
   };
@@ -1508,7 +1668,7 @@ if (amoledToggle) {
 
 /* ---------------- 2. Menus, dialogs and the photo / video viewer ---------------- */
 const menuBackdrop = $("#menuBackdrop"), menuEl = $("#menu");
-let menuPick = null, menuResolve = null;
+let menuPick = null, menuResolve = null, promptValue = "";
 function openMenu(html, cls, onPick) {
   menuEl.className = "menu " + (cls || "");
   menuEl.innerHTML = html;
@@ -1526,7 +1686,7 @@ function closeMenu(result) {
 menuBackdrop.addEventListener("click", e => {
   if (e.target === menuBackdrop) { closeMenu(false); return; }
   const r = e.target.closest("[data-r]");
-  if (r) { closeMenu(r.dataset.r === "1"); return; }
+  if (r) { const inp = $("#dlgInput"); promptValue = inp ? inp.value : ""; closeMenu(r.dataset.r === "1"); return; }
   const k = e.target.closest("[data-k]");
   if (k) { triggerHaptic(); const pick = menuPick, key = k.dataset.k; closeMenu(false); if (pick) pick(key); }
 });
@@ -1611,10 +1771,14 @@ function showItem(i, o) {
         requestAnimationFrame(() => { if (gen === vGen) vPoster.hidden = true; });
       }).catch(() => { if (gen === vGen && !vPoster.naturalWidth) $("#vErr").hidden = false; });
     } else {
-      Object.assign(vS, { playing: true, pos: 0, dur: (e.dur || 0) * 1000, rate: 1, t0: performance.now(), muted: false, scrub: false });
-      setIco("#vPlayIco", PAUSE_P); setIco("#vVolIco", VOL_P);
+      Object.assign(vS, { playing: true, pos: 0, dur: (e.dur || 0) * 1000, rate: 1, t0: performance.now(), scrub: false });
+      setIco("#vPlayIco", PAUSE_P); setIco("#vVolIco", vS.muted ? MUTE_P : VOL_P);
       paintSeek(true);
-      const start = () => { if (Native && gen === vGen) { Native.playerOpen(e.id, k === "audio"); syncPlayerRect(); } };
+      const start = () => { if (Native && gen === vGen) {
+        Native.playerOpen(e.id, k === "audio"); if (vS.muted) Native.playerMuted(true); syncPlayerRect();
+        const saved = posMap[e.id];
+        if (saved > 5000 && (!e.dur || saved < e.dur * 1000 - 8000)) { Native.playerSeek(saved, false); vS.pos = saved; vS.t0 = performance.now(); toast("Resuming from " + longDur(saved / 1000)); }
+      } };
       if (o.delayNative) setTimeout(start, 240); else start();
       startSeekLoop();
     }
@@ -1656,6 +1820,7 @@ function openViewer(list, idx, fromRect) {
 }
 function closeViewer() {
   if (viewer.hidden || viewer.classList.contains("closing")) return false;
+  backGestureCommit();
   triggerHaptic();
   if (Native) Native.playerClose();
   const e = vCur;
@@ -1672,7 +1837,8 @@ function closeViewer() {
   vPages.style.transform = rect ? heroTransform(rect) : "scale(.92)";
   vPages.style.opacity = rect ? "1" : "0";
   setTimeout(() => {
-    viewer.hidden = true; viewer.classList.remove("closing", "hero", "hero-bars");
+    viewer.hidden = true; viewer.classList.remove("closing", "hero", "hero-bars", "back-drag");
+    viewer.style.background = ""; viewer.style.transition = "";
     vPages.style.transition = ""; vPages.style.transform = ""; vPages.style.opacity = "";
     vPhoto.removeAttribute("src"); vPoster.removeAttribute("src"); resetZoom();
     if (libDirty && curView === "library") { libDirty = false; renderLib(true); }
@@ -1684,9 +1850,10 @@ function closeViewer() {
 async function openInAppPlayer(id) {
   triggerHaptic();
   const list = await refreshHistory();
-  const one = list.find(x => x.id === id);
+  const one = list.find(x => x.id === id) || historyAll.find(x => x.id === id);
   if (!one) return toast("That file isn't there any more");
   const pool = list.filter(e => !!e.vault === !!one.vault);
+  if (!pool.includes(one)) return openViewer([one], 0);      // an MP3 opens on its own; it isn't part of the photo library
   openViewer(pool, pool.indexOf(one));
 }
 $("#playerCloseBtn").onclick = closeViewer;
@@ -1703,7 +1870,11 @@ window.orbitPlayerEvent = ev => {
   if (ev.ev === "first") { const g = vGen; requestAnimationFrame(() => requestAnimationFrame(() => { if (g === vGen && vCur && kindOf(vCur) !== "photo") vPoster.hidden = true; })); return; }
   if (ev.ev === "error") { vPoster.hidden = false; $("#vErr").hidden = false; return; }
   if (ev.ev === "state") {
-    vS.playing = ev.playing; vS.pos = ev.pos; if (ev.dur) vS.dur = ev.dur; vS.rate = ev.rate || 1; vS.t0 = performance.now();
+    vS.playing = ev.playing; vS.pos = ev.pos;
+    if (vCur && ev.dur > 60000 && kindOf(vCur) !== "photo") {
+      if (ev.ended) savePos(vCur.id, null);
+      else if (ev.pos > 5000 && performance.now() - posSavedAt > 3000) { posSavedAt = performance.now(); savePos(vCur.id, ev.pos); }
+    } if (ev.dur) vS.dur = ev.dur; vS.rate = ev.rate || 1; vS.t0 = performance.now();
     $("#vSpin").hidden = !ev.buffering;
     setIco("#vPlayIco", ev.playing || ev.buffering ? PAUSE_P : PLAY_P);
     if (ev.ended) { viewer.classList.remove("hide-ui"); setIco("#vPlayIco", PLAY_P); }
@@ -1740,7 +1911,31 @@ $("#vPlay").onclick = () => {
   if (vS.playing) { Native.playerPause(); vS.pos = curMs(); vS.playing = false; setIco("#vPlayIco", PLAY_P); }
   else { Native.playerPlay(); setIco("#vPlayIco", PAUSE_P); }
 };
-$("#vVol").onclick = () => { vS.muted = !vS.muted; if (Native) Native.playerMuted(vS.muted); setIco("#vVolIco", vS.muted ? MUTE_P : VOL_P); };
+/* Tap: mute or unmute, and show the slider. The slider sets the phone's media volume, same as the volume keys. */
+const volPop = $("#vVolPop"), volFill = $("#vVolFill");
+let volHide = 0, volDrag = false;
+const paintVol = () => {
+  const lvl = Native && Native.getMediaVolume ? Native.getMediaVolume() : 1;
+  volFill.style.transform = `scaleY(${vS.muted ? 0 : lvl})`;
+  setIco("#vVolIco", vS.muted || lvl === 0 ? MUTE_P : VOL_P);
+};
+const showVolPop = () => { paintVol(); volPop.classList.add("on"); clearTimeout(volHide); volHide = setTimeout(() => { if (!volDrag) volPop.classList.remove("on"); }, 2600); };
+$("#vVol").onclick = () => {
+  triggerHaptic();
+  vS.muted = !vS.muted;
+  if (Native) Native.playerMuted(vS.muted);
+  showVolPop();
+};
+const volAt = y => {
+  const r = volPop.getBoundingClientRect(), lvl = Math.max(0, Math.min(1, (r.bottom - 10 - y) / (r.height - 20)));
+  if (Native && Native.setMediaVolume) Native.setMediaVolume(lvl);
+  if (vS.muted && lvl > 0) { vS.muted = false; if (Native) Native.playerMuted(false); }
+  paintVol();
+};
+volPop.addEventListener("pointerdown", e => { volDrag = true; volPop.setPointerCapture(e.pointerId); volAt(e.clientY); clearTimeout(volHide); });
+volPop.addEventListener("pointermove", e => { if (volDrag) volAt(e.clientY); });
+const volEnd = () => { if (!volDrag) return; volDrag = false; showVolPop(); };
+volPop.addEventListener("pointerup", volEnd); volPop.addEventListener("pointercancel", volEnd);
 let lastScrubSend = 0;
 const seekMs = clientX => { const r = seekEl.getBoundingClientRect(); return Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * vS.dur; };
 seekEl.addEventListener("pointerdown", e => { seekEl.setPointerCapture(e.pointerId); vS.scrub = true; vS.scrubMs = seekMs(e.clientX); seekEl.classList.add("drag"); paintSeek(true); });
@@ -1784,6 +1979,7 @@ function animateTo(dx0, dy0, dx1, dy1, done) {
   requestAnimationFrame(step);
 }
 stage.addEventListener("touchstart", e => {
+  if (e.target.closest(".v-overlay") || viewer.classList.contains("editing")) { g = null; return; }     // play, volume and the seek bar are not taps on the picture
   if (e.touches.length === 2 && kindOf(vCur || {}) === "photo") { g = { pinch: true, d0: dist(e.touches), z0: zoom }; return; }
   if (e.touches.length !== 1) return;
   const t = e.touches[0];
@@ -1799,13 +1995,14 @@ stage.addEventListener("touchmove", e => {
   const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
   if (!g.mode) {
     if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-    g.mode = zoom > 1 ? "pan" : Math.abs(dx) > Math.abs(dy) ? "page" : dy > 0 ? "down" : "none";
+    g.mode = zoom > 1 ? "pan" : Math.abs(dx) > Math.abs(dy) ? "page" : dy > 0 ? "down" : "up";
   }
   if (g.mode === "pan") { panX = g.px + dx; panY = g.py + dy; clampPan(); applyZoom(); }
   else if (g.mode === "page") {
     const edge = (dx > 0 && vIdx === 0) || (dx < 0 && vIdx === vList.length - 1);
     g.dx = edge ? dx * 0.25 : dx; moveTo(g.dx, 0);
   } else if (g.mode === "down") { g.dy = dy; moveTo(0, dy); viewer.classList.add("dragging"); }
+  else if (g.mode === "up") { g.dy = dy; moveTo(0, dy * 0.3); }
 }, { passive: false });
 stage.addEventListener("touchend", e => {
   if (!g) return;
@@ -1823,28 +2020,161 @@ stage.addEventListener("touchend", e => {
   } else if (cur.mode === "down") {
     viewer.classList.remove("dragging");
     if (cur.dy > 120) closeViewer(); else animateTo(0, cur.dy, 0, 0);
+  } else if (cur.mode === "up") {
+    animateTo(0, (cur.dy || 0) * 0.3, 0, 0);
+    if ((cur.dy || 0) < -70) showDetails();
   } else if (!cur.mode) {
-    const now = performance.now();
-    if (kindOf(vCur || {}) === "photo") {
-      if (now - lastTap < 280) {
-        clearTimeout(tapTimer); lastTap = 0;
-        const img = zoomTarget(), pt = e.changedTouches[0], box = stage.getBoundingClientRect();
+    const now = performance.now(), pt = e.changedTouches[0], box = stage.getBoundingClientRect();
+    const toggle = () => { uiTouched = true; viewer.classList.toggle("hide-ui"); };
+    if (now - lastTap < 280) {
+      clearTimeout(tapTimer); lastTap = 0;
+      if (kindOf(vCur || {}) === "photo") {
+        const img = zoomTarget();
         img.classList.add("zooming"); setTimeout(() => img.classList.remove("zooming"), 230);
         if (zoom > 1) resetZoom();
         else { zoom = 2.5; panX = (box.width / 2 - (pt.clientX - box.left)) * (zoom - 1); panY = (box.height / 2 - (pt.clientY - box.top)) * (zoom - 1); clampPan(); applyZoom(); }
-      } else { lastTap = now; tapTimer = setTimeout(() => { uiTouched = true; viewer.classList.toggle("hide-ui"); }, 285); }
-    } else { uiTouched = true; viewer.classList.toggle("hide-ui"); }
+      } else {
+        const fx = (pt.clientX - box.left) / box.width;
+        if (fx < 0.4) skipBy(-10000); else if (fx > 0.6) skipBy(10000); else toggle();
+      }
+    } else { lastTap = now; tapTimer = setTimeout(toggle, 285); }
   }
 }, { passive: true });
+
+function skipBy(ms) {
+  if (!Native || !vS.dur) return;
+  triggerHaptic();
+  const to = Math.max(0, Math.min(vS.dur - 200, curMs() + ms));
+  Native.playerSeek(to, false);
+  vS.pos = to; vS.t0 = performance.now();
+  const el = $("#vSkip");
+  el.textContent = ms < 0 ? "−10 s" : "+10 s";
+  el.className = "v-skip " + (ms < 0 ? "left" : "right");
+  void el.offsetWidth; el.classList.add("on");
+  paintSeek(true);
+}
+
+/* ----- remember where you stopped in longer videos ----- */
+let posMap = {}; try { posMap = JSON.parse(localStorage.getItem("orbit_pos") || "{}"); } catch {}
+let posSavedAt = 0;
+function savePos(id, ms) {
+  if (ms === null) delete posMap[id]; else posMap[id] = Math.round(ms);
+  const keys = Object.keys(posMap); if (keys.length > 300) delete posMap[keys[0]];
+  try { localStorage.setItem("orbit_pos", JSON.stringify(posMap)); } catch {}
+}
+
+/* ----- trim ----- */
+let trim = null, trimSeekAt = 0;
+function paintTrim() {
+  const w = 100 / (vS.dur || 1);
+  $("#tStart").style.left = trim.a * w + "%"; $("#tEnd").style.left = trim.b * w + "%";
+  $("#tRange").style.left = trim.a * w + "%"; $("#tRange").style.width = (trim.b - trim.a) * w + "%";
+  $("#tInfo").textContent = `${longDur(trim.a / 1000)} – ${longDur(trim.b / 1000)}  ·  ${longDur((trim.b - trim.a) / 1000)} long`;
+}
+function openTrim() {
+  if (!vS.dur) return toast("Wait for the video to load");
+  if (Native) Native.playerPause();
+  trim = { a: 0, b: vS.dur, drag: null };
+  viewer.classList.add("editing", "trimming"); viewer.classList.remove("hide-ui");
+  paintTrim();
+}
+const closeEdit = () => { viewer.classList.remove("editing", "trimming", "cropping"); trim = null; if (crop) { vPhoto.style.transform = ""; crop = null; } };
+const tBar = $("#tBar");
+tBar.addEventListener("pointerdown", e => {
+  if (!trim) return;
+  tBar.setPointerCapture(e.pointerId);
+  const r = tBar.getBoundingClientRect(), ms = (e.clientX - r.left) / r.width * vS.dur;
+  trim.drag = Math.abs(ms - trim.a) < Math.abs(ms - trim.b) ? "a" : "b";
+});
+tBar.addEventListener("pointermove", e => {
+  if (!trim || !trim.drag) return;
+  const r = tBar.getBoundingClientRect(), ms = Math.max(0, Math.min(vS.dur, (e.clientX - r.left) / r.width * vS.dur));
+  if (trim.drag === "a") trim.a = Math.min(ms, trim.b - 1000); else trim.b = Math.max(ms, trim.a + 1000);
+  trim.a = Math.max(0, trim.a); trim.b = Math.min(vS.dur, trim.b);
+  paintTrim();
+  const now = performance.now();
+  if (Native && now - trimSeekAt > 90) { trimSeekAt = now; Native.playerSeek(trim[trim.drag], true); }
+});
+tBar.addEventListener("pointerup", () => { if (trim && trim.drag && Native) Native.playerSeek(trim[trim.drag], false); if (trim) trim.drag = null; });
+$("#tCancel").onclick = () => { closeEdit(); if (Native) Native.playerPlay(); };
+$("#tSave").onclick = async () => {
+  if (!trim || !vCur) return;
+  const e = vCur, a = Math.round(trim.a), b = Math.round(trim.b);
+  try { await api("/api/trim/" + e.id, { start: a, end: b, title: e.title || "Video" }); toast("Trimming in the background"); closeEdit(); libDirty = true; poll(); }
+  catch (err) { toast(err.message); }
+};
+
+/* ----- crop and rotate ----- */
+let crop = null;
+function cropBounds() {
+  const s = stage.getBoundingClientRect(), turned = crop.rot % 180 !== 0;
+  const w = turned ? vPhoto.naturalHeight : vPhoto.naturalWidth, h = turned ? vPhoto.naturalWidth : vPhoto.naturalHeight;
+  const k = Math.min(s.width / w, s.height / h), dw = w * k, dh = h * k;
+  return { x: (s.width - dw) / 2, y: (s.height - dh) / 2, w: dw, h: dh, k };
+}
+function paintCrop() {
+  const b = cropBounds(), s = stage.getBoundingClientRect();
+  const k0 = Math.min(s.width / vPhoto.naturalWidth, s.height / vPhoto.naturalHeight);
+  vPhoto.style.transform = crop.rot ? `rotate(${crop.rot}deg) scale(${b.k / k0})` : "";
+  const box = $("#cropBox");
+  box.style.left = b.x + crop.x * b.w + "px"; box.style.top = b.y + crop.y * b.h + "px";
+  box.style.width = crop.w * b.w + "px"; box.style.height = crop.h * b.h + "px";
+}
+function openCrop() {
+  if (vPhoto.hidden || !vPhoto.naturalWidth) return toast("Wait for the photo to load");
+  resetZoom();
+  crop = { x: 0.08, y: 0.08, w: 0.84, h: 0.84, rot: 0, drag: null };
+  viewer.classList.add("editing", "cropping"); viewer.classList.remove("hide-ui");
+  paintCrop();
+}
+const cropBox = $("#cropBox");
+cropBox.addEventListener("pointerdown", e => {
+  if (!crop) return;
+  cropBox.setPointerCapture(e.pointerId);
+  crop.drag = { h: e.target.dataset.h || "move", sx: e.clientX, sy: e.clientY, x: crop.x, y: crop.y, w: crop.w, h0: crop.h };
+});
+cropBox.addEventListener("pointermove", e => {
+  const d = crop && crop.drag; if (!d) return;
+  const b = cropBounds(), dx = (e.clientX - d.sx) / b.w, dy = (e.clientY - d.sy) / b.h, MIN = 0.08;
+  if (d.h === "move") { crop.x = Math.max(0, Math.min(1 - d.w, d.x + dx)); crop.y = Math.max(0, Math.min(1 - d.h0, d.y + dy)); }
+  else {
+    let l = d.x, t = d.y, r = d.x + d.w, bt = d.y + d.h0;
+    if (d.h.includes("l")) l = Math.max(0, Math.min(r - MIN, l + dx));
+    if (d.h.includes("r")) r = Math.min(1, Math.max(l + MIN, r + dx));
+    if (d.h.includes("t")) t = Math.max(0, Math.min(bt - MIN, t + dy));
+    if (d.h.includes("b")) bt = Math.min(1, Math.max(t + MIN, bt + dy));
+    crop.x = l; crop.y = t; crop.w = r - l; crop.h = bt - t;
+  }
+  paintCrop();
+});
+cropBox.addEventListener("pointerup", () => { if (crop) crop.drag = null; });
+$("#cRotate").onclick = () => { if (!crop) return; triggerHaptic(); crop.rot = (crop.rot + 90) % 360; crop.x = 0.08; crop.y = 0.08; crop.w = 0.84; crop.h = 0.84; paintCrop(); };
+$("#cCancel").onclick = closeEdit;
+$("#cSave").onclick = async () => {
+  if (!crop || !vCur) return;
+  const e = vCur, btn = $("#cSave");
+  btn.disabled = true;
+  try {
+    await api("/api/edit/crop", { id: e.id, title: e.title || "Photo", x: crop.x, y: crop.y, w: crop.w, h: crop.h, rot: crop.rot });
+    toast("Saved as a new photo"); closeEdit(); libDirty = true;
+    await refreshHistory();
+  } catch (err) { toast(err.message || "Couldn't save"); }
+  btn.disabled = false;
+};
 
 /* ----- bottom actions ----- */
 $("#vRestore").onclick = async () => { if (!vCur) return; const e = vCur; triggerHaptic(); if (await restoreItems([e])) afterRemoved(e.id); };
 $("#vPurge").onclick = async () => { if (!vCur) return; const e = vCur; triggerHaptic(); if (await purgeItems([e])) afterRemoved(e.id); };
-$("#vShare").onclick = async () => { if (!vCur) return; triggerHaptic(); try { await api("/api/share/" + vCur.id, {}); } catch (err) { toast(err.message || "Couldn't share"); } };
+$("#vShare").onclick = async () => { if (!vCur) return; triggerHaptic(); try { await shareChecked(vCur.id); } catch (err) { toast(err.message || "Couldn't share"); } };
 $("#vConvert").onclick = () => {
   if (!vCur) return;
-  if (kindOf(vCur) !== "video") return toast("Only videos can be converted");
-  openSheet(vCur.id, vCur.title);
+  const k = kindOf(vCur);
+  if (k === "photo") return openCrop();
+  if (k !== "video") return toast("MP3 files can't be edited here");
+  openMenu(`<div class="sheet-handle"></div><div class="m-title">Edit</div>${mi("trim", '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M8 8l12 10M8 16L20 6"/>', "Trim video")}${mi("conv", '<path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2"/><circle cx="9" cy="16" r="2"/>', "Convert or send a smaller copy")}`, "sheet-menu", key => {
+    if (key === "trim") openTrim();
+    if (key === "conv") openSheet(vCur.id, vCur.title);
+  });
 };
 function afterRemoved(id) {
   libDirty = true;
@@ -1860,7 +2190,9 @@ $("#vAddTo").onclick = () => {
   if (!vCur) return; const e = vCur;
   openMenu(`<div class="sheet-handle"></div><div class="m-title">Add to</div>
     ${mi("fav", ICO.star, favs.has(e.id) ? "Remove from favorites" : "Favorites")}
+    ${mi("album", '<rect x="3" y="5" width="18" height="15" rx="3"/><path d="M7 2.5h10"/>', "Album")}
     ${mi("vault", ICO.lock, e.vault ? "Restore to gallery" : "Private vault")}`, "sheet-menu", k => {
+    if (k === "album") addToAlbumMenu([e.id]);
     if (k === "fav") { favs.has(e.id) ? favs.delete(e.id) : favs.add(e.id); saveFavs(); paintFav(); libDirty = true; toast(favs.has(e.id) ? "Added to favorites" : "Removed from favorites"); }
     if (k === "vault") vaultToggle(e);
   });
@@ -1886,10 +2218,14 @@ $("#vMore").onclick = () => {
   openMenu(`<div class="pop-list">
     ${mi("info", ICO.info, "Details")}
     ${k !== "photo" ? mi("speed", ICO.speed, "Playback speed") : ""}
+    ${k === "video" && Native && Native.playerPip ? mi("pip", '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1"/>', "Small window") : ""}
+    ${e.url ? mi("copy", '<path d="M9 9h11v11H9zM5 15V4h11"/>', "Copy link") : ""}
     ${mi("open", ICO.open, "Open with another app")}
     ${e.url ? mi("again", ICO.redo, "Download again") : ""}
     ${mi("vault", ICO.lock, e.vault ? "Restore to gallery" : "Move to private vault")}</div>`, "pop", key => {
     if (key === "info") showDetails();
+    if (key === "pip") Native.playerPip();
+    if (key === "copy") api("/api/copy", { text: e.url }).then(() => toast("Link copied"));
     if (key === "speed") openMenu(`<div class="sheet-handle"></div><div class="m-title">Playback speed</div>${[0.5, 1, 1.25, 1.5, 2].map(s => `<button type="button" class="m-item ${vS.rate === s ? "cur" : ""}" data-k="${s}">${s === 1 ? "Normal" : s + "x"}</button>`).join("")}`, "sheet-menu", v => { vS.pos = curMs(); vS.t0 = performance.now(); vS.rate = +v; if (Native) Native.playerRate(+v); toast("Speed " + v + "x"); });
     if (key === "open") api("/api/open/" + e.id, {}).catch(err => toast(err.message || "Couldn't open"));
     if (key === "again") { closeViewer(); show("download"); urlEl.value = e.url; fetchInfo(); }
@@ -1900,14 +2236,112 @@ $("#vMore").onclick = () => {
 /* the Android back button / swipe-back goes through here first */
 window.orbitBack = () => {
   if (!menuBackdrop.hidden) { closeMenu(false); return true; }
+  if (viewer.classList.contains("editing")) { const wasTrim = !!trim; closeEdit(); if (wasTrim && Native) Native.playerPlay(); return true; }
   if (!$("#sheet").hidden) { closeSheet(); return true; }
   if (!viewer.hidden) { closeViewer(); return true; }
   if (selMode) { exitSelect(); return true; }
-  if (curView === "photosview") { show(pvFrom); return true; }
-  if (curView === "settings" || curView === "search") { show(lastTab); return true; }
-  if (curView === "library" && libFilter.type !== "all") { $("#filterBack").click(); return true; }
-  if (curView !== "library") { show("library"); return true; }
+  if (curView === "photosview") { backFade(() => show(pvFrom)); return true; }
+  if (curView === "settings" || curView === "search" || curView === "notices") { backFade(() => show(lastTab)); return true; }
+  if (curView === "library" && libFilter.type !== "all") { backFade(() => $("#filterBack").click()); return true; }
+  if (curView !== "library") { backFade(() => show("library")); return true; }
   return false;
+};
+
+/* Going back between pages fades through, as Google Photos does: the old page goes quickly, the new one comes in. */
+function backFade(go) {
+  const old = $(".view.on");
+  if (!old || calmMotion) { go(); return; }
+  old.style.transition = "opacity 75ms linear"; old.style.opacity = "0";
+  setTimeout(() => {
+    old.style.transition = ""; old.style.opacity = "";
+    go();
+    const now = $(".view.on");
+    if (now && now.animate) now.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 170, easing: "ease-out" });
+  }, 75);
+}
+
+/* Android only offers its back-to-home preview when the app has nothing left to close. */
+const canGoBack = () => !menuBackdrop.hidden || !$("#sheet").hidden || !viewer.hidden || selMode || curView !== "library" || libFilter.type !== "all";
+let backEnabled = null;
+function syncBack() {
+  const on = canGoBack();
+  if (on !== backEnabled && Native && Native.setBackEnabled) { backEnabled = on; Native.setBackEnabled(on); }
+}
+new MutationObserver(syncBack).observe(document.body, { attributes: true, attributeFilter: ["class", "data-view"] });
+[viewer, $("#sheet"), menuBackdrop, $("#filterBar")].forEach(el => new MutationObserver(syncBack).observe(el, { attributes: true, attributeFilter: ["hidden"] }));
+syncBack();
+
+/* The viewer follows the back swipe: the picture shrinks and slides with the finger while the page shows through behind it. */
+let backDrag = null, backDragAnim = 0;
+const vTopEl = $("#vTop"), vBottomEl = $("#vBottom");
+function backDragPaint(p) {
+  if (!backDrag || !backDrag.shown) return;
+  const s = 1 - 0.34 * p, dx = backDrag.dir * 0.125 * p * innerWidth, a = Math.max(0, 0.95 - 1.6 * p);
+  vPages.style.transform = `translate3d(${dx}px,0,0) scale(${s})`;
+  viewer.style.background = `rgba(0,0,0,${a})`;
+  vTopEl.style.opacity = vBottomEl.style.opacity = String(a);
+}
+function backDragReveal() {
+  backDrag.shown = true;
+  viewer.classList.add("back-drag");
+  document.body.classList.remove("viewing"); document.documentElement.classList.remove("viewing");
+  vPages.style.willChange = "transform";
+}
+function backDragClear() {
+  viewer.classList.remove("back-drag");
+  viewer.style.background = "";
+  vTopEl.style.opacity = vBottomEl.style.opacity = "";
+  vPages.style.transform = ""; vPages.style.willChange = "";
+}
+function backGestureCommit() {
+  backDragAnim++;
+  const b = backDrag; backDrag = null;
+  if (!b || !b.shown) return;
+  vTopEl.style.opacity = vBottomEl.style.opacity = "";
+  viewer.style.transition = "background .2s";
+  viewer.style.background = "rgba(0,0,0,0)";
+}
+window.orbitBackSnap = url => {
+  if (!backDrag || backDrag.kind !== "video" || backDrag.shown || !url) return;
+  vPoster.src = url; vPoster.hidden = false;
+  const go = () => { if (backDrag && !backDrag.shown) { backDragReveal(); backDragPaint(backDrag.p); } };
+  if (vPoster.decode) vPoster.decode().then(go, go); else go();
+};
+window.orbitBackGesture = (phase, p, edge) => {
+  if (phase === "start") {
+    backDragAnim++; backDrag = null;
+    if (viewer.hidden || viewer.classList.contains("closing") || viewer.classList.contains("editing") || !menuBackdrop.hidden || !$("#sheet").hidden || !vCur) return;
+    const kind = kindOf(vCur);
+    backDrag = { dir: edge === 1 ? -1 : 1, p: p || 0, shown: false, kind, playing: false };
+    if (kind === "video" && Native && isPlayable(vCur)) {
+      backDrag.playing = vS.playing;
+      if (vS.playing) Native.playerPause();
+      Native.playerSnapshot();
+    } else { backDragReveal(); backDragPaint(backDrag.p); }
+  } else if (phase === "move") {
+    if (backDrag) { backDrag.p = p; backDragPaint(p); }
+  } else if (phase === "cancel") {
+    const b = backDrag; if (!b) return;
+    const finish = () => {
+      if (backDrag !== b) return;
+      backDrag = null;
+      if (b.shown) {
+        backDragClear();
+        document.body.classList.add("viewing"); document.documentElement.classList.add("viewing");
+        if (b.kind === "video") vPoster.hidden = true;
+      }
+      if (b.playing && Native) Native.playerPlay();
+    };
+    if (!b.shown) { finish(); return; }
+    const token = ++backDragAnim, from = b.p, t0 = performance.now();
+    const step = now => {
+      if (token !== backDragAnim) return;
+      const t = Math.min(1, (now - t0) / 180), e = 1 - Math.pow(1 - t, 3);
+      backDragPaint(from * (1 - e));
+      if (t < 1) requestAnimationFrame(step); else finish();
+    };
+    requestAnimationFrame(step);
+  }
 };
 
 /* ---------------- 4. Private Vault (PIN Locked + .nomedia) ---------------- */
@@ -1922,27 +2356,47 @@ function updateVaultPinDots() {
   }
 }
 
-function checkVaultPin() {
-  const savedPin = localStorage.getItem("orbit_vault_pin");
-  if (!savedPin) {
-    // First time setup
-    localStorage.setItem("orbit_vault_pin", vaultEnteredPin);
-    vaultUnlocked = true;
-    toast("Vault PIN created successfully!");
-    vaultEnteredPin = "";
-    updateVaultPinDots();
-    loadLib();
-  } else if (vaultEnteredPin === savedPin) {
-    vaultUnlocked = true;
-    toast("Private Vault unlocked");
-    vaultEnteredPin = "";
-    updateVaultPinDots();
-    loadLib();
-  } else {
-    toast("Incorrect PIN. Please try again.");
-    vaultEnteredPin = "";
-    updateVaultPinDots();
+/* The PIN lives in Android as a salted hash. Fingerprint or the phone's own lock opens the vault and resets a forgotten PIN. */
+let vaultHasPin = false, vaultCanAuth = false, vaultNewPin = "", vaultAskedAuth = false;
+async function refreshVaultState() {
+  try {
+    let s = await api("/api/vault/pin/status");
+    let old = null; try { old = localStorage.getItem("orbit_vault_pin"); } catch {}
+    if (old) {
+      if (!s.hasPin) { await api("/api/vault/pin/set", { pin: old }); s = await api("/api/vault/pin/status"); }
+      try { localStorage.removeItem("orbit_vault_pin"); } catch {}
+    }
+    vaultHasPin = !!s.hasPin; vaultCanAuth = !!s.auth;
+  } catch {}
+}
+function paintVaultLock() {
+  const creating = !vaultHasPin || vaultResetting;
+  $("#vaultLockTitle").textContent = creating ? (vaultNewPin ? "Enter the PIN again" : "Choose a vault PIN") : "Private vault";
+  $("#vaultLockDesc").textContent = creating ? "Pick 4 digits. Vault items are hidden from the phone gallery." : "Enter your PIN, or use your fingerprint.";
+  $("#vaultBio").hidden = creating || !vaultCanAuth;
+  $("#vaultForgot").hidden = creating || !vaultCanAuth;
+}
+let vaultResetting = false;
+function vaultOpened() { vaultEnteredPin = ""; updateVaultPinDots(); vaultUnlocked = true; vaultResetting = false; vaultNewPin = ""; vaultAskedAuth = false; loadLib(); }
+window.onVaultAuth = (ok, purpose) => {
+  if (!ok) return;
+  if (purpose === "reset") { vaultResetting = true; vaultNewPin = ""; vaultEnteredPin = ""; updateVaultPinDots(); paintVaultLock(); toast("Choose a new PIN"); }
+  else { toast("Private Vault unlocked"); vaultOpened(); }
+};
+$("#vaultBio").onclick = () => { triggerHaptic(); api("/api/vault/auth", { purpose: "unlock" }).catch(() => {}); };
+$("#vaultForgot").onclick = () => { triggerHaptic(); api("/api/vault/auth", { purpose: "reset" }).catch(() => {}); };
+async function checkVaultPin() {
+  const pin = vaultEnteredPin;
+  vaultEnteredPin = ""; updateVaultPinDots();
+  if (!vaultHasPin || vaultResetting) {
+    if (!vaultNewPin) { vaultNewPin = pin; paintVaultLock(); return; }
+    if (vaultNewPin !== pin) { vaultNewPin = ""; paintVaultLock(); toast("Those didn't match. Try again."); return; }
+    try { await api("/api/vault/pin/set", { pin }); vaultHasPin = true; toast("Vault PIN saved"); vaultOpened(); } catch (err) { toast(err.message); }
+    return;
   }
+  const r = await api("/api/vault/pin/verify", { pin }).catch(() => ({ ok: false }));
+  if (r.ok) { toast("Private Vault unlocked"); vaultOpened(); }
+  else toast(r.wait ? `Too many tries. Wait ${r.wait} seconds.` : "Incorrect PIN");
 }
 
 $("#pinPad")?.addEventListener("click", e => {
@@ -2029,7 +2483,18 @@ async function runSearch(query) {
   }
 }
 
-searchForm?.addEventListener("submit", e => { e.preventDefault(); triggerHaptic(); if (aiMode) aiSend(searchInput.value); else runSearch(searchInput.value); });
+searchForm?.addEventListener("submit", e => { e.preventDefault(); triggerHaptic(); if (libMode) { searchInput.blur(); runLibSearch(); } else if (aiMode) aiSend(searchInput.value); else runSearch(searchInput.value); });
+let libSearchSet = [], libSearchT = 0;
+function runLibSearch() {
+  const box = $("#libResults"), words = searchInput.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) { box.innerHTML = '<p class="lib-hint">Type a title or a source, like TikTok.</p>'; return; }
+  libSearchSet = libAll.filter(e => !e.vault && words.every(w => (String(e.title || "") + " " + siteOf(e)).toLowerCase().includes(w))).slice(0, 120);
+  box.innerHTML = libSearchSet.length
+    ? `<p class="lib-hint">${libSearchSet.length} result${libSearchSet.length === 1 ? "" : "s"}</p><div class="lib-grid">` + libSearchSet.map((e, i) => `<button type="button" class="lib-hit" data-i="${i}">${thumbBox(e, 360)}<span>${esc(e.title || "")}</span></button>`).join("") + "</div>"
+    : '<p class="lib-hint">Nothing in your downloads matches that.</p>';
+}
+searchInput?.addEventListener("input", () => { if (!libMode) return; clearTimeout(libSearchT); libSearchT = setTimeout(runLibSearch, 140); });
+$("#libResults").addEventListener("click", e => { const b = e.target.closest(".lib-hit"); if (b) { triggerHaptic(); openViewer(libSearchSet, +b.dataset.i, b.getBoundingClientRect()); } });
 $("#searchChips")?.addEventListener("click", e => {
   const c = e.target.closest(".chip");
   if (c) { triggerHaptic(); if (aiMode) aiSend(c.dataset.q); else runSearch(c.dataset.q); }
@@ -2061,11 +2526,18 @@ searchResults?.addEventListener("click", onResultClick);
 $("#aiThread").addEventListener("click", onResultClick);
 
 /* ---------------- AI helper: Gemini turns your words into searches; every result is a real YouTube hit ---------------- */
-let aiMode = false, aiHasKey = false, aiModel = "", aiBusy = false, aiHistory = [], aiLibSets = [];
+let libMode = false, aiMode = false, aiHasKey = false, aiModel = "", aiBusy = false, aiHistory = [], aiLibSets = [];
 const SPARK = '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg>';
 function paintSearchMode() {
-  $$("#searchSeg button").forEach(b => b.classList.toggle("on", (b.dataset.mode === "ai") === aiMode));
-  $("#searchInput").placeholder = aiMode ? "Search or ask" : "Search YouTube";
+  $$("#searchSeg button").forEach(b => b.classList.toggle("on", b.dataset.mode === (libMode ? "library" : aiMode ? "ai" : "search")));
+  $("#searchInput").placeholder = libMode ? "Search your downloads" : aiMode ? "Search or ask" : "Search YouTube";
+  $("#libResults").hidden = !libMode;
+  if (libMode) {
+    $("#aiNoKey").hidden = true; $("#aiThread").hidden = true; $("#searchResults").hidden = true; $("#searchForm").hidden = false;
+    $("#searchChips").hidden = true; $("#tryLabel").hidden = true; $("#searchEmpty").hidden = true; $("#searchSkeleton").hidden = true;
+    runLibSearch();
+    return;
+  }
   $("#tryLabel").textContent = aiMode ? "Try asking" : "Try searching";
   const needKey = aiMode && !aiHasKey;
   $("#aiNoKey").hidden = !needKey;
@@ -2077,13 +2549,14 @@ function paintSearchMode() {
   $("#searchSkeleton").hidden = true;
 }
 async function refreshAiStatus() {
-  try { const s = await api("/api/ai/status"); aiHasKey = !!s.hasKey; aiModel = s.model || ""; } catch {}
-  $("#aiKeyInfo").textContent = aiHasKey ? `Added · ${aiModel || "ready"} · stored only on this phone` : "Not added. Needed for Ask AI.";
+  let own = false, shared = false;
+  try { const s = await api("/api/ai/status"); aiHasKey = !!s.hasKey; aiModel = s.model || ""; own = !!s.ownKey; shared = !!s.shared; } catch {}
+  $("#aiKeyInfo").textContent = own ? `Added · ${aiModel || "ready"} · stored only on this phone` : shared ? "Using Orbit's shared AI. Add your own key to avoid the daily limit." : "Not added. Needed for Ask AI.";
   paintSearchMode();
 }
 $("#searchSeg").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
-  triggerHaptic(); aiMode = b.dataset.mode === "ai"; paintSearchMode();
+  triggerHaptic(); libMode = b.dataset.mode === "library"; aiMode = b.dataset.mode === "ai"; paintSearchMode();
   try { localStorage.setItem("orbit_search_mode", b.dataset.mode); } catch {}
 });
 function openAiKeySheet() {
@@ -2106,6 +2579,18 @@ function openAiKeySheet() {
   const rm = $("#aiKeyRemove");
   if (rm) rm.onclick = async () => { await api("/api/ai/key/remove", {}); closeMenu(false); await refreshAiStatus(); toast("Gemini key removed"); };
 }
+let aiLibOn = true; try { aiLibOn = localStorage.getItem("orbit_ai_lib") !== "false"; } catch {}
+$("#setAiLib").checked = aiLibOn;
+$("#setAiLib").onchange = e => { aiLibOn = e.target.checked; triggerHaptic(); try { localStorage.setItem("orbit_ai_lib", aiLibOn); } catch {} };
+$("#rowAccounts").onclick = async () => {
+  triggerHaptic();
+  const sites = (await api("/api/accounts").catch(() => ({ sites: [] }))).sites || [];
+  openMenu(`<div class="sheet-handle"></div><div class="m-title">Site accounts</div><p class="ai-key-note">Sign in with your own account to download what it can see. Passwords go only to the site. Orbit keeps the login cookies privately on this phone and uses them only for downloads.</p>${sites.map(s => `<button type="button" class="m-item acct" data-k="${s.signedIn ? "out" : "in"}:${s.key}"><span class="acct-name">${esc(s.name)}</span><span class="acct-state ${s.signedIn ? "on" : ""}">${s.signedIn ? "Signed in · Sign out" : "Sign in"}</span></button>`).join("")}`, "sheet-menu", async k => {
+    const [act, key] = k.split(":");
+    if (act === "in") await api("/api/accounts/signin", { key }).catch(err => toast(err.message));
+    if (act === "out") { await api("/api/accounts/signout", { key }).catch(err => toast(err.message)); toast("Signed out"); }
+  });
+};
 $("#rowAiKey").onclick = openAiKeySheet; $("#aiAddKey").onclick = openAiKeySheet;
 function aiAdd(html, cls) {
   const d = document.createElement("div"); d.className = "ai-msg " + cls; d.innerHTML = html;
@@ -2122,14 +2607,16 @@ async function aiSend(text) {
   const wait = aiAdd(`<span class="ai-spark">${SPARK}</span><span class="ai-dots"><i></i><i></i><i></i></span>`, "ai");
   aiHistory.push({ role: "user", text: q });
   try {
-    const r = await api("/api/ai/chat", { messages: aiHistory.slice(-10) });
+    const pool = libAll.filter(e => !e.vault).slice(0, 250);
+    const r = await api("/api/ai/chat", { messages: aiHistory.slice(-10), library: aiLibOn ? pool.map(e => `${e.title || ""} (${siteOf(e)})`) : [] });
     aiHistory.push({ role: "model", text: r.reply || "" });
     wait.innerHTML = `<span class="ai-spark">${SPARK}</span><div class="ai-text">${esc(r.reply || "")}</div>`;
     const kw = (r.keywords || []).map(k => String(k).toLowerCase()).filter(k => k.length > 2);
-    const local = kw.length ? libAll.filter(e => !e.vault && kw.some(k => String(e.title || "").toLowerCase().includes(k))).slice(0, 10) : [];
+    const byNumber = aiLibOn ? (r.matches || []).map(n => pool[n]).filter(Boolean) : [];
+    const local = (byNumber.length ? byNumber : kw.length ? libAll.filter(e => !e.vault && kw.some(k => String(e.title || "").toLowerCase().includes(k))) : []).slice(0, 12);
     if (local.length) {
       aiLibSets.push(local);
-      aiAdd(`<h4 class="ai-sub">Already on this phone</h4><div class="hrail ai-lib">${local.map((e, i) => `<button type="button" class="ai-thumb" data-set="${aiLibSets.length - 1}" data-i="${i}">${thumbBox(e, 384)}</button>`).join("")}</div>`, "block");
+      aiAdd(`<h4 class="ai-sub">Already in your downloads</h4><div class="hrail ai-lib">${local.map((e, i) => `<button type="button" class="ai-thumb" data-set="${aiLibSets.length - 1}" data-i="${i}">${thumbBox(e, 384)}</button>`).join("")}</div>`, "block");
     }
     const list = r.results || [];
     if (list.length) aiAdd(`<h4 class="ai-sub">From YouTube</h4><ul class="search-results flush">${list.map(srCardHtml).join("")}</ul>`, "block");
@@ -2147,9 +2634,23 @@ $("#aiThread").addEventListener("click", e => {
 
 /* ---------------- 6. Share & convert sheet ---------------- */
 const sheet = $("#sheet");
+wirePlaylist();
 function closeSheet() { sheet.hidden = true; $("#sheetBody").innerHTML = ""; }
 $("#sheetClose").addEventListener("click", closeSheet);
 sheet.addEventListener("click", e => { if (e.target === sheet) closeSheet(); });
+
+/* Full-quality files can be VP9, AV1 or HEVC, which some apps can't play. Offer a compatible copy only when it matters. */
+async function shareChecked(id) {
+  const item = libAll.find(x => x.id === id) || (await refreshHistory()).find(x => x.id === id);
+  if (!item || kindOf(item) !== "video" || item.share_ready !== false || !item.codec) return api("/api/share/" + id, {});
+  const what = [item.codec, item.height ? item.height + "p" : ""].filter(Boolean).join(" · ");
+  openMenu(`<div class="sheet-handle"></div><div class="m-title">${esc(what)}</div><p class="ai-key-note">Some apps, like WhatsApp, may not play this format.</p>${mi("orig", ICO.share || '<path d="M12 3v12M8 7l4-4 4 4M5 13v7h14v-7"/>', "Send the original")}${mi("copy", '<path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2"/><circle cx="9" cy="16" r="2"/>', "Make a copy that plays everywhere")}`, "sheet-menu", async k => {
+    try {
+      if (k === "orig") await api("/api/share/" + id, {});
+      if (k === "copy") { await api("/api/convert/" + id, { mode: "share", title: item.title || "" }); toast("Making a copy in the background. Your original stays as it is."); poll(); }
+    } catch (err) { toast(err.message || "That didn't work"); }
+  });
+}
 
 async function openSheet(id, title) {
   triggerHaptic();
@@ -2201,7 +2702,7 @@ $("#sheetBody").addEventListener("click", async e => {
       await api("/api/share/" + id, app.dataset.pkg ? { pkg: app.dataset.pkg } : {});
     } else if (opt && !opt.disabled) {
       closeSheet();
-      await api("/api/convert/" + id, { mode: opt.dataset.mode });
+      await api("/api/convert/" + id, { mode: opt.dataset.mode, title: (libAll.find(e => e.id === id) || {}).title || "" });
       toast("Converting in the background");
       show("download");
       poll();
@@ -2241,6 +2742,8 @@ function boot() {
   if (params.has("shot")) removeEventListener("focus", checkClip);
   if (["#library", "#settings", "#collections"].includes(location.hash)) show(location.hash.slice(1));
   aiMode = (() => { try { return localStorage.getItem("orbit_search_mode") !== "search"; } catch { return true; } })();
+  try { if (localStorage.getItem("orbit_search_mode") === "library") { libMode = true; aiMode = false; } } catch {}
+  refreshVaultState(); loadAlbums();
   refreshAiStatus();
   moveDockInd();
   loadNotices();

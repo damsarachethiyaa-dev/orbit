@@ -1,0 +1,12 @@
+name = "orbit-ai-proxy"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+DAILY_PER_INSTALL = "20"
+DAILY_TOTAL = "1000"
+MODELS = "gemini-3.8-flash,gemini-3.6-flash"
+
+[[kv_namespaces]]
+binding = "LIMITS"
+id = "PUT_YOUR_KV_ID_HERE"

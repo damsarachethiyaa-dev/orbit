@@ -149,7 +149,49 @@ class OrbitPlayer(private val activity: MainActivity, private val root: FrameLay
         view?.translationY = dy
     }
 
+    /** The frame on screen as an image, so the back gesture can shrink it over the page above the video surface. */
+    @OptIn(UnstableApi::class)
+    fun snapshot(done: (String?) -> Unit) {
+        val surface = view?.videoSurfaceView as? android.view.SurfaceView
+        if (surface == null || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O ||
+            !surface.holder.surface.isValid || surface.width <= 0 || surface.height <= 0) { done(null); return }
+        val scale = minOf(1f, 1080f / surface.width)
+        val bmp = android.graphics.Bitmap.createBitmap((surface.width * scale).toInt().coerceAtLeast(1), (surface.height * scale).toInt().coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888)
+        val main = Handler(Looper.getMainLooper())
+        android.view.PixelCopy.request(surface, bmp, { result ->
+            if (result != android.view.PixelCopy.SUCCESS) { done(null); return@request }
+            Thread {
+                val out = java.io.ByteArrayOutputStream()
+                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, out)
+                val url = "data:image/jpeg;base64," + android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+                main.post { done(url) }
+            }.start()
+        }, main)
+    }
+
     fun onHostStopped() { player?.pause() }
+
+    fun isPlayingVideo(): Boolean = player?.isPlaying == true && view?.visibility == View.VISIBLE
+
+    fun aspect(): android.util.Rational? {
+        val s = player?.videoSize ?: return null
+        if (s.width <= 0 || s.height <= 0) return null
+        val r = s.width.toFloat() / s.height
+        return when {
+            r > 2.39f -> android.util.Rational(239, 100)
+            r < 0.42f -> android.util.Rational(100, 239)
+            else -> android.util.Rational(s.width, s.height)
+        }
+    }
+
+    private var savedLp: Pair<Int, Int>? = null
+    /** In the picture-in-picture window the video fills everything. */
+    fun fillWindow() {
+        val v = view ?: return
+        val lp = v.layoutParams as FrameLayout.LayoutParams
+        lp.leftMargin = 0; lp.topMargin = 0; lp.width = ViewGroup.LayoutParams.MATCH_PARENT; lp.height = ViewGroup.LayoutParams.MATCH_PARENT
+        v.layoutParams = lp
+    }
 
     fun release() {
         main.removeCallbacks(ticker)

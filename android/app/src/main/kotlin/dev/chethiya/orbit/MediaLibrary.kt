@@ -24,6 +24,10 @@ object MediaLibrary {
     private const val THUMB_CACHE_MAX = 768
     private val durations = ConcurrentHashMap<String, Long>()
 
+    /** Orbit saves to Movies/Orbit, Pictures/Orbit and (older versions) Download/Orbit. Nothing else on the phone is shown. */
+    private val ORBIT_ONLY = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?" else "${MediaStore.MediaColumns.DATA} LIKE ?"
+    private val ORBIT_ARGS = arrayOf("%Orbit/%")
+
     fun isDeviceId(id: String) = id.startsWith("m_i_") || id.startsWith("m_v_")
 
     fun deviceUri(id: String): Uri? {
@@ -59,7 +63,7 @@ object MediaLibrary {
             cols.add(if (video) MediaStore.Video.Media.DATE_TAKEN else MediaStore.Images.Media.DATE_TAKEN)
             cols.add(if (video) MediaStore.Video.Media.BUCKET_DISPLAY_NAME else MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
             if (video) cols.add(MediaStore.Video.Media.DURATION)
-            context.contentResolver.query(uri, cols.toTypedArray(), null, null, null)?.use { c ->
+            context.contentResolver.query(uri, cols.toTypedArray(), ORBIT_ONLY, ORBIT_ARGS, null)?.use { c ->
                 while (c.moveToNext()) {
                     val rawId = c.getLong(0)
                     val id = prefix + rawId
@@ -98,7 +102,11 @@ object MediaLibrary {
                 MediaStore.MediaColumns.BUCKET_DISPLAY_NAME, MediaStore.MediaColumns.DATE_TAKEN
             )
             if (video) cols.add(MediaStore.Video.Media.DURATION)
-            val args = android.os.Bundle().apply { putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY) }
+            val args = android.os.Bundle().apply {
+                putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY)
+                putString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION, ORBIT_ONLY)
+                putStringArray(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, ORBIT_ARGS)
+            }
             context.contentResolver.query(uri, cols.toTypedArray(), args, null)?.use { c ->
                 while (c.moveToNext()) {
                     val expires = c.getLong(2)

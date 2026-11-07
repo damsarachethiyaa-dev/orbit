@@ -50,10 +50,12 @@ object MediaTools {
 
     private fun prepare(context: Context, args: List<String>): ProcessBuilder? {
         val bin = ffmpegBinary(context) ?: return null
-        val libDir = File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/lib")
+        val packages = File(context.noBackupFilesDir, "youtubedl-android/packages")
+        // libc++_shared.so ships in the python package, the FFmpeg libraries in their own.
+        val libDir = listOf("ffmpeg", "python").joinToString(":") { File(packages, "$it/usr/lib").absolutePath }
         return ProcessBuilder(listOf(bin.absolutePath) + args).apply {
             redirectErrorStream(true)
-            environment()["LD_LIBRARY_PATH"] = libDir.absolutePath
+            environment()["LD_LIBRARY_PATH"] = libDir
             environment()["TMPDIR"] = context.cacheDir.absolutePath
         }
     }
@@ -70,6 +72,19 @@ object MediaTools {
             }
         }
         return false
+    }
+
+    /** Cuts without re-encoding, so it is quick and lossless. Cut points land on the nearest keyframe. */
+    fun trim(context: Context, input: File, output: File, startMs: Long, endMs: Long): Boolean {
+        return try {
+            val args = listOf("-hide_banner", "-y", "-ss", "%.3f".format(Locale.ROOT, startMs / 1000.0), "-to", "%.3f".format(Locale.ROOT, endMs / 1000.0),
+                "-i", input.absolutePath, "-map", "0", "-c", "copy", "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", output.absolutePath)
+            val proc = prepare(context, args)?.start() ?: return false
+            val log = proc.inputStream.bufferedReader().use { it.readText() }
+            val ok = waitFor(proc, 300_000) && proc.exitValue() == 0 && output.length() > 0
+            if (!ok) android.util.Log.w("OrbitTrim", log.takeLast(1200))
+            ok
+        } catch (e: Exception) { android.util.Log.w("OrbitTrim", e); false }
     }
 
     fun ffmpegVersion(context: Context): String {

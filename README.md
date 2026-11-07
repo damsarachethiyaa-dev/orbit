@@ -81,7 +81,7 @@ Experience the full interactive editorial website, live 4K walkthrough player, p
 - **📁 Local-First Media Library:** Automatically catalogs your finished downloads with thumbnails. One click to play or reveal directly in Windows Explorer.
 - **🔒 Private by design:** No sign-ups, no accounts, no telemetry and no ads. Orbit only contacts the sites you download from and GitHub (to check for updates).
 
-### 📱 Android (v1.0.20)
+### 📱 Android ([latest APK](https://github.com/damsarachethiyaa-dev/orbit/releases/latest/download/Orbit.apk))
 
 - **Share-ready by default:** videos are saved as H.264 + AAC MP4. Orbit reads each file with FFmpeg and records its real codec, so the Library shows what you actually have (for example `1080p · H.264 · Share-ready`).
 - **Share sheet:** send straight to WeChat, WhatsApp or Telegram (shown only if installed), or convert a copy: *share-ready* (same resolution) or *smaller for chats* (up to 720p).
