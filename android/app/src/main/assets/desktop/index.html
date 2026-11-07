@@ -31,6 +31,7 @@
       <b class="sel-count" id="selCount">1 selected</b>
       <span class="tb-gap"></span>
       <button type="button" class="tb-btn" id="selShare" aria-label="Share"><svg viewBox="0 0 24 24" class="fill"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg></button>
+      <button type="button" class="tb-btn" id="selAlbum" aria-label="Add to album"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
       <button type="button" class="tb-btn" id="selVault" aria-label="Vault"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
       <button type="button" class="tb-btn" id="selDelete" aria-label="Delete"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
     </div>
@@ -133,6 +134,7 @@
           </div>
           <h2 id="pTitle"></h2>
           <p class="p-sub" id="pSub"></p>
+          <div class="p-pick" id="pPick" hidden></div>
           <div class="p-opts">
             <div class="seg" id="seg" role="tablist">
               <button type="button" class="on" data-kind="video">
@@ -153,11 +155,7 @@
               <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>
             </button>
           </div>
-          <label class="share-toggle" id="shareRow">
-            <input type="checkbox" id="shareReady" checked>
-            <span class="share-box" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
-            <span class="share-copy"><b>Share-ready MP4</b><small id="shareHint">H.264 + AAC. Plays in WeChat, WhatsApp and Telegram.</small></span>
-          </label>
+          <p class="quality-hint" id="qualityHint">Saved at the quality you pick, without re-compressing.</p>
         </div>
       </article>
 
@@ -186,6 +184,7 @@
         <div class="search-seg" id="searchSeg" role="tablist">
         <button type="button" data-mode="ai"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg><span>Ask AI</span></button>
         <button type="button" data-mode="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span>YouTube</span></button>
+        <button type="button" data-mode="library"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="9" r="1.7"/><path d="M21 16l-5.5-5.5L5 21"/></svg><span>Library</span></button>
         </div>
       </div>
       <h4 class="try-label" id="tryLabel">Try asking</h4>
@@ -207,6 +206,7 @@
         <div class="s-lines"><i></i><i></i><i></i></div>
       </div>
       <ul class="search-results" id="searchResults"></ul>
+      <div class="lib-results" id="libResults" hidden></div>
       <div class="empty" id="searchEmpty">
         <div class="orb">
           <span class="logo big"><svg viewBox="0 0 54 54" fill="none"><path d="M47.47 25.93A20.5 20.5 0 1 1 28.07 6.53" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><circle class="orbit-core" cx="27" cy="27" r="4"/></svg><i class="logo-spin"><b></b></i></span>
@@ -226,6 +226,7 @@
         <button type="button" class="tb-btn" id="filterBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M19 12H5m6-7l-7 7 7 7"/></svg></button>
         <div class="fb-copy"><b id="filterTitle">Album</b><span id="libCount">0 items</span></div>
         <button type="button" class="pill-btn danger" id="libClear" hidden>Clear list</button>
+        <button type="button" class="tb-btn" id="albumMenu" hidden aria-label="Album options"><svg viewBox="0 0 24 24" class="fill"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button>
       </div>
 
       <div class="perm-card" id="permCard" hidden>
@@ -262,6 +263,10 @@
           <button class="pin-num" data-n="0">0</button>
           <button class="pin-num small" data-n="X">&#9003;</button>
         </div>
+        <div class="vault-extra">
+          <button type="button" class="ghost-btn" id="vaultBio" hidden>Use fingerprint</button>
+          <button type="button" class="link-btn" id="vaultForgot" hidden>Forgot PIN?</button>
+        </div>
       </div>
 
       <ul class="pgrid" id="lib"></ul>
@@ -284,9 +289,9 @@
           <span class="pin-circle"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></span>
           <span class="pin-label">Favorites</span>
         </button>
-        <button type="button" class="pin-tile" id="pinShots" data-f="bucket" data-v="Screenshots">
-          <span class="pin-circle"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M9 8V6h2M15 16v2h-2"/></svg></span>
-          <span class="pin-label">Screenshots</span>
+        <button type="button" class="pin-tile" data-filter="video">
+          <span class="pin-circle"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5l5 2.5-5 2.5z"/></svg></span>
+          <span class="pin-label">Videos</span>
         </button>
         <button type="button" class="pin-tile" data-filter="trash">
           <span class="pin-circle"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></span>
@@ -297,7 +302,7 @@
         </button>
       </div>
 
-      <div class="sec-head"><h2>On this device</h2><button type="button" class="sec-link" id="viewAllSites">View all</button></div>
+      <div class="sec-head"><h2>Sources</h2><button type="button" class="sec-link" id="viewAllSites">View all</button></div>
       <div class="hrail" id="siteRail"></div>
 
       <div class="sec-head"><h2>Albums</h2></div>
@@ -308,11 +313,9 @@
       <h3 class="other-title">Other collections</h3>
       <div class="other-grid">
         <button type="button" class="other-item" data-filter="fav"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg><span>Favorites</span></button>
-        <button type="button" class="other-item" id="otherShots" data-f="bucket" data-v="Screenshots"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/></svg><span>Screenshots</span></button>
         <button type="button" class="other-item" data-filter="video"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5.5 3.5-5.5 3.5z"/></svg><span>Videos</span></button>
         <button type="button" class="other-item" data-filter="photo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="9" r="1.7"/><path d="M21 16l-5.5-5.5L5 21"/></svg><span>Photos</span></button>
         <button type="button" class="other-item" data-filter="recent"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Recently added</span></button>
-        <button type="button" class="other-item" data-filter="downloads"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg><span>Downloads</span></button>
         <button type="button" class="other-item" data-filter="vault"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Vault</span></button>
         <button type="button" class="other-item" data-filter="trash"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span>Trash</span></button>
       </div>
@@ -338,9 +341,34 @@
           <span class="switch"><input type="checkbox" id="setFeature"><span class="slider"></span></span>
         </label>
         <label class="st-row">
+          <span class="st-body"><b>Show dates in grid</b><small>Group items under the day or month they were saved</small></span>
+          <span class="switch"><input type="checkbox" id="setDates"><span class="slider"></span></span>
+        </label>
+        <label class="st-row">
+          <span class="st-body"><b>Small window when leaving</b><small>Keep a playing video in a floating window when you press Home</small></span>
+          <span class="switch"><input type="checkbox" id="setPip"><span class="slider"></span></span>
+        </label>
+        <label class="st-row">
           <span class="st-body"><b>Autoplay videos</b><small>The large video tile on screen plays silently</small></span>
           <span class="switch"><input type="checkbox" id="setAutoplay"><span class="slider"></span></span>
         </label>
+      </div>
+    </section>
+
+    <!-- NOTIFICATIONS -->
+    <section class="view" id="v-notices">
+      <header class="page-head">
+        <button type="button" class="tb-btn" id="nBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M19 12H5m6-7l-7 7 7 7"/></svg></button>
+        <h1>Notifications</h1>
+        <span class="tb-gap"></span>
+        <button type="button" class="link-btn n-clear" id="nClear" hidden>Clear all</button>
+      </header>
+      <div id="nLive" hidden></div>
+      <div id="nList"></div>
+      <div class="empty" id="nEmpty" hidden>
+        <div class="orb"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg></div>
+        <p>You're all caught up</p>
+        <span class="empty-sub">Finished and failed downloads show up here.</span>
       </div>
     </section>
 
@@ -384,6 +412,11 @@
           <span class="st-body"><b>Gemini API key</b><small id="aiKeyInfo">Not added</small></span>
           <svg class="st-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
         </button>
+        <label class="st-row">
+          <span class="st-ico"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="9" r="1.7"/><path d="M21 16l-5.5-5.5L5 21"/></svg></span>
+          <span class="st-body"><b>Search my downloads too</b><small>Sends the titles and sources of your downloads to Google with each question. Pictures and videos are never sent.</small></span>
+          <span class="switch"><input type="checkbox" id="setAiLib"><span class="slider"></span></span>
+        </label>
       </div>
 
       <h2 class="st-label">Downloads</h2>
@@ -393,12 +426,7 @@
           <span class="st-body"><b>Default quality</b><small id="setQualityVal">Best available</small></span>
           <svg class="st-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <label class="st-row">
-          <span class="st-ico"><svg viewBox="0 0 24 24"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 6l-4-4-4 4M12 2v14"/></svg></span>
-          <span class="st-body"><b>Share-ready MP4</b><small>Saves H.264 + AAC so videos play in chat apps, iPhones and TVs. Off keeps the original codec.</small></span>
-          <span class="switch"><input type="checkbox" id="setShareReady"><span class="slider"></span></span>
-        </label>
-        <label class="st-row">
+                <label class="st-row">
           <span class="st-ico"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg></span>
           <span class="st-body"><b>Automatic download</b><small>Starts as soon as a link has been read</small></span>
           <span class="switch"><input type="checkbox" id="setAutoDownload"><span class="slider"></span></span>
@@ -415,6 +443,15 @@
         <button type="button" class="st-row" id="rowNotif">
           <span class="st-ico"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>
           <span class="st-body"><b>Download alerts</b><small id="notifInfo">Checking…</small></span>
+          <svg class="st-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+
+      <h2 class="st-label">Site accounts</h2>
+      <div class="st-group">
+        <button type="button" class="st-row" id="rowAccounts">
+          <span class="st-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>
+          <span class="st-body"><b>Sign in to sites</b><small>Needed for Reddit, Vimeo and private posts you can already see</small></span>
           <svg class="st-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
         </button>
       </div>
@@ -498,6 +535,8 @@
       <div class="v-page next" id="pgNext"><img alt="" decoding="sync"></div>
     </div>
     <div class="v-spin" id="vSpin" hidden></div>
+    <div class="v-skip" id="vSkip"></div>
+    <div class="crop-box" id="cropBox"><i data-h="tl"></i><i data-h="tr"></i><i data-h="bl"></i><i data-h="br"></i></div>
     <div class="v-title" id="playerTitle"></div>
     <div class="v-err" id="vErr" hidden>This file can't be played here. Try Open with another app from the menu.</div>
     <div class="v-overlay" id="vOverlay">
@@ -506,17 +545,27 @@
       <span class="v-time" id="vTime">0:00 / 0:00</span>
       <button type="button" class="v-vol" id="vVol" aria-label="Mute"><svg viewBox="0 0 24 24" class="fill" id="vVolIco"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z"/></svg></button>
     </div>
+      <div class="v-vol-pop" id="vVolPop"><i id="vVolFill"></i></div>
       <div class="v-seek" id="vSeek"><div class="v-seek-fill" id="vSeekFill"></div><div class="v-seek-rest" id="vSeekRest"><i></i></div><div class="v-seek-knob" id="vSeekKnob"></div></div>
     </div>
   </div>
   <div class="v-bottom" id="vBottom">
+    <div class="edit-panel trim-panel">
+      <p class="edit-info" id="tInfo"></p>
+      <div class="t-bar" id="tBar"><span class="t-range" id="tRange"></span><i class="t-h" id="tStart"></i><i class="t-h" id="tEnd"></i></div>
+      <p class="edit-hint">Saved as a new copy. Cuts land on the nearest keyframe.</p>
+      <div class="edit-btns"><button type="button" class="ghost-btn" id="tCancel">Cancel</button><button type="button" class="solid" id="tSave">Save copy</button></div>
+    </div>
+    <div class="edit-panel crop-panel">
+      <div class="edit-btns"><button type="button" class="ghost-btn" id="cCancel">Cancel</button><button type="button" class="ghost-btn" id="cRotate">Rotate</button><button type="button" class="solid" id="cSave">Save copy</button></div>
+    </div>
     <div class="v-actions trash-actions">
       <button type="button" class="v-act" id="vRestore"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/></svg><span>Restore</span></button>
       <button type="button" class="v-act" id="vPurge"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span>Delete forever</span></button>
     </div>
     <div class="v-actions normal-actions">
       <button type="button" class="v-act" id="vShare"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8 11l8-4M8 13l8 4"/></svg><span>Share</span></button>
-      <button type="button" class="v-act" id="vConvert"><svg viewBox="0 0 24 24"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2"/><circle cx="9" cy="16" r="2"/></svg><span>Convert</span></button>
+      <button type="button" class="v-act" id="vConvert"><svg viewBox="0 0 24 24"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2"/><circle cx="9" cy="16" r="2"/></svg><span>Edit</span></button>
       <button type="button" class="v-act" id="vAddTo"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Add to</span></button>
       <button type="button" class="v-act" id="vTrash"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span>Trash</span></button>
     </div>

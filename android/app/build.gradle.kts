@@ -11,9 +11,11 @@ android {
     applicationId = "dev.chethiya.orbit"
     minSdk = 24
     targetSdk = 34
-    versionCode = 126
-    versionName = "1.0.26"
+    versionCode = 127
+    versionName = "1.0.27"
     // Only for measuring on a device: -Porbit.devtools=true. Never set for a published build.
+    // Optional shared AI server (see server/ai-proxy). Empty means users add their own Gemini key.
+    buildConfigField("String", "AI_PROXY_URL", "\"" + (providers.environmentVariable("ORBIT_AI_PROXY").orNull ?: "") + "\"")
     buildConfigField("boolean", "DEVTOOLS", (project.findProperty("orbit.devtools") == "true").toString())
 
     ndk {
@@ -82,6 +84,7 @@ dependencies {
   implementation(libs.androidx.webkit)
   implementation(libs.youtubedl.library)
   implementation(libs.youtubedl.ffmpeg)
+  implementation(libs.androidx.biometric)
   implementation(libs.media3.exoplayer)
   implementation(libs.media3.ui)
 }

@@ -63,7 +63,11 @@ class DownloadService : Service() {
         const val EXTRA_SHARE_READY = "extra_share_ready"
         const val EXTRA_SOURCE_ID = "extra_source_id"
         const val EXTRA_MODE = "extra_mode"
+        const val ACTION_PAUSE_DOWNLOAD = "dev.chethiya.orbit.action.PAUSE"
+        const val ACTION_RESUME_DOWNLOAD = "dev.chethiya.orbit.action.RESUME_ONE"
         const val CHANNEL_ID = "orbit_downloads_channel"
+        private const val ORBIT_BLUE = 0xFF1A73E8.toInt()
+        private const val RESULT_GROUP = "orbit_results"
         const val CHANNEL_NAME = "Orbit Downloads"
         const val RESULT_CHANNEL_ID = "orbit_results_channel"
         const val RESULT_CHANNEL_NAME = "Orbit Results"
@@ -126,6 +130,8 @@ class DownloadService : Service() {
             ACTION_CONVERT -> handleConvert(intent)
             ACTION_CANCEL_DOWNLOAD -> intent.getStringExtra(EXTRA_JOB_ID)?.let { cancelDownload(it) }
             ACTION_CANCEL_ALL -> activeJobIds.toList().forEach { cancelDownload(it) }
+            ACTION_PAUSE_DOWNLOAD -> intent.getStringExtra(EXTRA_JOB_ID)?.let { pauseDownload(it) }
+            ACTION_RESUME_DOWNLOAD -> intent.getStringExtra(EXTRA_JOB_ID)?.let { resumeDownload(it) }
             // ACTION_RESUME, or a null intent when Android restarts the service after killing the process.
             else -> resumePending()
         }
@@ -149,7 +155,7 @@ class DownloadService : Service() {
     /** Stops the service on the main thread once nothing is running, so it cannot race a new start command. */
     private fun scheduleIdleCheck() {
         handler.post {
-            if (activeJobIds.isEmpty()) {
+            if (activeJobIds.isEmpty() && waitingForNetwork.isEmpty()) {
                 handler.removeCallbacks(renewLocks)
                 releaseLocks()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -261,14 +267,14 @@ class DownloadService : Service() {
         val job = OrbitEngine.DownloadJob(
             id = jobId,
             url = "",
-            title = item?.optString("title").orEmpty().ifBlank { "Video" },
+            title = item?.optString("title").orEmpty().ifBlank { intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "Video" } },
             site = item?.optString("site").orEmpty().ifBlank { "Orbit" },
             thumb = item?.optString("thumb").orEmpty(),
             quality = "convert",
             state = "queued",
             shareReady = true
         )
-        job.stage = if (mode == "chat") "Preparing smaller copy" else "Preparing share-ready copy"
+        job.stage = if (mode == "chat") "Preparing smaller copy" else if (mode.startsWith("trim:")) "Preparing trim" else "Preparing share-ready copy"
         OrbitEngine.activeJobs.add(0, job)
         OrbitEngine.jobsById[jobId] = job
         launch(job) { runConvert(job, sourceId, mode) }
@@ -310,7 +316,53 @@ class DownloadService : Service() {
 
     private fun isActive(job: OrbitEngine.DownloadJob) = activeJobIds.contains(job.id) && job.state != "cancelled"
 
+    /** Keeps the partial files; yt-dlp and the direct downloader both continue from them. */
+    private fun pauseDownload(jobId: String) {
+        val job = OrbitEngine.jobsById[jobId] ?: return
+        if (job.state != "downloading" && job.state != "queued") return
+        job.state = "paused"
+        job.stage = "Paused"
+        job.speed = ""; job.eta = ""
+        OrbitEngine.pausedIds.add(jobId)
+        activeJobIds.remove(jobId)
+        try { YoutubeDL.getInstance().destroyProcessById(jobId) } catch (_: Exception) {}
+        OrbitEngine.removePending(this, jobId)
+        updateForegroundNotification(force = true)
+    }
+
+    private fun resumeDownload(jobId: String) {
+        val job = OrbitEngine.jobsById[jobId] ?: return
+        if (job.state != "paused" || !activeJobIds.add(jobId)) return
+        OrbitEngine.pausedIds.remove(jobId)
+        waitingForNetwork.remove(jobId)
+        job.state = "queued"
+        job.stage = "Resuming…"
+        OrbitEngine.savePending(this, job, 0)
+        launch(job) { runDownload(job) }
+    }
+
+    /* A dropped connection pauses the download instead of failing it, and it continues by itself when the network returns. */
+    private val waitingForNetwork: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private var networkWatcher: android.net.ConnectivityManager.NetworkCallback? = null
+    private fun networkUp(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+    private fun watchNetwork() {
+        if (networkWatcher != null) return
+        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                handler.postDelayed({ waitingForNetwork.toList().forEach { resumeDownload(it) }; scheduleIdleCheck() }, 1500)
+            }
+        }
+        (getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).registerDefaultNetworkCallback(cb)
+        networkWatcher = cb
+    }
+
     private fun cancelDownload(jobId: String) {
+        if (OrbitEngine.pausedIds.remove(jobId)) cleanupJobFiles(jobId)
+        waitingForNetwork.remove(jobId)
         OrbitEngine.jobsById[jobId]?.state = "cancelled"
         activeJobIds.remove(jobId)
         try { YoutubeDL.getInstance().destroyProcessById(jobId) } catch (_: Exception) {}
@@ -322,15 +374,25 @@ class DownloadService : Service() {
     private fun finishJob(job: OrbitEngine.DownloadJob) {
         activeJobIds.remove(job.id)
         OrbitEngine.removePending(this, job.id)
-        job.stage = if (job.state == "done") job.stage else ""
+        job.stage = if (job.state == "done" || job.state == "paused") job.stage else ""
         if (job.state == "done") {
             OrbitEngine.addNotice(this, job.id, "done", job.title.ifBlank { "Download" },
-                when { job.quality == "convert" -> "Converted copy saved"; job.isImage -> "Photo saved"; job.quality == "audio" -> "MP3 saved"; else -> "Video saved" })
+                when { job.quality == "convert" -> "Converted copy saved"; job.isImage -> "Photo saved"; job.quality == "audio" -> "MP3 saved"; else -> "Video saved" }, job.thumb, job.url)
         }
         scheduleIdleCheck()
     }
 
     private fun handleFailure(job: OrbitEngine.DownloadJob, e: Exception) {
+        if (job.state == "paused") return                 // the user paused it: keep the partial files
+        if (isActive(job) && isTransient(e) && !networkUp()) {
+            job.state = "paused"
+            job.stage = "Waiting for connection"
+            job.speed = ""; job.eta = ""
+            OrbitEngine.pausedIds.add(job.id)
+            waitingForNetwork.add(job.id)
+            handler.post { watchNetwork() }
+            return
+        }
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notifId = notifIdFor(job.id)
         val cancelled = !isActive(job) || e is CancellationException ||
@@ -351,13 +413,14 @@ class DownloadService : Service() {
             job.isImage -> "Photo download failed"
             else -> "Download failed"
         }
-        OrbitEngine.addNotice(this, job.id, "error", job.title.ifBlank { title }, message)
+        OrbitEngine.addNotice(this, job.id, "error", job.title.ifBlank { title }, message, job.thumb, job.url)
         val notification = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
+            .setContentTitle(job.title.ifBlank { title })
             .setContentText(message)
-            .setSubText(job.title)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setColor(0xFFD93025.toInt())
+            .setGroup(RESULT_GROUP)
             .setAutoCancel(true)
             .setContentIntent(PendingIntent.getActivity(
                 this, notifId + 3,
@@ -409,11 +472,14 @@ class DownloadService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setColor(ORBIT_BLUE)
+            .setShowWhen(false)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(openAppIntent())
 
         when (running.size) {
-            0 -> builder.setContentTitle("Orbit").setContentText("Getting ready…").setProgress(0, 0, true)
+            0 -> if (waitingForNetwork.isNotEmpty()) builder.setContentTitle("Waiting for connection").setContentText("Your download continues when you're back online")
+                else builder.setContentTitle("Orbit").setContentText("Getting ready…").setProgress(0, 0, true)
             1 -> {
                 val j = running[0]
                 val pct = j.percent.toInt().coerceIn(0, 100)
@@ -431,7 +497,7 @@ class DownloadService : Service() {
             }
             else -> {
                 val avg = running.map { it.percent }.average().toInt().coerceIn(0, 100)
-                builder.setContentTitle("Orbit · ${running.size} downloads")
+                builder.setContentTitle("Downloading ${running.size} items")
                     .setContentText("$avg% overall")
                     .setProgress(100, avg, false)
                 val cancel = Intent(this, DownloadService::class.java).apply { action = ACTION_CANCEL_ALL }
@@ -491,10 +557,16 @@ class DownloadService : Service() {
         } catch (_: Exception) { null }
         val note = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(if (job.quality == "convert") "Conversion complete" else "Download complete")
-            .setContentText(job.title)
-            .setSubText(if (job.stage.isNotBlank()) job.stage else "Saved to your media library")
-            .apply { if (preview != null) setLargeIcon(preview) }
+            .setContentTitle(job.title.ifBlank { "Download complete" })
+            .setContentText(when { job.quality == "convert" -> "Converted copy saved"; job.isImage -> "Photo saved"; job.quality == "audio" -> "MP3 saved"; else -> "Video saved" })
+            .setColor(ORBIT_BLUE)
+            .setGroup(RESULT_GROUP)
+            .apply {
+                if (preview != null) {
+                    setLargeIcon(preview)
+                    setStyle(NotificationCompat.BigPictureStyle().bigPicture(preview).bigLargeIcon(null as android.graphics.Bitmap?))
+                }
+            }
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setContentIntent(pOpen)
@@ -583,7 +655,7 @@ class DownloadService : Service() {
 
     private fun runDownload(job: OrbitEngine.DownloadJob) {
         OrbitEngine.initLatch.await(30, TimeUnit.SECONDS)
-        val vimeo = OrbitEngine.resolveVimeo(job.url)
+        val vimeo = if (OrbitEngine.cookiesForUrl(this, job.url) == null) OrbitEngine.resolveVimeo(job.url) else null
         if (vimeo != null) {
             if (job.title.isBlank() || job.title == "Downloading…") { job.title = vimeo.title; job.site = vimeo.site; job.thumb = vimeo.thumbnail }
             runVideoDownload(job, vimeo.directVideoUrl)
@@ -641,6 +713,7 @@ class DownloadService : Service() {
 
             val info = try {
                 YoutubeDL.getInstance().getInfo(YoutubeDLRequest(url).apply {
+                    OrbitEngine.cookiesForUrl(this@DownloadService, url)?.let { addOption("--cookies", it.absolutePath) }
                     addOption("--no-playlist")
                     addOption("--socket-timeout", "20")
                 })
@@ -932,27 +1005,18 @@ class DownloadService : Service() {
         else String.format(Locale.US, "%d KB/s", (bytesPerSec / 1024.0).toLong())
 
     /**
-     * yt-dlp format selection.
-     *  - shareReady: prefer H.264 video + AAC audio (plays in WeChat, WhatsApp, Telegram, iPhone, TVs) at the
-     *    best resolution that codec offers. Explicit 1440p/4K requests still get that resolution; the file is
-     *    converted to H.264 afterwards.
-     *  - otherwise: the best quality the site offers, whatever the codec.
+     * yt-dlp format selection: the best the site offers at the chosen height, whatever the codec.
+     * Nothing is re-compressed at download. A compatible copy is made only if asked for when sharing.
      */
-    internal fun buildFormat(quality: String, shareReady: Boolean): String {
+    internal fun buildFormat(quality: String): String {
         val h = quality.toIntOrNull()
         val cap = if (h != null) "[height<=$h]" else ""
-        val avc = "[vcodec~='^(avc|h264)']"
-        val aac = "[acodec~='^(mp4a|aac)']"
         if (h != null && h >= 1440) {
             val lo = (h * 0.9).toInt()
             val band = "[height<=$h][height>=$lo]"
             return "bv*$band+ba/b$band/bv*$cap+ba/b$cap/b"
         }
-        return if (shareReady) {
-            "bv*$avc$cap+ba$aac/bv*$avc$cap+ba/b$avc$aac$cap/bv*$cap+ba/b$cap/b"
-        } else {
-            "bv*$cap+ba/b$cap/b"
-        }
+        return "bv*$cap+ba/b$cap/b"
     }
 
     private fun runVideoDownload(job: OrbitEngine.DownloadJob, downloadUrl: String) {
@@ -963,8 +1027,10 @@ class DownloadService : Service() {
 
         val template = File(dir, "${baseName(job)}.%(ext)s").absolutePath
         val req = YoutubeDLRequest(downloadUrl).apply {
+            OrbitEngine.cookiesForUrl(this@DownloadService, job.url)?.let { addOption("--cookies", it.absolutePath) }
             addOption("--no-playlist")
             addOption("--newline")
+            addOption("--continue")
             addOption("--no-mtime")
             addOption("-o", template)
             addOption("--socket-timeout", "30")
@@ -980,7 +1046,7 @@ class DownloadService : Service() {
                 addOption("--embed-thumbnail")
                 addOption("--embed-metadata")
             } else {
-                addOption("-f", buildFormat(job.quality, job.shareReady))
+                addOption("-f", buildFormat(job.quality))
                 addOption("--merge-output-format", "mp4")
                 addOption("--remux-video", "mp4")
                 addOption("--postprocessor-args", "Merger:-movflags +faststart")
@@ -1023,8 +1089,7 @@ class DownloadService : Service() {
     }
 
     /**
-     * Shared tail of every video/audio download: make it share-ready if requested, publish it to the
-     * gallery, record real metadata and notify.
+     * Shared tail of every video/audio download: publish it to the gallery, record real metadata and notify.
      */
     private fun finishVideo(job: OrbitEngine.DownloadJob, downloaded: File) {
         var file = downloaded
@@ -1033,30 +1098,6 @@ class DownloadService : Service() {
 
         if (!isAudio) {
             probe = MediaTools.probe(this, file)
-            if (probe != null && job.shareReady && !probe.shareReady) {
-                job.state = "processing"
-                job.percent = 0.0
-                job.stage = "Converting ${probe.codecLabel} to H.264…"
-                updateForegroundNotification(force = true)
-                val out = File(file.parentFile, "${file.nameWithoutExtension}.conv.mp4")
-                val ok = MediaTools.convert(
-                    this, file, out, probe, MediaTools.Preset.SHARE,
-                    onProgress = { p -> job.percent = p; job.stage = "Converting to H.264 · ${p.toInt()}%"; updateForegroundNotification() },
-                    isCancelled = { !isActive(job) }
-                )
-                if (!isActive(job)) { out.delete(); throw CancellationException("cancelled") }
-                if (ok) {
-                    file.delete()
-                    val finalFile = File(out.parentFile, "${file.nameWithoutExtension}.mp4")
-                    if (!out.renameTo(finalFile)) { out.copyTo(finalFile, overwrite = true); out.delete() }
-                    file = finalFile
-                    probe = MediaTools.probe(this, file) ?: probe
-                    job.stage = ""
-                } else {
-                    out.delete()
-                    job.stage = "Saved original ${probe.codecLabel} (conversion failed)"
-                }
-            }
         }
 
         val size = file.length()
@@ -1076,7 +1117,46 @@ class DownloadService : Service() {
 
     // ------------------------------------------------------------------ conversion of existing library files
 
+    private fun runTrim(job: OrbitEngine.DownloadJob, sourceId: String, startMs: Long, endMs: Long) {
+        val sourcePath = OrbitEngine.findMediaPath(this, sourceId) ?: throw IOException("The original file is no longer on this device.")
+        val tmpDir = File(cacheDir, "convert").apply { mkdirs() }
+        val input = File(tmpDir, "in_${job.id}.mp4")
+        val output = File(tmpDir, "${OrbitEngine.safeName(job.title, "video")} (trimmed) ${job.id}.mp4")
+        try {
+            job.state = "processing"
+            job.stage = "Reading the original…"
+            updateForegroundNotification(force = true)
+            (contentResolver.openInputStream(OrbitEngine.mediaUri(this, sourcePath)) ?: throw IOException("Could not read the original file."))
+                .use { src -> input.outputStream().use { src.copyTo(it) } }
+            if (!isActive(job)) throw CancellationException("cancelled")
+            job.stage = "Trimming…"
+            updateForegroundNotification(force = true)
+            if (!MediaTools.trim(this, input, output, startMs, endMs)) throw IOException("This video couldn't be trimmed. The original file is untouched.")
+            val probe = MediaTools.probe(this, output)
+            val newId = UUID.randomUUID().toString().substring(0, 8)
+            val size = output.length()
+            val path = OrbitEngine.publishMedia(applicationContext, output)
+            OrbitEngine.addHistoryItem(
+                context = applicationContext, id = newId, title = "${job.title.removeSuffix(".mp4")} (trimmed)", site = job.site, thumb = job.thumb,
+                quality = "best", file = path, size = size, height = probe?.height ?: 0, codec = probe?.codecLabel.orEmpty(), shareReady = probe?.shareReady ?: false
+            )
+            job.file = path
+            job.size = size
+            job.percent = 100.0
+            job.stage = "Saved as a new copy"
+            job.state = "done"
+        } finally {
+            input.delete()
+            output.delete()
+        }
+    }
+
     private fun runConvert(job: OrbitEngine.DownloadJob, sourceId: String, mode: String) {
+        if (mode.startsWith("trim:")) {
+            val p = mode.split(":")
+            runTrim(job, sourceId, p[1].toLong(), p[2].toLong())
+            return
+        }
         val preset = if (mode == "chat") MediaTools.Preset.CHAT else MediaTools.Preset.SHARE
         val label = if (mode == "chat") "smaller copy" else "share-ready"
         val sourcePath = OrbitEngine.findMediaPath(this, sourceId) ?: throw IOException("The original file is no longer on this device.")

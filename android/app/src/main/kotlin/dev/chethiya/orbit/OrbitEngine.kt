@@ -377,10 +377,10 @@ object OrbitEngine {
 
     fun cleanErrorMessage(raw: String?): String {
         if (raw != null && raw.contains("reddit", true) || raw != null && raw.contains("Account authentication is required", true)) {
-            return "Reddit now blocks downloads unless you are signed in, so Orbit can't save this one."
+            return "Reddit needs you to sign in. Go to Settings, then Site accounts, and sign in to Reddit."
         }
         if (raw != null && raw.contains("vimeo", true) && raw.contains("logged-in", true) || raw != null && raw.contains("web client only works when logged-in", true)) {
-            return "Vimeo only allows this video when signed in, so Orbit can't save it."
+            return "Vimeo needs you to sign in. Go to Settings, then Site accounts, and sign in to Vimeo."
         }
         if (raw != null && raw.contains("DRM protected", true)) return "This video is DRM protected, so it can't be downloaded."
         if (raw.isNullOrBlank()) return "Couldn't fetch that link. Please check the URL and try again."
@@ -631,6 +631,24 @@ object OrbitEngine {
         return null
     }
 
+    /* Site sign-in: cookies from the user's own login, kept in the app's private storage and used only by yt-dlp on this phone. */
+    data class SignInSite(val key: String, val name: String, val loginUrl: String, val hosts: List<String>, val cookieUrls: List<String>, val domain: String)
+    val signInSites = listOf(
+        SignInSite("reddit", "Reddit", "https://www.reddit.com/login/", listOf("reddit.com", "redd.it"), listOf("https://www.reddit.com", "https://reddit.com"), ".reddit.com"),
+        SignInSite("vimeo", "Vimeo", "https://vimeo.com/log_in", listOf("vimeo.com"), listOf("https://vimeo.com", "https://player.vimeo.com"), ".vimeo.com"),
+        SignInSite("instagram", "Instagram", "https://www.instagram.com/accounts/login/", listOf("instagram.com"), listOf("https://www.instagram.com"), ".instagram.com"),
+        SignInSite("facebook", "Facebook", "https://m.facebook.com/login/", listOf("facebook.com", "fb.watch"), listOf("https://www.facebook.com", "https://m.facebook.com"), ".facebook.com"),
+        SignInSite("x", "X", "https://x.com/i/flow/login", listOf("x.com", "twitter.com"), listOf("https://x.com"), ".x.com")
+    )
+    fun cookieFile(context: Context, key: String) = File(File(context.filesDir, "accounts").apply { mkdirs() }, "$key.txt")
+    fun signedIn(context: Context, key: String) = cookieFile(context, key).length() > 0
+    fun cookiesForUrl(context: Context, url: String): File? {
+        val host = try { Uri.parse(url).host.orEmpty().lowercase() } catch (_: Exception) { "" }
+        val site = signInSites.firstOrNull { s -> s.hosts.any { host == it || host.endsWith(".$it") } } ?: return null
+        return cookieFile(context, site.key).takeIf { it.length() > 0 }
+    }
+    val pausedIds: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
     /* Notification history: what really happened to each download, kept across app restarts (newest 100). */
     private fun noticesFile(context: Context) = File(context.filesDir, "notices.json")
 
@@ -641,11 +659,11 @@ object OrbitEngine {
     } catch (_: Exception) { JSONArray() }
 
     @Synchronized
-    fun addNotice(context: Context, id: String, state: String, title: String, body: String) {
+    fun addNotice(context: Context, id: String, state: String, title: String, body: String, thumb: String = "", url: String = "") {
         val old = readNotices(context)
         val next = JSONArray()
         next.put(JSONObject().put("id", id).put("state", state).put("title", title).put("body", body)
-            .put("t", System.currentTimeMillis() / 1000L).put("read", false))
+            .put("t", System.currentTimeMillis() / 1000L).put("read", false).put("thumb", thumb).put("url", url))
         for (i in 0 until minOf(old.length(), 99)) {
             val o = old.optJSONObject(i) ?: continue
             if (!(o.optString("id") == id && o.optString("state") == state)) next.put(o)
